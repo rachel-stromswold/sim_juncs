@@ -2,6 +2,7 @@
 
 Object::Object(int p_invert) {
     invert = p_invert;
+    trans_mat = Eigen::Matrix3d::Identity();
 }
 
 Object::Object(Eigen::Quaterniond& p_orientation, int p_invert) {
@@ -17,14 +18,14 @@ void Object::set_inversion(int p_invert) {
 }
 
 Sphere::Sphere(evec3& p_center, double p_rad, int p_invert) : Object(p_invert) {
-    center = p_center/2;
+    center = p_center;
     rad = p_rad;
 }
 
-int Sphere::in(evec3& r) {
+int Sphere::in(const evec3& r) {
     //find the relative offset between the input vector and the center of the box
     evec3 r_rel = r - center;
-    if (r_rel.norm() < rad) return invert;
+    if (r_rel.norm() > rad) return invert;
     return 1 - invert;
 }
 
@@ -46,7 +47,7 @@ Box::Box(evec3& p_corner, evec3& p_offset, Eigen::Quaterniond p_orientation, int
     if (offset.z() < 0) offset.z() *= -1;
 }
 
-int Box::in(evec3& r) {
+int Box::in(const evec3& r) {
     //find the relative offset between the input vector and the center of the box
     evec3 r_rel = trans_mat*(r - center);
     //check if we're outside the bounding box
@@ -61,16 +62,16 @@ Cylinder::Cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, i
     center = p_center;
     height = p_height;
     r1_sq = p_r1*p_r1;
-    r1_sq_div_h = (height == 0)? 0 : r1_sq/height;
+    r1_sq_x_h = r1_sq*height;
     r2_sq = p_r2*p_r2;
 }
 
-int Cylinder::in(evec3& r) {
+int Cylinder::in(const evec3& r) {
     //find the relative offset between the input vector and the center of the box
     evec3 r_rel = trans_mat*(r - center);
     if (r_rel.z() < 0 || r_rel.z() > height) return invert;
     double cent_rad_sq = r_rel.x()*r_rel.x() + r_rel.y()*r_rel.y();
-    if (cent_rad_sq*height > (r2_sq - r1_sq)*r_rel.z() + r1_sq_div_h) return invert;
+    if (cent_rad_sq*height > (r2_sq - r1_sq)*r_rel.z() + r1_sq_x_h) return invert;
 
     return 1 - invert;
 }
@@ -81,7 +82,7 @@ CompositeObject::CompositeObject(combine_type p_cmb) {
     cmb = p_cmb;
 }
 
-CompositeObject::CompositeObject(combine_type p_cmb, const cgs_func& spec) {
+CompositeObject::CompositeObject(combine_type p_cmb, const cgs_func& spec, int p_invert) : Object(p_invert) {
     children[0] = NULL;
     children[1] = NULL;
     //iterate through arguments and add them to the metadata
@@ -112,10 +113,11 @@ CompositeObject::~CompositeObject() {
     }
 }
 
-int CompositeObject::call_child_in(_uint side, evec3& r) {
+int CompositeObject::call_child_in(_uint side, const evec3& r) {
     if (child_types[side] == CGS_COMPOSITE) return ((CompositeObject*)children[side])->in(r);
     if (child_types[side] == CGS_SPHERE) return ((Sphere*)children[side])->in(r);
     if (child_types[side] == CGS_BOX) return ((Box*)children[side])->in(r);
+    if (child_types[side] == CGS_CYLINDER) return ((Cylinder*)children[side])->in(r);
 
     return invert;
 }
@@ -129,7 +131,7 @@ void CompositeObject::add_child(_uint side, Object* o, object_type p_type) {
     }
 }
 
-int CompositeObject::in(evec3& r) {
+int CompositeObject::in(const evec3& r) {
     //if the right child is null then we don't apply any operations
     if (children[1] == NULL) {
 	if (children[0] == NULL)
@@ -140,10 +142,12 @@ int CompositeObject::in(evec3& r) {
 	if (children[0] == NULL) {
 	    return invert ^ call_child_in(1, r);
 	} else {
+	    int l_res = call_child_in(0, r);
+	    int r_res = call_child_in(1, r);
 	    if (cmb == CGS_UNION) {
-		return invert ^ (call_child_in(0, r) | call_child_in(1, r));
+		return invert ^ (l_res | r_res);
 	    } else if (cmb == CGS_INTERSECT || cmb == CGS_DIFFERENCE) {
-		return invert ^ (call_child_in(0, r) & call_child_in(1, r));
+		return invert ^ (l_res & r_res);
 	    }
 	}
     }
@@ -190,7 +194,7 @@ parse_ercode parse_vector(char* str, evec3& sto) {
  * Based on the declaration syntax produce the appropriate geometric shape and store the result in ptr. Ptr must not be initialized before a call to this function to avoid a memory leak.
  * returns: 0 on success or an error code
  */
-parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type) {
+parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) {
     *ptr = NULL;
     parse_ercode error = E_SUCCESS;
 
@@ -203,7 +207,7 @@ parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type) {
 	//read both vector arguments and throw errors if necessary
 	if ((error = parse_vector(f.args[0], corner)) != E_SUCCESS) return error;
 	if ((error = parse_vector(f.args[1], size)) != E_SUCCESS) return error;
-	if (ptr) *ptr = new Box(corner, size);
+	if (ptr) *ptr = new Box(corner, size, p_invert);
 	if (type) *type = CGS_BOX;
     } else if (strcmp(f.name, "Sphere") == 0) {
 	if (f.n_args < 2) return E_LACK_TOKENS;
@@ -212,7 +216,7 @@ parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type) {
 	if (errno) { errno = 0;return E_BAD_TOKEN; }
 	//read both vector arguments and throw errors if necessary
 	if ((error = parse_vector(f.args[0], center)) != E_SUCCESS) return error;
-	if (ptr) *ptr = new Sphere(center, rad);
+	if (ptr) *ptr = new Sphere(center, rad, p_invert);
 	if (type) *type = CGS_SPHERE;
     } else if (strcmp(f.name, "Cylinder") == 0) {
 	if (f.n_args < 3) return E_LACK_TOKENS;
@@ -229,19 +233,19 @@ parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type) {
 	}
 	//read both vector arguments and throw errors if necessary
 	if ((error = parse_vector(f.args[0], center)) != E_SUCCESS) return error;
-	if (ptr) *ptr = new Cylinder(center, h, r1, r2);
+	if (ptr) *ptr = new Cylinder(center, h, r1, r2, p_invert);
 	if (type) *type = CGS_CYLINDER;
     } else if (strcmp(f.name, "Composite") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_UNION, f);
+	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
 	if (type) *type = CGS_COMPOSITE;
     } else if (strcmp(f.name, "union") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_UNION, f);
+	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
 	if (type) *type = CGS_COMPOSITE;
     } else if (strcmp(f.name, "intersect") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_INTERSECT, f);
+	if (ptr) *ptr = new CompositeObject(CGS_INTERSECT, f, p_invert);
 	if (type) *type = CGS_COMPOSITE;
     } else if (strcmp(f.name, "difference") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_DIFFERENCE, f);
+	if (ptr) *ptr = new CompositeObject(CGS_DIFFERENCE, f, p_invert);
 	if (type) *type = CGS_COMPOSITE;
     } else {
 	if (ptr) *ptr = NULL;
@@ -253,9 +257,15 @@ parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type) {
 
 /**
  * Given the string starting at token, and the index of an open paren parse the result into a cgs_func struct.
+ * token: a c-string which is modified in place that contains the function
+ * open_par_ind: the location of the open parenthesis
+ * f: the cgs_func that information should be saved to
+ * end: If not NULL, a pointer to the first character after the end of the string is stored here. If an error occurred during parsing end will be set to NULL.
  * returns: an errorcode if an invalid string was supplied.
  */
-parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f) {
+parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f, char** end) {
+    //by default we want to indicate that we didn't get to the end
+    if (end) *end = NULL;
     f.n_args = 0;
     if (token[open_par_ind] != '(') return E_BAD_TOKEN;
     token[open_par_ind] = 0;
@@ -322,6 +332,8 @@ parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f) {
 	arg_str[i] = 0;
     }
     f.n_args = j;
+    //assign the end pointer if the caller wants it
+    if (end) *end = arg_str + i + 1;
 
     return E_SUCCESS;
 }
@@ -434,7 +446,7 @@ parse_ercode CGS_Stack<T>::push(T val) {
  * Pop a side-object pair into the values pointed to by side and obj respectively. This function is guaranteed to succeed, but if the stack is empty then SIDE_END will be assigned to side and NULL will be assigned to obj. The caller should check that the returned values are valid.
  */
 template <typename T>
-parse_ercode CGS_Stack<T>::pop(CGS_Stack<T>* ptr) {
+parse_ercode CGS_Stack<T>::pop(T* ptr) {
     //check if there is anything that can be popped
     if (stack_ptr == 0) return E_EMPTY_STACK;
     //assign the return values
@@ -512,12 +524,13 @@ Scene::Scene(const char* p_fname) {
     func_name[0] = 0;
     //generate the composite object on the fly
     ObjectStack tree_pos;
-
-    _uint cury_depth = 0;
+    CGS_Stack<block_type> blk_stack;
+    block_type last_type = BLK_UNDEF;
+    int invert = 0;
 
     //open the file for reading and read individual lines. We need to remove whitespace. Handily, we know the line length once we're done.
     FILE* fp = fopen(p_fname, "r");
-    size_t lineno = 0;
+    size_t lineno = 1;
     size_t line_len = 0;
     while (fgets(buf, BUF_SIZE, fp)) {
 	char* red_str = trim_whitespace(buf, &line_len);
@@ -525,9 +538,12 @@ Scene::Scene(const char* p_fname) {
 	for (size_t i = 0; i < line_len; ++i) {
 	    if (!in_comment) {
 		if (buf[i] == '(') {
+		    if (last_type != BLK_UNDEF) printf("Error on line %d: Expected '{' before function name", lineno);
+
 		    //initialize a new cgs_func with the appropriate arguments
 		    cgs_func cur_func;
-		    parse_ercode er = parse_func(cur_token, i, cur_func);
+		    char* endptr;
+		    parse_ercode er = parse_func(cur_token, i, cur_func, &endptr);
 		    switch (er) {
 			case E_BAD_TOKEN: printf("Error on line %d: Invalid function name \"%s\"", lineno, cur_token);break;
 			case E_BAD_SYNTAX: printf("Error on line %d: Invalid syntax", lineno);break;
@@ -536,9 +552,12 @@ Scene::Scene(const char* p_fname) {
 		    //try interpreting the function as a geometric object
 		    Object* obj = NULL;
 		    object_type type;
-		    make_object(cur_func, &obj, &type);
+		    make_object(cur_func, &obj, &type, invert);
 		    if (!obj) {
 			//if that failed try interpreting it as an operation (TODO: are there any useful things to put here?)
+			if (strcmp(cur_func.name, "invert") == 0) {
+			    last_type = BLK_INVERT;
+			}
 		    } else {
 			tree_pos.emplace_obj(obj, type);
 			objects.push_back(obj);
@@ -550,6 +569,21 @@ Scene::Scene(const char* p_fname) {
 			    break;
 			else if (buf[i+1] == '*')
 			    in_comment = true;
+		    }
+		//check for blocks
+		} else if (buf[i] == '{') {
+		    switch (last_type) {
+			case BLK_INVERT: invert = 1 - invert;break;
+			default: break;
+		    }
+		    blk_stack.push(last_type);
+		    last_type = BLK_UNDEF;
+		} else if (buf[i] == '}') {
+		    block_type bt;
+		    if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf("Error on line %d: unexpected '}'", lineno);
+		    switch (bt) {
+			case BLK_INVERT: invert = 1 - invert;break;
+			default: break;
 		    }
 		}
 	    } else if (buf[i] == '*' && i < line_len-1 && buf[i+1] == '/') {

@@ -62,7 +62,7 @@ protected:
 public:
     Object(int p_invert=0);
     Object(Eigen::Quaterniond& orientation, int p_invert=0);
-    virtual int in(evec3& r) = 0;
+    virtual int in(const evec3& r) = 0;
     void set_inversion(int p_invert);
 };
 
@@ -73,7 +73,7 @@ private:
 
 public:
     Sphere(evec3& p_center, double p_rad, int p_invert=0);
-    int in(evec3& r);
+    int in(const evec3& r);
 };
 
 class Box : public Object {
@@ -84,7 +84,7 @@ private:
 public:
     Box(evec3& p_corner, evec3& p_offset, int p_invert=0);
     Box(evec3& p_corner, evec3& p_offset, Eigen::Quaterniond p_orientation, int p_invert=0);
-    int in(evec3& r);
+    int in(const evec3& r);
 };
 
 class Cylinder : public Object {
@@ -92,12 +92,12 @@ private:
     evec3 center;
     double height;
     double r1_sq;
-    double r1_sq_div_h;
+    double r1_sq_x_h;
     double r2_sq;
 
 public:
     Cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, int p_invert=0);
-    int in(evec3& r);
+    int in(const evec3& r);
 };
 
 class Scene;
@@ -117,11 +117,11 @@ protected:
     std::unordered_map<std::string, std::string> metadata;
 
     //since we need to perform casts to use the appropriate object type, it's helpful to add a layer of abstraction
-    int call_child_in(_uint side, evec3& r);
+    int call_child_in(_uint side, const evec3& r);
 
 public:
     CompositeObject(combine_type p_cmb = CGS_UNION);
-    CompositeObject(combine_type p_cmb, const cgs_func& spec);
+    CompositeObject(combine_type p_cmb, const cgs_func& spec, int p_invert);
     // TODO: implement
     ~CompositeObject();
     /*CompositeObject(const CompositeObject& o);
@@ -129,7 +129,7 @@ public:
 
     //add a child to the composite object by parsing the string description
     void add_child(_uint side, Object* o, object_type p_type);
-    int in(evec3& r);
+    int in(const evec3& r);
     Object* get_child_l() { return children[0]; }
     Object* get_child_r() { return children[1]; }
     object_type get_child_type_l() { return child_types[0]; }
@@ -139,9 +139,9 @@ public:
 
 parse_ercode parse_vector(char* str, evec3& sto);
 
-parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type);
+parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert);
 
-parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f);
+parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f, char** end);
 
 /**
  * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
@@ -164,7 +164,7 @@ public:
     CGS_Stack<T>& operator=(CGS_Stack<T> o);
 
     parse_ercode push(T b);
-    parse_ercode pop(CGS_Stack<T>* ptr);
+    parse_ercode pop(T* ptr);
 };
 
 struct side_obj_pair {

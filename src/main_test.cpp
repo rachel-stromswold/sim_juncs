@@ -17,12 +17,12 @@ TEST_CASE("Test function parsing") {
     cgs_func cur_func;
     //check string 1
     strncpy(buf, test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 1, cur_func);
+    parse_func(buf, 1, cur_func, NULL);
     CHECK(cur_func.n_args == 0);
     CHECK(strcmp(cur_func.name, "f") == 0);
     //check string 2
     strncpy(buf, test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 1, cur_func);
+    parse_func(buf, 1, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "f") == 0);
@@ -34,7 +34,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2], "c") == 0);
     //check string 3
     strncpy(buf, test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 3, cur_func);
+    parse_func(buf, 3, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
@@ -46,7 +46,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2], "banana") == 0);
     //check string 4
     strncpy(buf, test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 3, cur_func);
+    parse_func(buf, 3, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
@@ -58,7 +58,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2], "banana") == 0);
     //check string 5
     strncpy(buf, test_func_5, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 4, cur_func);
+    parse_func(buf, 4, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
@@ -70,15 +70,15 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2], "c") == 0);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_ercode er = parse_func(buf, 4, cur_func);
+    parse_ercode er = parse_func(buf, 4, cur_func, NULL);
     CHECK(er == E_BAD_SYNTAX);
     //check bad string 2
     strncpy(buf, bad_test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = parse_func(buf, 4, cur_func);
+    er = parse_func(buf, 4, cur_func, NULL);
     CHECK(er == E_LACK_TOKENS);
     //check bad string 3
     strncpy(buf, bad_test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = parse_func(buf, 4, cur_func);
+    er = parse_func(buf, 4, cur_func, NULL);
     CHECK(er == E_LACK_TOKENS);
 }
 
@@ -101,44 +101,44 @@ TEST_CASE("Test Object Trees") {
 
     //Insert root object
     strncpy(buf, root_obj_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func);
-    er = make_object(cur_func, &cur_obj, &cur_type);
+    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert object 1
     strncpy(buf, l_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func);
-    er = make_object(cur_func, &cur_obj, &cur_type);
+    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert left union object
     strncpy(buf, ll_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func);
-    er = make_object(cur_func, &cur_obj, &cur_type);
+    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert right union object
     strncpy(buf, lr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func);
-    er = make_object(cur_func, &cur_obj, &cur_type);
+    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert object 2
     strncpy(buf, r_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func);
-    er = make_object(cur_func, &cur_obj, &cur_type);
+    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert left union object
     strncpy(buf, rl_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func);
-    er = make_object(cur_func, &cur_obj, &cur_type);
+    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert right union object
     strncpy(buf, rr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func);
-    er = make_object(cur_func, &cur_obj, &cur_type);
+    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
 
@@ -193,11 +193,23 @@ TEST_CASE("Test File Parsing") {
     //check the right branch
     CHECK(comp_r->get_combine_type() == CGS_INTERSECT);
     CHECK(comp_r->get_child_l() != NULL);
-    CHECK(comp_rl->get_combine_type() == CGS_UNION);
+    CHECK(comp_rl->get_combine_type() == CGS_DIFFERENCE);
     CHECK(comp_rl->get_child_l() != NULL);
     CHECK(comp_rl->get_child_type_l() == CGS_BOX);
     CHECK(comp_rl->get_child_r() != NULL);
     CHECK(comp_rl->get_child_type_r() == CGS_BOX);
     CHECK(comp_r->get_child_r() != NULL);
     CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
+}
+
+TEST_CASE("Test Geometric Inclusion") {
+    Scene s("test.mt");
+    CompositeObject* root = s.get_root();
+
+    CHECK(root->in(Eigen::Vector3d(0.5,0.5,0.5)) == 1);
+    CHECK(root->in(Eigen::Vector3d(0.5,0.1,2)) == 1);
+    CHECK(root->in(Eigen::Vector3d(2.5,0.5,0.1)) == 1);
+    CHECK(root->in(Eigen::Vector3d(3.1,1.1,1.1)) == 0);
+    CHECK(root->in(Eigen::Vector3d(1.5,0.5,0.5)) == 0);
+    CHECK(root->in(Eigen::Vector3d(1.5,0.1,4.5)) == 0);
 }
