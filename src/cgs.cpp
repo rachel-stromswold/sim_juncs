@@ -326,106 +326,123 @@ parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f) {
     return E_SUCCESS;
 }
 
-/**
- * This is a helper function which puts the ObjectStack into a safe state if there was not enough memory.
- */
-void ObjectStack::safe_alloc() {
-    side_stack = (_uint*)malloc(sizeof(_uint)*buf_len);
-    //check that allocation was successful
-    if (side_stack) {
-	obj_stack = (CompositeObject**)malloc(sizeof(CompositeObject*)*buf_len);
-	//check that allocation was successful
-	if (!obj_stack) {
-	    free(side_stack);
-	    side_stack = NULL;
-	    obj_stack = NULL;
-	    buf_len = 0;
-	    stack_ptr = 0;
-	}
-    } else {
-	side_stack = NULL;
-	obj_stack = NULL;
-	buf_len = 0;
-	stack_ptr = 0;
-    }
-}
-
-/**
- * Create an empty object stack.
- */
-ObjectStack::ObjectStack() {
-    stack_ptr = 0;
-    buf_len = ARGS_BUF_SIZE;
-    safe_alloc();
-
-    //initialize the stack to be empty
-    side_stack[0] = SIDE_UNDEF;
-    obj_stack[0] = NULL;
-}
-
-ObjectStack::~ObjectStack() {
-    if (side_stack) free(side_stack);
-    if (obj_stack) free(obj_stack);
-}
-
-//copy constructor
-ObjectStack::ObjectStack(const ObjectStack& o) {
-    stack_ptr = o.stack_ptr;
-    buf_len = stack_ptr;
-    safe_alloc();
-    //copy the entries from the old object stack
-    for (_uint i = 0; i < stack_ptr; ++i) {
-	side_stack[i] = o.side_stack[i];
-	obj_stack[i] = o.obj_stack[i];
-    }
-}
-
-//move constructor
-ObjectStack::ObjectStack(ObjectStack&& o) {
-    stack_ptr = o.stack_ptr;
-    buf_len = o.buf_len;
-    side_stack = o.side_stack;
-    obj_stack = o.obj_stack;
-    //invalidate the object that just got moved
-    o.stack_ptr = 0;
-    o.buf_len = 0;
-    o.side_stack = NULL;
-    o.obj_stack = NULL;
-}
-
-parse_ercode ObjectStack::grow(size_t new_size) {
+template <typename T>
+parse_ercode CGS_Stack<T>::grow(size_t new_size) {
+    size_t old_size = buf_len;
     buf_len = new_size;
-    _uint* tmp_side = (_uint*)realloc(side_stack, sizeof(_uint)*buf_len);
-    CompositeObject** tmp_obj = (CompositeObject**)realloc(obj_stack, sizeof(CompositeObject*)*buf_len);
-    if (tmp_side && tmp_obj) {
-	side_stack = tmp_side;
-	obj_stack = tmp_obj;
+
+    T* tmp_buf = (T*)realloc(buf, sizeof(T)*buf_len);
+    if (tmp_buf) {
+	buf = tmp_buf;
     } else {
-	buf_len /= 2;
+	buf_len = old_size;
 	return E_NOMEM;
     }
 
     return E_SUCCESS;
 }
 
+template <typename T>
+CGS_Stack<T>::CGS_Stack() {
+    stack_ptr = 0;
+    buf_len = ARGS_BUF_SIZE;
+    buf = (T*)malloc(sizeof(T)*buf_len);
+    //check that allocation was successful
+    if (!buf) {
+	buf = NULL;
+	buf_len = 0;
+	stack_ptr = 0;
+    }
+}
+
+template <typename T>
+CGS_Stack<T>::~CGS_Stack<T>() {
+    stack_ptr = 0;
+    buf_len = 0;
+
+    if (buf) {
+	free(buf);
+	buf = NULL;
+    }
+}
+
+//swap
+template <typename T>
+void CGS_Stack<T>::swap(CGS_Stack<T>& o) {
+    size_t tmp = buf_len;
+    buf_len = o.buf_len;
+    o.buf_len = tmp;
+    tmp = stack_ptr;
+    stack_ptr = o.stack_ptr;
+    o.stack_ptr = tmp;
+    T* tmp_buf = buf;
+    buf = o.buf;
+    o.buf = tmp_buf;
+}
+
+//copy constructor, assumes that the '=' operator does something sane
+template <typename T>
+CGS_Stack<T>::CGS_Stack(const CGS_Stack<T>& o) {
+    stack_ptr = o.stack_ptr;
+    //to save memory we'll only allocate however many entries the old object had
+    buf_len = stack_ptr;
+    buf = (T*)malloc(sizeof(T)*buf_len);
+    if (!buf) {
+	buf = NULL;
+	buf_len = 0;
+	stack_ptr = 0;
+    }
+
+    //copy the entries from the old object stack
+    for (_uint i = 0; i < stack_ptr; ++i) buf[i] = o.buf[i];
+}
+
+//move constructor
+template <typename T>
+CGS_Stack<T>::CGS_Stack(CGS_Stack<T>&& o) {
+    stack_ptr = o.stack_ptr;
+    buf_len = o.buf_len;
+    buf = o.buf;
+    //invalidate the object that just got moved
+    o.stack_ptr = 0;
+    o.buf_len = 0;
+    o.buf = NULL;
+}
+
+//assignment operator
+template <typename T>
+CGS_Stack<T>& CGS_Stack<T>::operator=(CGS_Stack<T> o) {
+    swap(*this, o);
+    return *this;
+}
+
 /**
  * Push a side-object pair onto the stack.
  * returns: An error code if one occurred or E_SUCCESS if the operation was successful. It is possible for this function to fail if there wasn't sufficient space to push the object onto the stack.
  */
-parse_ercode ObjectStack::push(_uint side, CompositeObject* obj) {
+template <typename T>
+parse_ercode CGS_Stack<T>::push(T val) {
     //we might need to allocate more memory
     parse_ercode res = E_SUCCESS;
-    if (stack_ptr == buf_len) {
-	res = grow(2*buf_len);
-    }
-
-    //actually push it onto the stack if possible
-    if (res == E_SUCCESS) {
-	side_stack[stack_ptr] = side;
-	obj_stack[stack_ptr++] = obj;
-    }
+    if (stack_ptr == buf_len) res = grow(2*buf_len);
+    if (res == E_SUCCESS) buf[stack_ptr++] = val;
 
     return res;
+}
+
+/**
+ * Pop a side-object pair into the values pointed to by side and obj respectively. This function is guaranteed to succeed, but if the stack is empty then SIDE_END will be assigned to side and NULL will be assigned to obj. The caller should check that the returned values are valid.
+ */
+template <typename T>
+parse_ercode CGS_Stack<T>::pop(CGS_Stack<T>* ptr) {
+    //check if there is anything that can be popped
+    if (stack_ptr == 0) return E_EMPTY_STACK;
+    //assign the return values
+    if (ptr) *ptr = buf[stack_ptr-1];
+    //decrement the stack pointer
+    --stack_ptr;
+
+    return E_SUCCESS;
 }
 
 /**
@@ -434,69 +451,52 @@ parse_ercode ObjectStack::push(_uint side, CompositeObject* obj) {
 parse_ercode ObjectStack::emplace_obj(Object* obj, object_type p_type) {
     if (stack_ptr == 0) {
 	if (p_type == CGS_COMPOSITE) {
-	    return push(0, (CompositeObject*)obj);
+	    side_obj_pair cur(0, (CompositeObject*)obj);
+	    return push(cur);
 	} else {
 	    return E_EMPTY_STACK;
 	}
     } else {
 	size_t ind = stack_ptr - 1;
-	if (side_stack[ind] < 2) {
-	    obj_stack[ind]->add_child(side_stack[ind], obj, p_type);
-	    side_stack[ind] += 1;
+	if (buf[ind].side < 2) {
+	    buf[ind].obj->add_child(buf[ind].side, obj, p_type);
+	    buf[ind].side += 1;
 	} else {
 	    //if we're at a leaf then we need to walk up the tree until we find a location where we can place the object
-	    while (side_stack[ind] > 1) {
+	    while (buf[ind].side > 1) {
 		//if the stack pointer is at the root then this isn't a valid binary operation
 		if (ind == 0) return E_NOT_BINARY;
 		--ind;
 	    }
-	    obj_stack[ind]->add_child(side_stack[ind], obj, p_type);
-	    side_stack[ind] += 1;
+	    buf[ind].obj->add_child(buf[ind].side, obj, p_type);
+	    buf[ind].side += 1;
 	    //we have to update the stack pointer appropriatly
 	    stack_ptr = ind + 1;
 	}
 
 	//if it's a composite object then we'll need to add its children, so push it onto the stack
-	if (p_type == CGS_COMPOSITE) return push(0, (CompositeObject*)obj);
+	if (p_type == CGS_COMPOSITE) {
+	    side_obj_pair cur(0, (CompositeObject*)obj);
+	    return push(cur);
+	}
     }
-
-    return E_SUCCESS;
-}
-
-/**
- * Pop a side-object pair into the values pointed to by side and obj respectively. This function is guaranteed to succeed, but if the stack is empty then SIDE_END will be assigned to side and NULL will be assigned to obj. The caller should check that the returned values are valid.
- */
-parse_ercode ObjectStack::pop(_uint* side, CompositeObject** obj) {
-    //check if there is anything that can be popped
-    if (stack_ptr == 0)
-	return E_EMPTY_STACK;
-    size_t ind = stack_ptr - 1;
-    //assign the return values
-    if (side) *side = side_stack[ind];
-    if (obj) *obj = obj_stack[ind];
-    //set the current entry to indicate that it is invalid
-    side_stack[ind] = SIDE_END;
-    obj_stack[ind] = NULL;
-
-    //decrement the stack pointer
-    --stack_ptr;
 
     return E_SUCCESS;
 }
 
 _uint ObjectStack::look_side() {
     if (stack_ptr == 0) return SIDE_UNDEF;
-    return side_stack[stack_ptr - 1];
+    return buf[stack_ptr - 1].side;
 }
 
 CompositeObject* ObjectStack::look_obj() {
     if (stack_ptr == 0) return NULL;
-    return obj_stack[stack_ptr];
+    return buf[stack_ptr].obj;
 }
 
 CompositeObject* ObjectStack::get_root() {
     if (stack_ptr == 0) return NULL;
-    return obj_stack[0];
+    return buf[0].obj;
 }
 
 Scene::Scene(const char* p_fname) {

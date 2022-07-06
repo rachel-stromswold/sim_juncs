@@ -147,43 +147,43 @@ parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f);
  * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
  */
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT} block_type;
-class BlockStack {
-private:
+template <typename T>
+class CGS_Stack {
+protected:
     size_t stack_ptr;
     size_t buf_len;
-    block_type* blk_stack;
+    T* buf;
     parse_ercode grow(size_t new_size);
-    void safe_alloc();
-public:
-    BlockStack();
-    ~BlockStack();
-    BlockStack(const BlockStack& o);
-    BlockStack(BlockStack&& o);
 
-    parse_ercode push(block_type b);
-    block_type pop();
+public:
+    CGS_Stack();
+    ~CGS_Stack<T>();
+    void swap(CGS_Stack<T>& o);
+    CGS_Stack(const CGS_Stack<T>& o);
+    CGS_Stack(CGS_Stack<T>&& o);
+    CGS_Stack<T>& operator=(CGS_Stack<T> o);
+
+    parse_ercode push(T b);
+    parse_ercode pop(CGS_Stack<T>* ptr);
+};
+
+struct side_obj_pair {
+public:
+    _uint side;
+    CompositeObject* obj;
+    side_obj_pair(_uint p_side, CompositeObject* p_obj) { side = p_side;obj=p_obj; }
+    side_obj_pair(const side_obj_pair& o) { side = o.side;obj = o.obj; }
+    side_obj_pair(side_obj_pair&& o) { side = o.side;obj = o.obj;o.side = 0;o.obj = NULL; }
+    side_obj_pair& operator=(const side_obj_pair& o) { side = o.side;obj = o.obj;return *this; }
 };
 
 /**
  * A helper class for scene which maintains two parallel stacks used when constructing binary trees. The first specifies the integer code for the side occupied and the second stores pointers to objects. Each index specified in the side array is a "tribit" with 0 specifying the left side, 1 the right and 2 the end end of the stack
  * WARNING: The stack only handles pointers to objects. The caller is responsible for managing the lifetime of each object placed on the stack.
  */
-class ObjectStack {
-private:
-    size_t stack_ptr;
-    size_t buf_len;
-    _uint* side_stack;
-    CompositeObject** obj_stack;
-    parse_ercode grow(size_t new_size);
-    void safe_alloc();
-
+class ObjectStack : public CGS_Stack<side_obj_pair> {
 public:
-    ObjectStack();
-    ~ObjectStack();
-    ObjectStack(const ObjectStack& o);
-    ObjectStack(ObjectStack&& o);
-
-    parse_ercode push(_uint side, CompositeObject* obj);
+    //parse_ercode push(_uint side, CompositeObject* obj);
     parse_ercode emplace_obj(Object* obj, object_type p_type);
     parse_ercode pop(_uint* side, CompositeObject** obj);
     _uint look_side();
