@@ -478,9 +478,9 @@ bool CGS_Stack<T>::has(const T& key) {
  * Returns a copy of the object at the top of the stack. If the stack is empty then the object casted from 0 is returned.
  */
 template <typename T>
-T CGS_Stack<T>::peek() {
-    if (stack_ptr > 0)
-	return buf[stack_ptr-1];
+T CGS_Stack<T>::peek(size_t ind) {
+    if (stack_ptr >= ind && ind > 0)
+	return buf[stack_ptr - ind];
     return (T)0;
 }
 
@@ -564,10 +564,14 @@ Scene::Scene(const char* p_fname) {
 	char* red_str = CGS_trim_whitespace(buf, &line_len);
 	cur_token = buf;
 	for (size_t i = 0; i < line_len; ++i) {
-	    block_type cur_type = blk_stack.peek();
+	    //check the most recent block pushed onto the stack
+	    block_type cur_type = BLK_UNDEF;
+	    if (blk_stack.size() > 0) cur_type = blk_stack.peek();
+	    //only interpret as normal code if we aren't in a comment or literal block
 	    if (cur_type != BLK_COMMENT && cur_type != BLK_LITERAL) {
 		if (buf[i] == '(' && blk_stack.peek() != BLK_LITERAL) {
-		    if (last_type != BLK_UNDEF) printf("Error on line %d: Expected '{' before function name\n", lineno);
+		    if (last_type != BLK_UNDEF)
+			printf("Error on line %d: Expected '{' before function name\n", lineno);
 
 		    //initialize a new cgs_func with the appropriate arguments
 		    cgs_func cur_func;
@@ -630,6 +634,7 @@ Scene::Scene(const char* p_fname) {
 		    blk_stack.push(BLK_LITERAL);
 		}
 	    } else {
+		//check if we reached the end of a comment or string literal block
 		if (cur_type == BLK_COMMENT && (buf[i] == '*' && i < line_len-1 && buf[i+1] == '/')) {
 		    blk_stack.pop(NULL);
 		} else if (cur_type == BLK_LITERAL && (buf[i] == '\"' && last_char != '\\')) {

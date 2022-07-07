@@ -62,12 +62,12 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
     double eps_scale = 1 / (sharpness*args.resolution);
 
     //initialize the volume
-    meep::vec bound_loc(z_center);
     if (s.n_dims == 1) {
 	vol = meep::vol1d(2*z_center, s.resolution);
     } else if (s.n_dims == 2) {
 	vol = meep::vol2d(2*z_center, 2*z_center, s.resolution);
-	bound_loc = meep::vec(0, z_center, 0);
+    } else {
+	vol = meep::vol3d(2*z_center, 2*z_center, 2*z_center, s.resolution);
     }
 
     //iterate over all objects specified in the scene

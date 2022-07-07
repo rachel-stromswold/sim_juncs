@@ -171,7 +171,8 @@ public:
     void reset();
     bool has(const T& key);
     bool is_empty() { return stack_ptr == 0; }
-    T peek();
+    size_t size() { return stack_ptr; }
+    T peek(size_t ind = 1);
 };
 
 struct side_obj_pair {
