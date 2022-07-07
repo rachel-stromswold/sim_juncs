@@ -3,7 +3,7 @@
 #include <hdf5.h>
 
 #include "argparse.h"
-#include "geom.hpp"
+#include "disp.hpp"
 #define PREFIX_LEN 3
 
 const double epsilon = 0.01;
@@ -56,5 +56,6 @@ int main(int argc, char **argv) {
 
     geom.run(args.out_dir, monitor_locs);
 
+    cleanup_settings(&args);
     return 0;
 }

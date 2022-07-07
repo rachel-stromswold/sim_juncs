@@ -24,14 +24,10 @@ typedef struct {
     double resolution = DEFAULT_RESOLUTION;
     long grid_num = -1;
     double len = DEFAULT_LEN;
-    double eps_1 = 1.0;
+    double ambient_eps = 1.0;
+    char* geom_fname = NULL;
     double eps_2 = 2.0;
     double amp = 1.0;
-    _uint n_susceptibilities = 0;
-    double* eps_2_omega;
-    double* eps_2_gamma;
-    double* eps_2_sigma;
-    bool* eps_2_use_denom;
 
     double source_z = 2.0;
     double freq = DEFAULT_PULSE_FREQ;
@@ -41,6 +37,10 @@ typedef struct {
     double post_source_t = 10.0;
     double src_mon_dist = 0.2;
 } Settings;
+
+inline void cleanup_settings(Settings* s) {
+    if (s->geom_fname) free(s->geom_fname);
+}
 
 /**
   * Remove the whitespace surrounding a word
@@ -61,13 +61,29 @@ inline char* trim_whitespace(char* str, size_t* len) {
     return start;
 }
 
+typedef struct {
+    _uint n_susceptibilities = 0;
+    double* eps_2_omega;
+    double* eps_2_gamma;
+    double* eps_2_sigma;
+    bool* eps_2_use_denom;
+} susceptibility_list;
+
+inline void cleanup_susceptibility_list(susceptibility_list* s) {
+    if (s->eps_2_omega) free(s->eps_2_omega);
+    if (s->eps_2_gamma) free(s->eps_2_gamma);
+    if (s->eps_2_sigma) free(s->eps_2_sigma);
+    if (s->eps_2_use_denom) free(s->eps_2_use_denom);
+}
+
 /**
  * Add the list of susceptibilities to the Settings file s. The string should have the format (omega_0,gamma_0,sigma_0),(omega_1,gamma_1,sigma_1),...
  * returns: 0 on success or an error code
  * 		-1 null string
  * 		-2 invalid or empty string
+ * 		-3 insufficient memory
  */
-inline int parse_susceptibilities(Settings* s, char* const str) {
+inline int parse_susceptibilities(susceptibility_list* s, char* const str) {
     //check that the Settings struct is valid and allocate memory
     if (!s) return -1;
     _uint buf_size = BUF_SIZE;
@@ -75,6 +91,8 @@ inline int parse_susceptibilities(Settings* s, char* const str) {
     s->eps_2_gamma = (double*)malloc(buf_size*sizeof(double));
     s->eps_2_sigma = (double*)malloc(buf_size*sizeof(double));
     s->eps_2_use_denom = (bool*)malloc(buf_size*sizeof(int));
+    //TODO: get gud
+    //if (!(s->eps_2_omega && s->eps_2_gamma && s->eps_2_sigma && s->eps_2_use_denom)) 
 
     double cur_omega = 0.0;
     double cur_gamma = 0.0;
@@ -189,12 +207,12 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
 	s->gauss_cutoff = strtod(val, NULL);
     } else if (strcmp(tok, "pulse_loc_z") == 0) {
 	s->source_z = strtod(val, NULL);
-    } else if (strcmp(tok, "eps_1") == 0) {
-	s->eps_1 = strtod(val, NULL);
+    } else if (strcmp(tok, "ambient_eps") == 0) {
+	s->ambient_eps = strtod(val, NULL);
+    } else if (strcmp(tok, "geom_fname") == 0) {
+	s->geom_fname = trim_whitespace(strdup(val), NULL);
     } else if (strcmp(tok, "eps_2") == 0) {
 	s->eps_2 = strtod(val, NULL);
-    } else if (strcmp(tok, "susceptibilities_2") == 0) {
-	errno = parse_susceptibilities(s, val);
     } else if (strcmp(tok, "near_rad") == 0) {
 	s->src_mon_dist = strtod(val, NULL);
     }
@@ -249,10 +267,8 @@ inline int parse_conf_file(Settings* s, char* fname) {
     //correct everything which involves length units to have the proper scale
     if (s->um_scale != 1.0) {
         s->freq /= s->um_scale;
-        for (_uint i = 0; i < s->n_susceptibilities; ++i) {
-            s->eps_2_omega[i] /= s->um_scale;
-            s->eps_2_gamma[i] /= s->um_scale;
-        }
+	s->len *= s->um_scale;
+	s->pml_thickness *= s->um_scale;
     }
     return 0;
 }
@@ -334,7 +350,7 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		    printf("Usage: meep --eps1 <epsilon1>");
 		    return 0;
 		} else {
-		    a->eps_1 = strtod(argv[i+1], NULL);
+		    a->ambient_eps = strtod(argv[i+1], NULL);
 		    //check for errors
 		    if (errno != 0) {
 			printf("Invalid floating point supplied to --eps1");

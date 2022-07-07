@@ -1,4 +1,4 @@
-#include "geom.hpp"
+#include "disp.hpp"
 
 const double eps_cutoff = 10;
 
@@ -7,13 +7,8 @@ Settings args;
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
  */
-boundary_material_function::boundary_material_function(const meep::vec &bound_loc, double scale, double offset, double p_bound_sharpness, double p_bound_eps_scale) {
-    bound_z = bound_loc.z();
-    //if we're using 2D, we may have to switch coordinates
-    if (bound_z == 0) {
-	bound_z = bound_loc.y();
-	use_z = false;
-    }
+cgs_material_function::cgs_material_function(CompositeObject* p_volume, double scale, double offset, double p_bound_eps_scale, double p_bound_sharpness) {
+    volume = p_volume;
     //set scale and offsets
     sc = scale;
     off = offset;
@@ -23,54 +18,45 @@ boundary_material_function::boundary_material_function(const meep::vec &bound_lo
 }
 
 //returns whether we're to the left or the right of the dielectric boundary 1 indicates we are, 0 that we are not
-double boundary_material_function::in_bound(const meep::vec &r) {
-    if (use_z) {
-	if (r.z() < bound_z)
-	    return 0.0;
-	else
-	    return 1.0;
-    } else {
-	if (r.y() < bound_z)
-	    return 0.0;
-	else
-	    return 1.0;
-    }
+double cgs_material_function::in_bound(const meep::vec &r) {
+    if (!volume) return 0.0;
+    return volume->in(evec3(r.x(), r.y(), r.z()));
 }
 
-double boundary_material_function::chi1p1(meep::field_type ft, const meep::vec &r) {
+double cgs_material_function::chi1p1(meep::field_type ft, const meep::vec &r) {
     (void)ft;
     return sc*in_bound(r) + off;
 }
 
-double boundary_material_function::eps(const meep::vec &r) {
+double cgs_material_function::eps(const meep::vec &r) {
     return sc*in_bound(r) + off;
 }
 
-double boundary_material_function::mu(const meep::vec &r) {
+double cgs_material_function::mu(const meep::vec &r) {
     return sc*in_bound(r) + off;
 }
 
-double boundary_material_function::conductivity(meep::component c, const meep::vec &r) {
+double cgs_material_function::conductivity(meep::component c, const meep::vec &r) {
     (void)c;
     return sc*in_bound(r) + off;
 }
 
-void boundary_material_function::sigma_row(meep::component c, double sigrow[3], const meep::vec &r) {
+void cgs_material_function::sigma_row(meep::component c, double sigrow[3], const meep::vec &r) {
     sigrow[0] = sigrow[1] = sigrow[2] = 0.0;
     sigrow[meep::component_index(c)] = sc*in_bound(r) + off;
 }
 
-double boundary_material_function::chi3(meep::component c, const meep::vec &r) {
+double cgs_material_function::chi3(meep::component c, const meep::vec &r) {
     (void)c;
     return sc*in_bound(r) + off;
 }
 
-double boundary_material_function::chi2(meep::component c, const meep::vec &r) {
+double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
     (void)c;
     return sc*in_bound(r) + off;
 }
 
-bound_geom::bound_geom(const Settings s) {
+bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
     //the arguments supplied will alter the location of the dielectric
     double z_center = s.len/2 + s.pml_thickness;
     double eps_scale = 1 / (sharpness*args.resolution);
@@ -83,15 +69,33 @@ bound_geom::bound_geom(const Settings s) {
 	vol = meep::vol2d(2*z_center, 2*z_center, s.resolution);
 	bound_loc = meep::vec(0, z_center, 0);
     }
-    //setup the structure with the infinite frequency dielectric component
-    boundary_material_function inf_eps_func(bound_loc, s.eps_2 - s.eps_1, s.eps_1, eps_scale);
-    strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
 
-    //add frequency dependent susceptibility
-    for (_uint i = 0; i < s.n_susceptibilities; ++i) {
-	meep::lorentzian_susceptibility suscept( s.eps_2_omega[i], s.eps_2_gamma[i], !(s.eps_2_use_denom[i]) );
-	boundary_material_function scale_func(z_center, s.eps_2_omega[i], 0.0, eps_scale);
-	strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
+    //iterate over all objects specified in the scene
+    std::vector<CompositeObject*> roots = sc.get_roots();
+    for (auto it = roots.begin(); it != roots.end(); ++it) {
+	//try reading the frequency-independant dielectric constant
+	double eps_2 = s.ambient_eps;
+	if ((*it)->has_metadata("eps")) {
+	    eps_2 = std::stod((*it)->fetch_metadata("eps"));
+	}
+	//setup the structure with the infinite frequency dielectric component
+	cgs_material_function inf_eps_func(*it, eps_2 - s.ambient_eps, s.ambient_eps, eps_scale);
+	strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
+
+	//read susceptibilities if they are available
+	susceptibility_list cur_sups;
+	int res = 0;
+	if ((*it)->has_metadata("susceptibilities")) {
+	    char* dat = strdup((*it)->fetch_metadata("susceptibilities").c_str());
+	    res = parse_susceptibilities(&cur_sups, dat);
+	    free(dat);
+	}
+	//add frequency dependent susceptibility
+	for (_uint i = 0; i < cur_sups.n_susceptibilities; ++i) {
+	    meep::lorentzian_susceptibility suscept( cur_sups.eps_2_omega[i]/s.um_scale, cur_sups.eps_2_gamma[i]/s.um_scale, !(cur_sups.eps_2_use_denom[i]) );
+	    cgs_material_function scale_func(*it, cur_sups.eps_2_sigma[i], 0.0, eps_scale);
+	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
+	}
     }
 
     //create the fields

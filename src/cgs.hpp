@@ -17,7 +17,8 @@ typedef unsigned char _uint8;
 typedef enum { E_SUCCESS, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY } parse_ercode;
 
 typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE } combine_type;
-typedef enum { CGS_UNDEF, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_CYLINDER } object_type;
+//note that ROOTS are a special type of COMPOSITES
+typedef enum { CGS_UNDEF, CGS_ROOT, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_CYLINDER } object_type;
 
 typedef Eigen::Vector3d evec3;
 typedef Eigen::Vector4d evec4;
@@ -33,7 +34,7 @@ typedef struct {
 /**
   * Remove the whitespace surrounding a word
   */
-inline char* trim_whitespace(char* str, size_t* len) {
+inline char* CGS_trim_whitespace(char* str, size_t* len) {
     char* start = NULL;
     _uint last_non = 0;
     for (_uint i = 0; str[i] != 0; ++i) {
@@ -135,6 +136,8 @@ public:
     object_type get_child_type_l() { return child_types[0]; }
     object_type get_child_type_r() { return child_types[1]; }
     combine_type get_combine_type() { return cmb; }
+    int has_metadata(std::string key) { return metadata.count(key); }
+    std::string fetch_metadata(std::string key) { return metadata[key]; }
 };
 
 parse_ercode parse_vector(char* str, evec3& sto);
@@ -146,7 +149,7 @@ parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f, char** en
 /**
  * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
  */
-typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT} block_type;
+typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_ROOT, BLK_COMPOSITE, BLK_LITERAL, BLK_COMMENT} block_type;
 template <typename T>
 class CGS_Stack {
 protected:
@@ -165,6 +168,10 @@ public:
 
     parse_ercode push(T b);
     parse_ercode pop(T* ptr);
+    void reset();
+    bool has(const T& key);
+    bool is_empty() { return stack_ptr == 0; }
+    T peek();
 };
 
 struct side_obj_pair {
@@ -193,12 +200,13 @@ public:
 
 class Scene {
 private:
-    std::vector<Object*> objects;
+    //std::vector<Object*> objects;
+    std::vector<CompositeObject*> roots;
 
 public:
     Scene(const char* p_fname);
     ~Scene();
 
-    CompositeObject* get_root();
+    std::vector<CompositeObject*> get_roots() { return roots; }
     void read();
 };

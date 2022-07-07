@@ -171,19 +171,19 @@ parse_ercode parse_vector(char* str, evec3& sto) {
     //x
     char* tok = strtok_r(start+1, ",", &save_str);
     if (!tok) return E_LACK_TOKENS;
-    tok = trim_whitespace(tok, NULL);
+    tok = CGS_trim_whitespace(tok, NULL);
     sto.x() = strtod(tok, NULL);
     if (errno) { errno = 0;return E_BAD_TOKEN; }
     //y
     tok = strtok_r(NULL, ",", &save_str);
     if (!tok) return E_LACK_TOKENS;
-    tok = trim_whitespace(tok, NULL);
+    tok = CGS_trim_whitespace(tok, NULL);
     sto.y() = strtod(tok, NULL);
     if (errno) { errno = 0;return E_BAD_TOKEN; }
     //z
     tok = strtok_r(NULL, ",", &save_str);
     if (!tok) return E_LACK_TOKENS;
-    tok = trim_whitespace(tok, NULL);
+    tok = CGS_trim_whitespace(tok, NULL);
     sto.z() = strtod(tok, NULL);
     if (errno) { errno = 0;return E_BAD_TOKEN; }
 
@@ -237,7 +237,7 @@ parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int
 	if (type) *type = CGS_CYLINDER;
     } else if (strcmp(f.name, "Composite") == 0) {
 	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
-	if (type) *type = CGS_COMPOSITE;
+	if (type) *type = CGS_ROOT;
     } else if (strcmp(f.name, "union") == 0) {
 	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
 	if (type) *type = CGS_COMPOSITE;
@@ -269,7 +269,7 @@ parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f, char** en
     f.n_args = 0;
     if (token[open_par_ind] != '(') return E_BAD_TOKEN;
     token[open_par_ind] = 0;
-    f.name = trim_whitespace(token, NULL);
+    f.name = CGS_trim_whitespace(token, NULL);
 
     //now remove whitespace from the ends of the string
     char* arg_str = token+open_par_ind+1;
@@ -458,11 +458,38 @@ parse_ercode CGS_Stack<T>::pop(T* ptr) {
 }
 
 /**
+ * Reset the stack to be empty
+ */
+template <typename T>
+void CGS_Stack<T>::reset() { stack_ptr = 0; }
+
+/**
+ * Check wheter an entry matching key is already somewhere in the stack
+ */
+template <typename T>
+bool CGS_Stack<T>::has(const T& key) {
+    for (_uint i = 0; i < stack_ptr; ++i) {
+	if (buf[i] == key) return true;
+    }
+    return false;
+}
+
+/**
+ * Returns a copy of the object at the top of the stack. If the stack is empty then the object casted from 0 is returned.
+ */
+template <typename T>
+T CGS_Stack<T>::peek() {
+    if (stack_ptr > 0)
+	return buf[stack_ptr-1];
+    return (T)0;
+}
+
+/**
  * Insert an object onto the stack obeying the desired tree structure.
  */
 parse_ercode ObjectStack::emplace_obj(Object* obj, object_type p_type) {
     if (stack_ptr == 0) {
-	if (p_type == CGS_COMPOSITE) {
+	if (p_type == CGS_COMPOSITE || p_type == CGS_ROOT) {
 	    side_obj_pair cur(0, (CompositeObject*)obj);
 	    return push(cur);
 	} else {
@@ -487,7 +514,7 @@ parse_ercode ObjectStack::emplace_obj(Object* obj, object_type p_type) {
 	}
 
 	//if it's a composite object then we'll need to add its children, so push it onto the stack
-	if (p_type == CGS_COMPOSITE) {
+	if (p_type == CGS_COMPOSITE || p_type == CGS_ROOT) {
 	    side_obj_pair cur(0, (CompositeObject*)obj);
 	    return push(cur);
 	}
@@ -515,7 +542,6 @@ Scene::Scene(const char* p_fname) {
     char buf[BUF_SIZE];
     char func_name[BUF_SIZE];
     size_t n_args = 0;
-    bool in_comment = false;
 
     //we need to store whatever the current token is
     char* cur_token;
@@ -526,27 +552,30 @@ Scene::Scene(const char* p_fname) {
     ObjectStack tree_pos;
     CGS_Stack<block_type> blk_stack;
     block_type last_type = BLK_UNDEF;
+    CompositeObject* last_comp = NULL;
     int invert = 0;
 
     //open the file for reading and read individual lines. We need to remove whitespace. Handily, we know the line length once we're done.
     FILE* fp = fopen(p_fname, "r");
     size_t lineno = 1;
     size_t line_len = 0;
+    char last_char = 0;
     while (fgets(buf, BUF_SIZE, fp)) {
-	char* red_str = trim_whitespace(buf, &line_len);
+	char* red_str = CGS_trim_whitespace(buf, &line_len);
 	cur_token = buf;
 	for (size_t i = 0; i < line_len; ++i) {
-	    if (!in_comment) {
-		if (buf[i] == '(') {
-		    if (last_type != BLK_UNDEF) printf("Error on line %d: Expected '{' before function name", lineno);
+	    block_type cur_type = blk_stack.peek();
+	    if (cur_type != BLK_COMMENT && cur_type != BLK_LITERAL) {
+		if (buf[i] == '(' && blk_stack.peek() != BLK_LITERAL) {
+		    if (last_type != BLK_UNDEF) printf("Error on line %d: Expected '{' before function name\n", lineno);
 
 		    //initialize a new cgs_func with the appropriate arguments
 		    cgs_func cur_func;
 		    char* endptr;
 		    parse_ercode er = parse_func(cur_token, i, cur_func, &endptr);
 		    switch (er) {
-			case E_BAD_TOKEN: printf("Error on line %d: Invalid function name \"%s\"", lineno, cur_token);break;
-			case E_BAD_SYNTAX: printf("Error on line %d: Invalid syntax", lineno);break;
+			case E_BAD_TOKEN: printf("Error on line %d: Invalid function name \"%s\"\n", lineno, cur_token);break;
+			case E_BAD_SYNTAX: printf("Error on line %d: Invalid syntax\n", lineno);break;
 			default: break;
 		    }
 		    //try interpreting the function as a geometric object
@@ -559,8 +588,17 @@ Scene::Scene(const char* p_fname) {
 			    last_type = BLK_INVERT;
 			}
 		    } else {
+			if (type == CGS_ROOT) {
+			    if (!tree_pos.is_empty()) {
+				printf("Error on line %d: Root composites may not be nested\n", lineno);
+			    } else {
+				last_comp = (CompositeObject*)obj;
+				last_type = BLK_ROOT;
+				//this is included so that we don't have to check whether something is a root or a composite every time
+				type = CGS_COMPOSITE;
+			    }
+			}
 			tree_pos.emplace_obj(obj, type);
-			objects.push_back(obj);
 		    }
 		//check for comments
 		} else if (buf[i] == '/') {
@@ -568,27 +606,37 @@ Scene::Scene(const char* p_fname) {
 			if (buf[i+1] == '/')
 			    break;
 			else if (buf[i+1] == '*')
-			    in_comment = true;
+			    blk_stack.push(BLK_COMMENT);
 		    }
 		//check for blocks
 		} else if (buf[i] == '{') {
 		    switch (last_type) {
 			case BLK_INVERT: invert = 1 - invert;break;
+			case BLK_ROOT: roots.push_back(last_comp);break;
 			default: break;
 		    }
 		    blk_stack.push(last_type);
 		    last_type = BLK_UNDEF;
 		} else if (buf[i] == '}') {
 		    block_type bt;
-		    if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf("Error on line %d: unexpected '}'", lineno);
+		    if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf("Error on line %d: unexpected '}'\n", lineno);
 		    switch (bt) {
 			case BLK_INVERT: invert = 1 - invert;break;
+			case BLK_ROOT: tree_pos.reset();
 			default: break;
 		    }
+		//check for literal experessions enclosed in quotes
+		} else if (buf[i] == '\"') {
+		    blk_stack.push(BLK_LITERAL);
 		}
-	    } else if (buf[i] == '*' && i < line_len-1 && buf[i+1] == '/') {
-		in_comment = false;
+	    } else {
+		if (cur_type == BLK_COMMENT && (buf[i] == '*' && i < line_len-1 && buf[i+1] == '/')) {
+		    blk_stack.pop(NULL);
+		} else if (cur_type == BLK_LITERAL && (buf[i] == '\"' && last_char != '\\')) {
+		    blk_stack.pop(NULL);
+		}
 	    }
+	    last_char = buf[i];
 	}
 	++lineno;
     }
@@ -596,12 +644,7 @@ Scene::Scene(const char* p_fname) {
 
 Scene::~Scene() {
     //TODO: double frees are bad lol
-    for (_uint i = 0; i < objects.size(); ++i) {
-	if (objects[i]) delete objects[i];
+    for (_uint i = 0; i < roots.size(); ++i) {
+	if (roots[i]) delete roots[i];
     }
-}
-
-CompositeObject* Scene::get_root() {
-    if (objects.size() == 0) return NULL;
-    return (CompositeObject*)objects[0];
 }

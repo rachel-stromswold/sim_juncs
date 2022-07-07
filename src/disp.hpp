@@ -7,6 +7,7 @@
 #include <hdf5.h>
 
 #include "argparse.h"
+#include "cgs.hpp"
 #define PREFIX_LEN 3
 
 //simulation parameters
@@ -17,11 +18,11 @@ double eps_scale;*/
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
  */
-class boundary_material_function : public meep::material_function {
-    //location of the boundary
-    double bound_z;
-    bool use_z = true;
+class cgs_material_function : public meep::material_function {
+    CompositeObject* volume;
+    
     //to reduce numeric artifacts (maybe?) you can apply a smooth sigmoid scaling function
+    //TODO: find a way to make this work with arbitrary shapes
     double bound_sharpness;
     double bound_eps_scale;
     //returns whether we're to the left or the right of the dielectric boundary
@@ -32,9 +33,9 @@ class boundary_material_function : public meep::material_function {
     double off;
 
 public:
-    boundary_material_function(const meep::vec &bound_loc, double scale, double offset, double p_bound_eps_scale=0.1, double p_bound_sharpness=5);
+    cgs_material_function(CompositeObject* p_volume, double scale, double offset, double p_bound_eps_scale=0.1, double p_bound_sharpness=5);
 
-    virtual ~boundary_material_function() {}
+    virtual ~cgs_material_function() {}
 
     virtual double chi1p1(meep::field_type ft, const meep::vec &r);
     virtual double eps(const meep::vec &r);
@@ -47,11 +48,13 @@ public:
 
 class bound_geom {
     public:
-	bound_geom(const Settings s);
+	bound_geom(const Settings& s);
 	~bound_geom();
 
 	void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
 	void run(const char* fname_prefix, std::vector<meep::vec> locs);
+
+	Scene sc;
 
     private:
 	//meep objects

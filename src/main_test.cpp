@@ -170,7 +170,9 @@ TEST_CASE("Test Object Trees") {
 
 TEST_CASE("Test File Parsing") {
     Scene s("test.mt");
-    CompositeObject* root = s.get_root();
+    std::vector<CompositeObject*> roots_vec = s.get_roots();
+    CHECK(roots_vec.size() > 0);
+    CompositeObject* root = roots_vec[0];
 
     CHECK(root != NULL);
     CompositeObject* comp_l = (CompositeObject*)(root->get_child_l());
@@ -204,7 +206,7 @@ TEST_CASE("Test File Parsing") {
 
 TEST_CASE("Test Geometric Inclusion") {
     Scene s("test.mt");
-    CompositeObject* root = s.get_root();
+    CompositeObject* root = s.get_roots()[0];
 
     CHECK(root->in(Eigen::Vector3d(0.5,0.5,0.5)) == 1);
     CHECK(root->in(Eigen::Vector3d(0.5,0.1,2)) == 1);
