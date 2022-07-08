@@ -52,6 +52,7 @@ class bound_geom {
 	~bound_geom();
 
 	void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
+	void add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp = 1.0);
 	void run(const char* fname_prefix, std::vector<meep::vec> locs);
 
 	Scene sc;

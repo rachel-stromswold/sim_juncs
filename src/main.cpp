@@ -32,9 +32,14 @@ int main(int argc, char **argv) {
     //pulse continuously for a time of 2*n_devs standard deviations with an instantaneous turn on and off
     //meep::continuous_src_time src(args.freq, 0.0, 0.0, 2*args.gauss_width*args.gauss_cutoff);
     meep::vec source_loc(y_loc, args.source_z);
-    if (args.n_dims == 1) source_loc = meep::vec(args.source_z);
-
-    geom.add_point_source(meep::Ex, src, source_loc, args.amp);
+    if (args.n_dims == 3) {
+	//initialize a source right next to the upper pml
+	meep::volume source_vol(meep::vec(0, 0, args.pml_thickness), meep::vec(2*z_center, 2*z_center, args.pml_thickness));
+	geom.add_volume_source(meep::Ex, src, source_vol, args.amp);
+    } else {
+	if (args.n_dims == 1) source_loc = meep::vec(args.source_z);
+	geom.add_point_source(meep::Ex, src, source_loc, args.amp);
+    }
 
     //setup four points for monitoring the Poynting vector as a function of time. Two are near the source to the left and right, the others are near the simulation boundaries. All energy must pass through either the left or right (assuming 1 dimension)
     std::vector<meep::vec> monitor_locs;
@@ -45,13 +50,20 @@ int main(int argc, char **argv) {
         monitor_locs.emplace_back(z_center + epsilon);
         monitor_locs.emplace_back(args.pml_thickness);
         monitor_locs.emplace_back(2*z_center - args.pml_thickness);
-    } else {
+    } else if (args.n_dims == 2) {
         monitor_locs.emplace_back(y_loc, source_loc.z() - args.src_mon_dist);
         monitor_locs.emplace_back(y_loc, source_loc.z() + args.src_mon_dist);
         monitor_locs.emplace_back(y_loc, z_center - epsilon);
         monitor_locs.emplace_back(y_loc, z_center + epsilon);
         monitor_locs.emplace_back(y_loc, args.pml_thickness);
         monitor_locs.emplace_back(y_loc, 2*z_center - args.pml_thickness);
+    } else {
+        monitor_locs.emplace_back(z_center, y_loc, source_loc.z() - args.src_mon_dist);
+        monitor_locs.emplace_back(z_center, y_loc, source_loc.z() + args.src_mon_dist);
+        monitor_locs.emplace_back(z_center, y_loc, z_center - epsilon);
+        monitor_locs.emplace_back(z_center, y_loc, z_center + epsilon);
+        monitor_locs.emplace_back(z_center, y_loc, args.pml_thickness);
+        monitor_locs.emplace_back(z_center, y_loc, 2*z_center - args.pml_thickness);
     }
 
     geom.run(args.out_dir, monitor_locs);

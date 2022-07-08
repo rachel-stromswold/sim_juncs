@@ -117,6 +117,14 @@ void bound_geom::add_point_source(meep::component c, const meep::src_time &src, 
     n_t_pts = (_uint)(ttot / fields->dt);
 }
 
+void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp) {
+    fields->add_volume_source(c, src, source_vol, args.amp);
+
+    //set the total timespan based on the added source
+    ttot = fields->last_source_time() + args.post_source_t;
+    n_t_pts = (_uint)(ttot / fields->dt);
+}
+
 void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     fields->set_output_directory(fname_prefix);
 
