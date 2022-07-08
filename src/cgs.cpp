@@ -645,6 +645,7 @@ Scene::Scene(const char* p_fname) {
 	}
 	++lineno;
     }
+    fclose(fp);
 }
 
 Scene::~Scene() {

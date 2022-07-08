@@ -35,6 +35,7 @@ typedef struct {
   * Remove the whitespace surrounding a word
   */
 inline char* CGS_trim_whitespace(char* str, size_t* len) {
+    if (!str) return NULL;
     char* start = NULL;
     _uint last_non = 0;
     for (_uint i = 0; str[i] != 0; ++i) {

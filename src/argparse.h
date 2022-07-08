@@ -25,6 +25,7 @@ typedef struct {
     long grid_num = -1;
     double len = DEFAULT_LEN;
     double ambient_eps = 1.0;
+    char* geom_fname_al = NULL;
     char* geom_fname = NULL;
     double eps_2 = 2.0;
     double amp = 1.0;
@@ -39,13 +40,14 @@ typedef struct {
 } Settings;
 
 inline void cleanup_settings(Settings* s) {
-    if (s->geom_fname) free(s->geom_fname);
+    if (s->geom_fname) free(s->geom_fname_al);
 }
 
 /**
   * Remove the whitespace surrounding a word
   */
 inline char* trim_whitespace(char* str, size_t* len) {
+    if (!str) return NULL;
     char* start = NULL;
     _uint last_non = 0;
     for (_uint i = 0; str[i] != 0; ++i) {
@@ -210,7 +212,8 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
     } else if (strcmp(tok, "ambient_eps") == 0) {
 	s->ambient_eps = strtod(val, NULL);
     } else if (strcmp(tok, "geom_fname") == 0) {
-	s->geom_fname = trim_whitespace(strdup(val), NULL);
+	s->geom_fname_al = strdup(val);
+	s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);
     } else if (strcmp(tok, "eps_2") == 0) {
 	s->eps_2 = strtod(val, NULL);
     } else if (strcmp(tok, "near_rad") == 0) {
