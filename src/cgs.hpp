@@ -1,3 +1,6 @@
+#ifndef CGS_H
+#define CGS_H
+
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
 #include <unordered_map>
@@ -141,12 +144,6 @@ public:
     std::string fetch_metadata(std::string key) { return metadata[key]; }
 };
 
-parse_ercode parse_vector(char* str, evec3& sto);
-
-parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert);
-
-parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f, char** end);
-
 /**
  * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
  */
@@ -205,10 +202,21 @@ private:
     //std::vector<Object*> objects;
     std::vector<CompositeObject*> roots;
 
+    parse_ercode lookup_val(char* tok, double& sto);
+    //let users define constants
+    std::unordered_map<std::string, std::string> named_items;
+
 public:
+    Scene() {}
     Scene(const char* p_fname);
     ~Scene();
 
     std::vector<CompositeObject*> get_roots() { return roots; }
     void read();
+
+    parse_ercode parse_vector(char* str, evec3& sto);
+    parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert);
+    parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f, char** end);
 };
+
+#endif //CGS_H

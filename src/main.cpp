@@ -13,7 +13,10 @@ int main(int argc, char **argv) {
     Settings args;
 
     //load defaults from the configuration file
-    int ret = parse_conf_file(&args, "params.conf");
+    std::string name = "params.conf";
+    char* name_dup = strdup(name.c_str());
+    int ret = parse_conf_file(&args, name_dup);
+    free(name_dup);
     if (ret) return ret;
     //iterate over user specified arguments for the test program
     ret = parse_args(&args, &argc, argv);

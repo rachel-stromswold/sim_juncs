@@ -11,10 +11,10 @@ find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 #find_library(hdf5 REQUIRED)
 #find_library(ctlgeom REQUIRED)
 
-add_executable( ${TEST_EXE} src/cgs.cpp src/main_test.cpp )
+add_executable( ${TEST_EXE} src/cgs.cpp src/disp.cpp src/main_test.cpp )
 add_executable( ${APP_EXE} src/cgs.cpp src/disp.cpp src/main.cpp )
 
-target_link_libraries(${TEST_EXE} PUBLIC Eigen3::Eigen)
+target_link_libraries(${TEST_EXE} PUBLIC Eigen3::Eigen meep)
 target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
 target_link_libraries(${APP_EXE} PUBLIC Eigen3::Eigen meep hdf5 ctlgeom)
 

@@ -155,13 +155,22 @@ int CompositeObject::in(const evec3& r) {
     return invert;
 }
 
+parse_ercode Scene::lookup_val(char* tok, double& sto) {
+    errno = 0;
+     std::string cpp_tok(tok);
+    if (named_items.count(cpp_tok) == 0) return E_BAD_TOKEN;
+    sto = std::stof(named_items[cpp_tok]);
+    return E_SUCCESS;
+}
+
 /**
  * Read a string of the format [x, y, z] into an Eigen::Vector3.
  * returns: 0 on success or an error code
  * 	-1: insufficient tokens
  * 	-2: one of the tokens supplied was invalid
  */
-parse_ercode parse_vector(char* str, evec3& sto) {
+parse_ercode Scene::parse_vector(char* str, evec3& sto) {
+    parse_ercode er;
     //find the start and the end of the vector
     char* start = strchr(str, '[');
     char* end = strchr(str, ']');
@@ -172,20 +181,39 @@ parse_ercode parse_vector(char* str, evec3& sto) {
     char* tok = strtok_r(start+1, ",", &save_str);
     if (!tok) return E_LACK_TOKENS;
     tok = CGS_trim_whitespace(tok, NULL);
+    double val;
     sto.x() = strtod(tok, NULL);
-    if (errno) { errno = 0;return E_BAD_TOKEN; }
+    if (errno) {
+	//if the string couldn't be interpreted as a double, try looking it up in the dictionary
+	if ((er = lookup_val(tok, val)) == E_SUCCESS)
+	    sto.x() = val;
+	else
+	    return er;
+    }
     //y
     tok = strtok_r(NULL, ",", &save_str);
     if (!tok) return E_LACK_TOKENS;
     tok = CGS_trim_whitespace(tok, NULL);
     sto.y() = strtod(tok, NULL);
-    if (errno) { errno = 0;return E_BAD_TOKEN; }
+    if (errno) {
+	//if the string couldn't be interpreted as a double, try looking it up in the dictionary
+	if ((er = lookup_val(tok, val)) == E_SUCCESS)
+	    sto.y() = val;
+	else
+	    return er;
+    }
     //z
     tok = strtok_r(NULL, ",", &save_str);
     if (!tok) return E_LACK_TOKENS;
     tok = CGS_trim_whitespace(tok, NULL);
     sto.z() = strtod(tok, NULL);
-    if (errno) { errno = 0;return E_BAD_TOKEN; }
+    if (errno) {
+	//if the string couldn't be interpreted as a double, try looking it up in the dictionary
+	if ((er = lookup_val(tok, val)) == E_SUCCESS)
+	    sto.z() = val;
+	else
+	    return er;
+    }
 
     return E_SUCCESS;
 }
@@ -194,9 +222,9 @@ parse_ercode parse_vector(char* str, evec3& sto) {
  * Based on the declaration syntax produce the appropriate geometric shape and store the result in ptr. Ptr must not be initialized before a call to this function to avoid a memory leak.
  * returns: 0 on success or an error code
  */
-parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) {
+parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) {
     *ptr = NULL;
-    parse_ercode error = E_SUCCESS;
+    parse_ercode er = E_SUCCESS;
 
     if (!f.name) return E_BAD_TOKEN;
     //switch between all potential types
@@ -205,34 +233,46 @@ parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int
 	evec3 corner;
 	evec3 size;
 	//read both vector arguments and throw errors if necessary
-	if ((error = parse_vector(f.args[0], corner)) != E_SUCCESS) return error;
-	if ((error = parse_vector(f.args[1], size)) != E_SUCCESS) return error;
+	if ((er = parse_vector(f.args[0], corner)) != E_SUCCESS) return er;
+	if ((er = parse_vector(f.args[1], size)) != E_SUCCESS) return er;
 	if (ptr) *ptr = new Box(corner, size, p_invert);
 	if (type) *type = CGS_BOX;
     } else if (strcmp(f.name, "Sphere") == 0) {
 	if (f.n_args < 2) return E_LACK_TOKENS;
 	evec3 center;
 	double rad = strtod(f.args[1], NULL);
-	if (errno) { errno = 0;return E_BAD_TOKEN; }
+	if (errno) {
+	    //if the string couldn't be interpreted as a double, try looking it up in the dictionary
+	    if ((er = lookup_val(f.args[1], rad)) != E_SUCCESS) return er;
+	}
 	//read both vector arguments and throw errors if necessary
-	if ((error = parse_vector(f.args[0], center)) != E_SUCCESS) return error;
+	if ((er = parse_vector(f.args[0], center)) != E_SUCCESS) return er;
 	if (ptr) *ptr = new Sphere(center, rad, p_invert);
 	if (type) *type = CGS_SPHERE;
     } else if (strcmp(f.name, "Cylinder") == 0) {
 	if (f.n_args < 3) return E_LACK_TOKENS;
 	evec3 center;
 	double h = strtod(f.args[1], NULL);
-	if (errno) { errno = 0;return E_BAD_TOKEN; }
+	if (errno) {
+	    //if the string couldn't be interpreted as a double, try looking it up in the dictionary
+	    if ((er = lookup_val(f.args[1], h)) != E_SUCCESS) return er;
+	}
 	double r1 = strtod(f.args[2], NULL);
-	if (errno) { errno = 0;return E_BAD_TOKEN; }
+	if (errno) {
+	    //if the string couldn't be interpreted as a double, try looking it up in the dictionary
+	    if ((er = lookup_val(f.args[2], r1)) != E_SUCCESS) return er;
+	}
 	//by default assume that the radii are the same
 	double r2 = r1;
 	if (f.n_args > 3) {
-	    r2 = strtod(f.args[2], NULL);
-	    if (errno) { errno = 0;return E_BAD_TOKEN; }
+	    r2 = strtod(f.args[3], NULL);
+	    if (errno) {
+		//if the string couldn't be interpreted as a double, try looking it up in the dictionary
+		if ((er = lookup_val(f.args[3], r2)) != E_SUCCESS) return er;
+	    }
 	}
 	//read both vector arguments and throw errors if necessary
-	if ((error = parse_vector(f.args[0], center)) != E_SUCCESS) return error;
+	if ((er = parse_vector(f.args[0], center)) != E_SUCCESS) return er;
 	if (ptr) *ptr = new Cylinder(center, h, r1, r2, p_invert);
 	if (type) *type = CGS_CYLINDER;
     } else if (strcmp(f.name, "Composite") == 0) {
@@ -263,7 +303,7 @@ parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int
  * end: If not NULL, a pointer to the first character after the end of the string is stored here. If an error occurred during parsing end will be set to NULL.
  * returns: an errorcode if an invalid string was supplied.
  */
-parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f, char** end) {
+parse_ercode Scene::parse_func(char* token, size_t open_par_ind, cgs_func& f, char** end) {
     //by default we want to indicate that we didn't get to the end
     if (end) *end = NULL;
     f.n_args = 0;
@@ -604,6 +644,8 @@ Scene::Scene(const char* p_fname) {
 			}
 			tree_pos.emplace_obj(obj, type);
 		    }
+		    //jump ahead until after the end of the function
+		    if (er == E_SUCCESS) i = endptr - buf;
 		//check for comments
 		} else if (buf[i] == '/') {
 		    if (i < line_len-1) {
@@ -632,6 +674,11 @@ Scene::Scene(const char* p_fname) {
 		//check for literal experessions enclosed in quotes
 		} else if (buf[i] == '\"') {
 		    blk_stack.push(BLK_LITERAL);
+		} else if (buf[i] == '=') {
+		    char* tok = CGS_trim_whitespace(buf, NULL);
+		    size_t val_len;
+		    char* val = CGS_trim_whitespace(buf+i+1, &val_len);
+		    named_items[std::string(tok)] = std::string(val);
 		}
 	    } else {
 		//check if we reached the end of a comment or string literal block

@@ -1,6 +1,8 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
+#include <meep.hpp>
 #include "cgs.hpp"
+#include "disp.hpp"
 
 TEST_CASE("Test function parsing") {
     char buf[BUF_SIZE];
@@ -14,15 +16,16 @@ TEST_CASE("Test function parsing") {
     const char* bad_test_func_2 = "foo ( a , b , c, )";
     const char* bad_test_func_3 = "foo ( a ,, c )";
 
+    Scene sc;
     cgs_func cur_func;
     //check string 1
     strncpy(buf, test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 1, cur_func, NULL);
+    sc.parse_func(buf, 1, cur_func, NULL);
     CHECK(cur_func.n_args == 0);
     CHECK(strcmp(cur_func.name, "f") == 0);
     //check string 2
     strncpy(buf, test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 1, cur_func, NULL);
+    sc.parse_func(buf, 1, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "f") == 0);
@@ -34,7 +37,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2], "c") == 0);
     //check string 3
     strncpy(buf, test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 3, cur_func, NULL);
+    sc.parse_func(buf, 3, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
@@ -46,7 +49,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2], "banana") == 0);
     //check string 4
     strncpy(buf, test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 3, cur_func, NULL);
+    sc.parse_func(buf, 3, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
@@ -58,7 +61,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2], "banana") == 0);
     //check string 5
     strncpy(buf, test_func_5, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, 4, cur_func, NULL);
+    sc.parse_func(buf, 4, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
@@ -70,15 +73,15 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2], "c") == 0);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_ercode er = parse_func(buf, 4, cur_func, NULL);
+    parse_ercode er = sc.parse_func(buf, 4, cur_func, NULL);
     CHECK(er == E_BAD_SYNTAX);
     //check bad string 2
     strncpy(buf, bad_test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = parse_func(buf, 4, cur_func, NULL);
+    er = sc.parse_func(buf, 4, cur_func, NULL);
     CHECK(er == E_LACK_TOKENS);
     //check bad string 3
     strncpy(buf, bad_test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = parse_func(buf, 4, cur_func, NULL);
+    er = sc.parse_func(buf, 4, cur_func, NULL);
     CHECK(er == E_LACK_TOKENS);
 }
 
@@ -99,46 +102,47 @@ TEST_CASE("Test Object Trees") {
     const char* rl_str = "Box([0,0,0], [1,1,1])";
     const char* rr_str = "Cylinder([2,0,0], 1, 1)";
 
+    Scene sc;
     //Insert root object
     strncpy(buf, root_obj_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
-    er = make_object(cur_func, &cur_obj, &cur_type, 0);
+    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert object 1
     strncpy(buf, l_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
-    er = make_object(cur_func, &cur_obj, &cur_type, 0);
+    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert left union object
     strncpy(buf, ll_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
-    er = make_object(cur_func, &cur_obj, &cur_type, 0);
+    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert right union object
     strncpy(buf, lr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
-    er = make_object(cur_func, &cur_obj, &cur_type, 0);
+    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert object 2
     strncpy(buf, r_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
-    er = make_object(cur_func, &cur_obj, &cur_type, 0);
+    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert left union object
     strncpy(buf, rl_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
-    er = make_object(cur_func, &cur_obj, &cur_type, 0);
+    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert right union object
     strncpy(buf, rr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
-    er = make_object(cur_func, &cur_obj, &cur_type, 0);
+    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
 
@@ -214,4 +218,32 @@ TEST_CASE("Test Geometric Inclusion") {
     CHECK(root->in(Eigen::Vector3d(3.1,1.1,1.1)) == 0);
     CHECK(root->in(Eigen::Vector3d(1.5,0.5,0.5)) == 0);
     CHECK(root->in(Eigen::Vector3d(1.5,0.1,4.5)) == 0);
+}
+
+TEST_CASE("Test dispersion material volumentric inclusion") {
+    //load settings from the configuration file
+    Settings args;
+   std::string name = "params.conf";
+    char* name_dup = strdup(name.c_str());
+    int ret = parse_conf_file(&args, name_dup);
+    free(name_dup);
+    CHECK(ret == 0);
+
+    //create the geometry object
+    Scene s("test.mt");
+    CompositeObject* root = s.get_roots()[0];
+    cgs_material_function mat_func(root, 2, 1);
+
+    meep::vec test_loc_1(0.5,0.5,0.5);
+    meep::vec test_loc_2(0.5,0.1,2);
+    meep::vec test_loc_3(2.5,0.5,0.1);
+    meep::vec test_loc_4(3.1,1.1,1.1);
+    meep::vec test_loc_5(1.5,0.5,0.5);
+    meep::vec test_loc_6(1.5,0.1,4.5);
+    CHECK(mat_func.in_bound(test_loc_1) == 1.0);
+    CHECK(mat_func.in_bound(test_loc_2) == 1.0);
+    CHECK(mat_func.in_bound(test_loc_3) == 1.0);
+    CHECK(mat_func.in_bound(test_loc_4) == 0.0);
+    CHECK(mat_func.in_bound(test_loc_5) == 0.0);
+    CHECK(mat_func.in_bound(test_loc_6) == 0.0);
 }

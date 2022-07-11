@@ -1,5 +1,5 @@
-#ifndef GEOM_H
-#define GEOM_H
+#ifndef DISP_H
+#define DISP_H
 
 #include <meep.hpp>
 #include <vector>
@@ -25,8 +25,6 @@ class cgs_material_function : public meep::material_function {
     //TODO: find a way to make this work with arbitrary shapes
     double bound_sharpness;
     double bound_eps_scale;
-    //returns whether we're to the left or the right of the dielectric boundary
-    double in_bound(const meep::vec &r);
 
     //scaling and offset
     double sc;
@@ -44,6 +42,8 @@ public:
     virtual void sigma_row(meep::component c, double sigrow[3], const meep::vec &r);
     virtual double chi3(meep::component c, const meep::vec &r);
     virtual double chi2(meep::component c, const meep::vec &r);
+    //returns whether we're to the left or the right of the dielectric boundary
+    double in_bound(const meep::vec &r);
 };
 
 class bound_geom {
@@ -69,4 +69,4 @@ class bound_geom {
 	_uint n_t_pts = 0;
 };
 
-#endif //GEOM_H
+#endif //DISP_H
