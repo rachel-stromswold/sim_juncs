@@ -80,17 +80,17 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
 	}
 	//setup the structure with the infinite frequency dielectric component
 	cgs_material_function inf_eps_func(*it, eps_2 - s.ambient_eps, s.ambient_eps, eps_scale);
-    /** ============================ DEBUG ============================ **/
-    meep::vec test_loc_1(0.5,0.5,2);
-    meep::vec test_loc_2(0.5,0.1,6);
-    meep::vec test_loc_3(0.5,8,6);
-    meep::vec test_loc_4(0.5,12,6);
-    double ret_1 = inf_eps_func.eps(test_loc_1);
-    double ret_2 = inf_eps_func.eps(test_loc_2);
-    double ret_3 = inf_eps_func.eps(test_loc_1);
-    double ret_4 = inf_eps_func.eps(test_loc_2);
-    printf("%f %f %f %f\n", ret_1, ret_2, ret_3, ret_4);
-    /** ============================ DEBUG ============================ **/
+	/** ============================ DEBUG ============================ **/
+	meep::vec test_loc_1(0.5,0.5,2);
+	meep::vec test_loc_2(0.5,0.1,6);
+	meep::vec test_loc_3(0.5,8,6);
+	meep::vec test_loc_4(0.5,12,6);
+	double ret_1 = inf_eps_func.eps(test_loc_1);
+	double ret_2 = inf_eps_func.eps(test_loc_2);
+	double ret_3 = inf_eps_func.eps(test_loc_1);
+	double ret_4 = inf_eps_func.eps(test_loc_2);
+	printf("%f %f %f %f\n", ret_1, ret_2, ret_3, ret_4);
+	/** ============================ DEBUG ============================ **/
 	strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
 
 	//read susceptibilities if they are available

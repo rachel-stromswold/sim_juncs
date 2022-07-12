@@ -94,6 +94,7 @@ CompositeObject::CompositeObject(combine_type p_cmb, const cgs_func& spec, int p
 	    char* val = strtok_r(NULL, "=", &save_str);
 	    //only insert a metadata entry if all information was valid
 	    if (val) {
+		tok = CGS_trim_whitespace(tok, NULL);val = CGS_trim_whitespace(val, NULL);
 		std::string tok_cpp(tok);std::string val_cpp(val);
 		metadata[tok_cpp] = val_cpp;
 	    }
