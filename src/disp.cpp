@@ -134,13 +134,13 @@ void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     FILE* fp = fopen(flux_name, "w");
 
     //initialize the array of monitor locations and write to the fluxes header
-    fprintf(fp, "#time, ");
+    /*fprintf(fp, "#time, ");
     monitor_locs.resize(locs.size());
     for (_uint i = 0; i < locs.size(); ++i) {
 	monitor_locs[i] = fields->get_new_point(locs[i]);
 	fprintf(fp, "(%f,%f,%f) ", locs[i].x(), locs[i].y(), locs[i].z());
     }
-    fprintf(fp, "\n");
+    fprintf(fp, "\n");*/
 
     //figure out the number of digits before the decimal and after
     int n_digits_a = (int)(ceil(log(ttot)/log(10)));
@@ -152,7 +152,7 @@ void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     _uint i = 0;
     for (; fields->time() < ttot; ++i) {
         //magnetic and electric fields are stored at different times, we need to synchronize
-        fields->synchronize_magnetic_fields();
+        /*fields->synchronize_magnetic_fields();
 
 	//fetch monitor points
 	for (_uint j = 0; j < locs.size(); ++j) {
@@ -162,7 +162,7 @@ void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
 	fprintf(fp, "\n");
 
         //restore the fields to the original state to allow for further stepping
-        fields->restore_magnetic_fields();
+        fields->restore_magnetic_fields();*/
 
         //open an hdf5 file with a reasonable name
         if (i % 4 == 0) {
