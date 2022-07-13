@@ -123,14 +123,16 @@ protected:
 
     //since we need to perform casts to use the appropriate object type, it's helpful to add a layer of abstraction
     int call_child_in(_uint side, const evec3& r);
+    //this is a helper function which returns a pointer to a copy of the object pointed to by the child on the specified side
+    Object* copy_child(_uint side) const;
 
 public:
     CompositeObject(combine_type p_cmb = CGS_UNION);
     CompositeObject(combine_type p_cmb, const cgs_func& spec, int p_invert);
-    // TODO: implement
+    CompositeObject(const CompositeObject& o);
+    CompositeObject(CompositeObject&& o);
+    CompositeObject& operator=(CompositeObject&& o);
     ~CompositeObject();
-    /*CompositeObject(const CompositeObject& o);
-    CompositeObject(CompositeObject&& o);*/
 
     //add a child to the composite object by parsing the string description
     void add_child(_uint side, Object* o, object_type p_type);

@@ -103,6 +103,80 @@ CompositeObject::CompositeObject(combine_type p_cmb, const cgs_func& spec, int p
     cmb = p_cmb;
 }
 
+/**
+ * Helper function which copies the child on the specified side. The caller is responsible for calling delete on the object and managing its lifetime.
+ */
+Object* CompositeObject::copy_child(_uint side) const {
+    //declare these outside of the switch statement so we don't bork the addresses
+    CompositeObject* my_child = NULL;
+    CompositeObject* comp = NULL;
+    switch (child_types[side]) {
+	//if the type is not a composite then copying is easy
+	case CGS_BOX: return new Box( *((Box*)children[side]) );break;
+	case CGS_SPHERE: return new Sphere( *((Sphere*)children[side]) );break;
+	case CGS_CYLINDER: return new Cylinder( *((Cylinder*)children[side]) );break;
+       //otherwise...
+	case CGS_COMPOSITE: 
+	    //allocate a new child and store a pointer of this child for convenience
+	    my_child = (CompositeObject*)(children[side]);
+	    comp = new CompositeObject(my_child->cmb);
+	    //copy the metadata and child types
+	    comp->metadata = my_child->metadata;
+	    comp->child_types[0] = my_child->child_types[0];
+	    comp->child_types[1] = my_child->child_types[1];
+	    //Copying of the children must be done recursively. The base case is any child which is not a composite.
+	    comp->children[0] = my_child->copy_child(0);
+	    comp->children[1] = my_child->copy_child(1);
+	    break;
+	default: break;
+    }
+    return NULL;
+}
+
+//copy constructor
+CompositeObject::CompositeObject(const CompositeObject& o) {
+    //copy the "easy" stuff
+    metadata = o.metadata;
+    child_types[0] = o.child_types[0];
+    child_types[1] = o.child_types[1];
+    //copying children is potentially thorny. We have a helper function to do it for us
+    children[0] = o.copy_child(0);
+    children[1] = o.copy_child(1);
+}
+
+//move constructor
+CompositeObject::CompositeObject(CompositeObject&& o) {
+    metadata = o.metadata;
+    //do this as a loop to avoid typing :p
+    for (_uint side = 0; side < 2; ++side) {
+	child_types[side] = o.child_types[side];
+	children[side] = o.children[side];
+	o.children[side] = NULL;
+    }
+}
+
+//assignemnt operator
+CompositeObject& CompositeObject::operator=(CompositeObject&& o) {
+    //swap the easy stuff
+    std::unordered_map<std::string, std::string> tmp_metadata = metadata;
+    metadata = o.metadata;
+    o.metadata = tmp_metadata;
+    //do this as a loop to avoid typing :p
+    for (_uint side = 0; side < 2; ++side) {
+	//save the current
+	object_type tmp_ctype = child_types[side];
+	Object* tmp_obj = children[side];
+	//alter the current
+	child_types[side] = o.child_types[side];
+	children[side] = o.children[side];
+	//store the current
+	o.child_types[side] = tmp_ctype;
+	o.children[side] = tmp_obj;
+    }
+    return *this;
+}
+
+//destructor
 CompositeObject::~CompositeObject() {
     for (_uint i = 0; i < 2; ++i) {
 	if (children[i]) {
@@ -597,103 +671,105 @@ Scene::Scene(const char* p_fname) {
     int invert = 0;
 
     //open the file for reading and read individual lines. We need to remove whitespace. Handily, we know the line length once we're done.
-    FILE* fp = fopen(p_fname, "r");
-    size_t lineno = 1;
-    size_t line_len = 0;
-    char last_char = 0;
-    while (fgets(buf, BUF_SIZE, fp)) {
-	char* red_str = CGS_trim_whitespace(buf, &line_len);
-	cur_token = buf;
-	for (size_t i = 0; i < line_len; ++i) {
-	    //check the most recent block pushed onto the stack
-	    block_type cur_type = BLK_UNDEF;
-	    if (blk_stack.size() > 0) cur_type = blk_stack.peek();
-	    //only interpret as normal code if we aren't in a comment or literal block
-	    if (cur_type != BLK_COMMENT && cur_type != BLK_LITERAL) {
-		if (buf[i] == '(' && blk_stack.peek() != BLK_LITERAL) {
-		    if (last_type != BLK_UNDEF)
-			printf("Error on line %d: Expected '{' before function name\n", lineno);
+    if (p_fname) {
+	FILE* fp = fopen(p_fname, "r");
+	size_t lineno = 1;
+	size_t line_len = 0;
+	char last_char = 0;
+	while (fgets(buf, BUF_SIZE, fp)) {
+	    char* red_str = CGS_trim_whitespace(buf, &line_len);
+	    cur_token = buf;
+	    for (size_t i = 0; i < line_len; ++i) {
+		//check the most recent block pushed onto the stack
+		block_type cur_type = BLK_UNDEF;
+		if (blk_stack.size() > 0) cur_type = blk_stack.peek();
+		//only interpret as normal code if we aren't in a comment or literal block
+		if (cur_type != BLK_COMMENT && cur_type != BLK_LITERAL) {
+		    if (buf[i] == '(' && blk_stack.peek() != BLK_LITERAL) {
+			if (last_type != BLK_UNDEF)
+			    printf("Error on line %d: Expected '{' before function name\n", lineno);
 
-		    //initialize a new cgs_func with the appropriate arguments
-		    cgs_func cur_func;
-		    char* endptr;
-		    parse_ercode er = parse_func(cur_token, i, cur_func, &endptr);
-		    switch (er) {
-			case E_BAD_TOKEN: printf("Error on line %d: Invalid function name \"%s\"\n", lineno, cur_token);break;
-			case E_BAD_SYNTAX: printf("Error on line %d: Invalid syntax\n", lineno);break;
-			default: break;
-		    }
-		    //try interpreting the function as a geometric object
-		    Object* obj = NULL;
-		    object_type type;
-		    make_object(cur_func, &obj, &type, invert);
-		    if (!obj) {
-			//if that failed try interpreting it as an operation (TODO: are there any useful things to put here?)
-			if (strcmp(cur_func.name, "invert") == 0) {
-			    last_type = BLK_INVERT;
+			//initialize a new cgs_func with the appropriate arguments
+			cgs_func cur_func;
+			char* endptr;
+			parse_ercode er = parse_func(cur_token, i, cur_func, &endptr);
+			switch (er) {
+			    case E_BAD_TOKEN: printf("Error on line %d: Invalid function name \"%s\"\n", lineno, cur_token);break;
+			    case E_BAD_SYNTAX: printf("Error on line %d: Invalid syntax\n", lineno);break;
+			    default: break;
 			}
-		    } else {
-			if (type == CGS_ROOT) {
-			    if (!tree_pos.is_empty()) {
-				printf("Error on line %d: Root composites may not be nested\n", lineno);
-			    } else {
-				last_comp = (CompositeObject*)obj;
-				last_type = BLK_ROOT;
-				//this is included so that we don't have to check whether something is a root or a composite every time
-				type = CGS_COMPOSITE;
+			//try interpreting the function as a geometric object
+			Object* obj = NULL;
+			object_type type;
+			make_object(cur_func, &obj, &type, invert);
+			if (!obj) {
+			    //if that failed try interpreting it as an operation (TODO: are there any useful things to put here?)
+			    if (strcmp(cur_func.name, "invert") == 0) {
+				last_type = BLK_INVERT;
 			    }
+			} else {
+			    if (type == CGS_ROOT) {
+				if (!tree_pos.is_empty()) {
+				    printf("Error on line %d: Root composites may not be nested\n", lineno);
+				} else {
+				    last_comp = (CompositeObject*)obj;
+				    last_type = BLK_ROOT;
+				    //this is included so that we don't have to check whether something is a root or a composite every time
+				    type = CGS_COMPOSITE;
+				}
+			    }
+			    tree_pos.emplace_obj(obj, type);
 			}
-			tree_pos.emplace_obj(obj, type);
+			//jump ahead until after the end of the function
+			if (er == E_SUCCESS) i = endptr - buf;
+		    //check for comments
+		    } else if (buf[i] == '/') {
+			if (i < line_len-1) {
+			    if (buf[i+1] == '/')
+				break;
+			    else if (buf[i+1] == '*')
+				blk_stack.push(BLK_COMMENT);
+			}
+		    //check for blocks
+		    } else if (buf[i] == '{') {
+			switch (last_type) {
+			    case BLK_INVERT: invert = 1 - invert;break;
+			    case BLK_ROOT: roots.push_back(last_comp);break;
+			    default: break;
+			}
+			blk_stack.push(last_type);
+			last_type = BLK_UNDEF;
+		    } else if (buf[i] == '}') {
+			block_type bt;
+			if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf("Error on line %d: unexpected '}'\n", lineno);
+			switch (bt) {
+			    case BLK_INVERT: invert = 1 - invert;break;
+			    case BLK_ROOT: tree_pos.reset();
+			    default: break;
+			}
+		    //check for literal experessions enclosed in quotes
+		    } else if (buf[i] == '\"') {
+			blk_stack.push(BLK_LITERAL);
+		    } else if (buf[i] == '=') {
+			char* tok = CGS_trim_whitespace(buf, NULL);
+			size_t val_len;
+			char* val = CGS_trim_whitespace(buf+i+1, &val_len);
+			named_items[std::string(tok)] = std::string(val);
 		    }
-		    //jump ahead until after the end of the function
-		    if (er == E_SUCCESS) i = endptr - buf;
-		//check for comments
-		} else if (buf[i] == '/') {
-		    if (i < line_len-1) {
-			if (buf[i+1] == '/')
-			    break;
-			else if (buf[i+1] == '*')
-			    blk_stack.push(BLK_COMMENT);
+		} else {
+		    //check if we reached the end of a comment or string literal block
+		    if (cur_type == BLK_COMMENT && (buf[i] == '*' && i < line_len-1 && buf[i+1] == '/')) {
+			blk_stack.pop(NULL);
+		    } else if (cur_type == BLK_LITERAL && (buf[i] == '\"' && last_char != '\\')) {
+			blk_stack.pop(NULL);
 		    }
-		//check for blocks
-		} else if (buf[i] == '{') {
-		    switch (last_type) {
-			case BLK_INVERT: invert = 1 - invert;break;
-			case BLK_ROOT: roots.push_back(last_comp);break;
-			default: break;
-		    }
-		    blk_stack.push(last_type);
-		    last_type = BLK_UNDEF;
-		} else if (buf[i] == '}') {
-		    block_type bt;
-		    if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf("Error on line %d: unexpected '}'\n", lineno);
-		    switch (bt) {
-			case BLK_INVERT: invert = 1 - invert;break;
-			case BLK_ROOT: tree_pos.reset();
-			default: break;
-		    }
-		//check for literal experessions enclosed in quotes
-		} else if (buf[i] == '\"') {
-		    blk_stack.push(BLK_LITERAL);
-		} else if (buf[i] == '=') {
-		    char* tok = CGS_trim_whitespace(buf, NULL);
-		    size_t val_len;
-		    char* val = CGS_trim_whitespace(buf+i+1, &val_len);
-		    named_items[std::string(tok)] = std::string(val);
 		}
-	    } else {
-		//check if we reached the end of a comment or string literal block
-		if (cur_type == BLK_COMMENT && (buf[i] == '*' && i < line_len-1 && buf[i+1] == '/')) {
-		    blk_stack.pop(NULL);
-		} else if (cur_type == BLK_LITERAL && (buf[i] == '\"' && last_char != '\\')) {
-		    blk_stack.pop(NULL);
-		}
+		last_char = buf[i];
 	    }
-	    last_char = buf[i];
+	    ++lineno;
 	}
-	++lineno;
+	fclose(fp);
     }
-    fclose(fp);
 }
 
 Scene::~Scene() {

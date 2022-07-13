@@ -223,7 +223,7 @@ TEST_CASE("Test Geometric Inclusion") {
 TEST_CASE("Test dispersion material volumentric inclusion") {
     //load settings from the configuration file
     Settings args;
-   std::string name = "params.conf";
+    std::string name = "params.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
     free(name_dup);
@@ -232,7 +232,7 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     //create the geometry object
     Scene s("test.mt");
     CompositeObject* root = s.get_roots()[0];
-    cgs_material_function mat_func(root, 2, 1);
+    cgs_material_function mat_func(root);
 
     meep::vec test_loc_1(0.5,0.5,0.5);
     meep::vec test_loc_2(0.5,0.1,2);
@@ -240,10 +240,12 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     meep::vec test_loc_4(3.1,1.1,1.1);
     meep::vec test_loc_5(1.5,0.5,0.5);
     meep::vec test_loc_6(1.5,0.1,4.5);
-    CHECK(mat_func.in_bound(test_loc_1) == 1.0);
-    CHECK(mat_func.in_bound(test_loc_2) == 1.0);
-    CHECK(mat_func.in_bound(test_loc_3) == 1.0);
-    CHECK(mat_func.in_bound(test_loc_4) == 0.0);
-    CHECK(mat_func.in_bound(test_loc_5) == 0.0);
-    CHECK(mat_func.in_bound(test_loc_6) == 0.0);
+    CHECK(mat_func.in_bound(test_loc_1) == 3.5);
+    CHECK(mat_func.in_bound(test_loc_2) == 3.5);
+    CHECK(mat_func.in_bound(test_loc_3) == 3.5);
+    CHECK(mat_func.in_bound(test_loc_4) == 1.0);
+    CHECK(mat_func.in_bound(test_loc_5) == 1.0);
+    CHECK(mat_func.in_bound(test_loc_6) == 1.0);
+
+    cleanup_settings(&args);
 }

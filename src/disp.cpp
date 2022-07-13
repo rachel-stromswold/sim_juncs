@@ -7,53 +7,155 @@ Settings args;
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
  */
-cgs_material_function::cgs_material_function(CompositeObject* p_volume, double scale, double offset, double p_bound_eps_scale, double p_bound_sharpness) {
-    volume = p_volume;
-    //set scale and offsets
-    sc = scale;
-    off = offset;
+cgs_material_function::cgs_material_function(double p_def_ret) {
+    def_ret = p_def_ret;
+}
 
-    bound_sharpness = p_bound_sharpness;
-    bound_eps_scale = p_bound_eps_scale;
+/**
+ * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
+ */
+cgs_material_function::cgs_material_function(CompositeObject* p_volume, std::string type, double p_def_ret) {
+    //set the regions which are used
+    n_regions = 1;
+    regions = (region_scale_pair*)malloc(sizeof(region_scale_pair));
+    if (regions) {
+	double scale = def_ret;
+	//lookup the scaling constant by reading metadata from the object
+	if (p_volume->has_metadata(type)) {
+	    scale = std::stod(p_volume->fetch_metadata(type));
+	}
+	regions[0].s = scale;//by default set the scale to whatever the default return value is
+	regions[0].c = p_volume;
+    } else {
+	n_regions = 0;
+    }
+    //set default return value
+    def_ret = p_def_ret;
+}
+
+/**
+ * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
+ */
+cgs_material_function::cgs_material_function(region_scale_pair p_reg, double p_def_ret) {
+    //set the regions which are used
+    n_regions = 1;
+    regions = (region_scale_pair*)malloc(sizeof(region_scale_pair));
+    if (regions) {
+	regions[0] = p_reg;
+    } else {
+	n_regions = 0;
+    }
+    //set default return value
+    def_ret = p_def_ret;
+}
+
+//copy constructor
+cgs_material_function::cgs_material_function(const cgs_material_function& o) {
+    def_ret = o.def_ret;
+    n_regions = o.n_regions;
+    regions = (region_scale_pair*)malloc(sizeof(region_scale_pair)*n_regions);
+    //only duplicate entries if successfully allocated
+    if (regions) {
+	for (_uint i = 0; i < n_regions; ++i) regions[i] = o.regions[i];
+    } else {
+	n_regions = 0;
+    }
+}
+
+//move constructor
+cgs_material_function::cgs_material_function(cgs_material_function&& o) {
+    def_ret = o.def_ret;
+    n_regions = o.n_regions;
+    regions = o.regions;
+    o.regions = NULL;
+    o.n_regions = 0;
+}
+
+//= constructor
+cgs_material_function& cgs_material_function::operator=(cgs_material_function&& o) {
+    //swap the default return values
+    double tmp_def_ret = def_ret;
+    def_ret = o.def_ret;
+    o.def_ret = tmp_def_ret;
+    //swap the regions and their number
+    _uint tmp_n_regions = n_regions;
+    region_scale_pair* tmp_regions = regions;
+    n_regions = o.n_regions;
+    regions = o.regions;
+    o.n_regions = tmp_n_regions;
+    o.regions = tmp_regions;
+
+    return *this;
+}
+
+cgs_material_function::~cgs_material_function() {
+    if (regions) free(regions);
+    n_regions = 0;
+}
+
+/**
+ * Add the region based on the CompositeObject p_reg.
+ * p_reg: the composite object specifying the region to add
+ * type: lookup the matching metadata key from the composite object and set the scale based on its value.
+ */
+void cgs_material_function::add_region(CompositeObject* p_reg, std::string type) {
+    _uint new_n_regions = n_regions+1;
+    region_scale_pair* tmp_regs = (region_scale_pair*)realloc(regions, sizeof(region_scale_pair)*new_n_regions);
+    //only proceed if allocation of memory was successful
+    if (tmp_regs) {
+	n_regions = new_n_regions;
+	regions[n_regions-1].c = p_reg;
+	double scale = def_ret;
+	//lookup the scaling constant by reading metadata from the object
+	if (p_reg->has_metadata(type)) {
+	    scale = std::stod(p_reg->fetch_metadata(type));
+	}
+	regions[n_regions-1].s = scale;//by default set the scale to whatever the default return value is
+    }
 }
 
 //returns whether we're to the left or the right of the dielectric boundary 1 indicates we are, 0 that we are not
 double cgs_material_function::in_bound(const meep::vec &r) {
-    if (!volume) return 0.0;
-    return volume->in(evec3(r.x(), r.y(), r.z()));
+    if (!regions) return def_ret;
+    //look through each region and return the first that contains the vector
+    for (_uint i = 0; i < n_regions; ++i) {
+	int ret = regions[i].c->in(evec3(r.x(), r.y(), r.z()));
+	if (ret) return regions[i].s;
+    }
+    return def_ret;
 }
 
 double cgs_material_function::chi1p1(meep::field_type ft, const meep::vec &r) {
     (void)ft;
-    return sc*in_bound(r) + off;
+    return in_bound(r);
 }
 
 double cgs_material_function::eps(const meep::vec &r) {
-    return sc*in_bound(r) + off;
+    return in_bound(r);
 }
 
 double cgs_material_function::mu(const meep::vec &r) {
-    return sc*in_bound(r) + off;
+    return in_bound(r);
 }
 
 double cgs_material_function::conductivity(meep::component c, const meep::vec &r) {
     (void)c;
-    return sc*in_bound(r) + off;
+    return in_bound(r);
 }
 
 void cgs_material_function::sigma_row(meep::component c, double sigrow[3], const meep::vec &r) {
     sigrow[0] = sigrow[1] = sigrow[2] = 0.0;
-    sigrow[meep::component_index(c)] = sc*in_bound(r) + off;
+    sigrow[meep::component_index(c)] = in_bound(r);
 }
 
 double cgs_material_function::chi3(meep::component c, const meep::vec &r) {
     (void)c;
-    return sc*in_bound(r) + off;
+    return in_bound(r);
 }
 
 double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
     (void)c;
-    return sc*in_bound(r) + off;
+    return in_bound(r);
 }
 
 bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
@@ -72,14 +174,11 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
 
     //iterate over all objects specified in the scene
     std::vector<CompositeObject*> roots = sc.get_roots();
+    //setup the structure with the infinite frequency dielectric component
+    cgs_material_function inf_eps_func(s.ambient_eps);
+
     for (auto it = roots.begin(); it != roots.end(); ++it) {
-	//try reading the frequency-independant dielectric constant
-	double eps_2 = s.ambient_eps;
-	if ((*it)->has_metadata("eps")) {
-	    eps_2 = std::stod((*it)->fetch_metadata("eps"));
-	}
-	//setup the structure with the infinite frequency dielectric component
-	cgs_material_function inf_eps_func(*it, eps_2 - s.ambient_eps, s.ambient_eps, eps_scale);
+	inf_eps_func.add_region(*it);
 	/** ============================ DEBUG ============================ **/
 	meep::vec test_loc_1(0.5,0.5,2);
 	meep::vec test_loc_2(0.5,0.1,6);
@@ -91,9 +190,10 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
 	double ret_4 = inf_eps_func.eps(test_loc_2);
 	printf("%f %f %f %f\n", ret_1, ret_2, ret_3, ret_4);
 	/** ============================ DEBUG ============================ **/
-	strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
-
-	//read susceptibilities if they are available
+    }
+    strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
+    //read susceptibilities if they are available
+    for (auto it = roots.begin(); it != roots.end(); ++it) {
 	susceptibility_list cur_sups;
 	int res = 0;
 	if ((*it)->has_metadata("susceptibilities")) {
@@ -104,7 +204,8 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
 	//add frequency dependent susceptibility
 	for (_uint i = 0; i < cur_sups.n_susceptibilities; ++i) {
 	    meep::lorentzian_susceptibility suscept( cur_sups.eps_2_omega[i]/s.um_scale, cur_sups.eps_2_gamma[i]/s.um_scale, !(cur_sups.eps_2_use_denom[i]) );
-	    cgs_material_function scale_func(*it, cur_sups.eps_2_sigma[i], 0.0, eps_scale);
+	    region_scale_pair tmp_pair = {*it, cur_sups.eps_2_sigma[i]};
+	    cgs_material_function scale_func(tmp_pair, 0.0);
 	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
 	}
     }
