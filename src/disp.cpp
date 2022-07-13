@@ -9,6 +9,8 @@ Settings args;
  */
 cgs_material_function::cgs_material_function(double p_def_ret) {
     def_ret = p_def_ret;
+    n_regions = 0;
+    regions = NULL;
 }
 
 /**
@@ -104,6 +106,7 @@ void cgs_material_function::add_region(CompositeObject* p_reg, std::string type)
     //only proceed if allocation of memory was successful
     if (tmp_regs) {
 	n_regions = new_n_regions;
+	regions = tmp_regs;
 	regions[n_regions-1].c = p_reg;
 	double scale = def_ret;
 	//lookup the scaling constant by reading metadata from the object
