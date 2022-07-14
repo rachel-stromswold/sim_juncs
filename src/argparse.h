@@ -40,6 +40,13 @@ typedef struct {
     double src_mon_dist = 0.2;
 } Settings;
 
+/*
+ * handy utility function which checks if the pointer is valid and saves to it if it is.
+ */
+inline void set_ercode(int* sto, int er) {
+    if (sto) *sto = er;
+}
+
 inline void cleanup_settings(Settings* s) {
     if (s->geom_fname) free(s->geom_fname_al);
 }

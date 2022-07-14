@@ -161,6 +161,104 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
     return in_bound(r);
 }
 
+/**
+ * Add the list of susceptibilities to the Settings file s. The string should have the format (omega_0,gamma_0,sigma_0),(omega_1,gamma_1,sigma_1),...
+ * returns: a vector list of susceptibilities
+ * If an error is encountered, a code will be saved to er if it is not NULL
+ *  0 on success
+ *  -1 null string
+ *  -2 invalid or empty string
+ *  -3 insufficient memory
+ */
+std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, int* er) {
+    std::vector<drude_suscept> ret;
+    //check that the Settings struct is valid and allocate memory
+    if (!str) {
+	set_ercode(er, -1);
+	return ret;
+    }
+
+    drude_suscept cur_sus;
+
+    //used for strtok_r
+    char* save_str;
+    char* tok;
+    //find the first entry
+    char* cur_entry = strchr(str, '(');
+    char* end = strchr(str, ')');
+
+    //only proceed if we have pointers to the start and end of the current entry
+    while (cur_entry && end) {
+	cur_sus.omega_0 = 0.0;
+	cur_sus.gamma = 0.0;
+	cur_sus.sigma = 0.0;
+	cur_sus.use_denom = 1;
+	//the open paren must occur before the end paren
+	if (cur_entry > end) {
+	    set_ercode(er, -2);
+	    return ret;
+	}
+
+	//null terminate the parenthesis and tokenize by commas
+	end[0] = 0;
+	//read the omega value
+	tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
+	cur_sus.omega_0 = strtod(tok, NULL);
+	if (errno) {
+	    errno = 0;
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	//read the gamma value
+	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+	if (!tok) {
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	cur_sus.gamma = strtod(tok, NULL);
+	if (errno) {
+	    errno = 0;
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	//read the sigma value
+	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+	if (!tok) {
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	cur_sus.sigma = strtod(tok, NULL);
+	if (errno) {
+	    errno = 0;
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	//read the (optional) use denom flag
+	tok = strtok_r(NULL, ",", &save_str);
+	if (tok) {
+	    tok = trim_whitespace(tok, NULL);
+	    cur_sus.use_denom = strtol(tok, NULL, 10);
+	    if (errno) {
+		errno = 0;
+		cur_sus.use_denom = 1;
+		if (strcmp(tok, "drude") == 0 || strcmp(tok, "true") == 0) cur_sus.use_denom = 0;
+	    }
+	    if (strcmp(tok, "lorentz") == 0 || strcmp(tok, "false") == 0) cur_sus.use_denom = 1;
+	}
+
+	//save the information
+	ret.push_back(cur_sus);
+
+	//advance to the next entry
+	if (end[1] == 0) break;
+	cur_entry = strchr(end+1, '(');
+	if (!cur_entry) break;
+	end = strchr(cur_entry, ')');
+    }
+
+    return ret;
+}
+
 bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
     //the arguments supplied will alter the location of the dielectric
     double z_center = s.len/2 + s.pml_thickness;
@@ -203,17 +301,17 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
     strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
     //read susceptibilities if they are available
     for (auto it = roots.begin(); it != roots.end(); ++it) {
-	susceptibility_list cur_sups;
+	std::vector<drude_suscept> cur_sups;
 	int res = 0;
 	if ((*it)->has_metadata("susceptibilities")) {
 	    char* dat = strdup((*it)->fetch_metadata("susceptibilities").c_str());
-	    res = parse_susceptibilities(&cur_sups, dat);
+	    cur_sups = parse_susceptibilities(dat, &res);
 	    free(dat);
 	}
 	//add frequency dependent susceptibility
-	for (_uint i = 0; i < cur_sups.n_susceptibilities; ++i) {
-	    meep::lorentzian_susceptibility suscept( cur_sups.eps_2_omega[i]/s.um_scale, cur_sups.eps_2_gamma[i]/s.um_scale, !(cur_sups.eps_2_use_denom[i]) );
-	    region_scale_pair tmp_pair = {*it, cur_sups.eps_2_sigma[i]};
+	for (_uint i = 0; i < cur_sups.size(); ++i) {
+	    meep::lorentzian_susceptibility suscept( cur_sups[i].omega_0/s.um_scale, cur_sups[i].gamma/s.um_scale, !(cur_sups[i].use_denom) );
+	    region_scale_pair tmp_pair = {*it, cur_sups[i].sigma};
 	    cgs_material_function scale_func(tmp_pair, 0.0);
 	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
 	}

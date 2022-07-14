@@ -52,117 +52,11 @@ public:
 };
 
 typedef struct {
-    _uint n_susceptibilities = 0;
-    double* eps_2_omega;
-    double* eps_2_gamma;
-    double* eps_2_sigma;
-    bool* eps_2_use_denom;
-} susceptibility_list;
-
-inline void cleanup_susceptibility_list(susceptibility_list* s) {
-    if (s->eps_2_omega) free(s->eps_2_omega);
-    if (s->eps_2_gamma) free(s->eps_2_gamma);
-    if (s->eps_2_sigma) free(s->eps_2_sigma);
-    if (s->eps_2_use_denom) free(s->eps_2_use_denom);
-}
-
-/**
- * Add the list of susceptibilities to the Settings file s. The string should have the format (omega_0,gamma_0,sigma_0),(omega_1,gamma_1,sigma_1),...
- * returns: 0 on success or an error code
- * 		-1 null string
- * 		-2 invalid or empty string
- * 		-3 insufficient memory
- */
-inline int parse_susceptibilities(susceptibility_list* s, char* const str) {
-    //check that the Settings struct is valid and allocate memory
-    if (!s) return -1;
-    _uint buf_size = BUF_SIZE;
-    s->eps_2_omega = (double*)malloc(buf_size*sizeof(double));
-    s->eps_2_gamma = (double*)malloc(buf_size*sizeof(double));
-    s->eps_2_sigma = (double*)malloc(buf_size*sizeof(double));
-    s->eps_2_use_denom = (bool*)malloc(buf_size*sizeof(int));
-    //TODO: get gud
-    //if (!(s->eps_2_omega && s->eps_2_gamma && s->eps_2_sigma && s->eps_2_use_denom)) 
-
-    double cur_omega = 0.0;
-    double cur_gamma = 0.0;
-    double cur_sigma = 0.0;
-    int cur_use_denom = 0;
-
-    //used for strtok_r
-    char* save_str;
-    char* tok;
-    //find the first entry
-    char* cur_entry = strchr(str, '(');
-    char* end = strchr(str, ')');
-
-    //only proceed if we have pointers to the start and end of the current entry
-    while (cur_entry && end) {
-	//resize buffers if necessary
-	if (s->n_susceptibilities == buf_size) {
-	    buf_size *= 2;
-	    s->eps_2_omega = (double*)realloc(s->eps_2_omega, buf_size*sizeof(double));
-	    s->eps_2_gamma = (double*)realloc(s->eps_2_gamma, buf_size*sizeof(double));
-	    s->eps_2_sigma = (double*)realloc(s->eps_2_sigma, buf_size*sizeof(double));
-	    s->eps_2_use_denom = (bool*)realloc(s->eps_2_use_denom, buf_size*sizeof(double));
-	}
-	cur_omega = 0.0;
-	cur_gamma = 0.0;
-	cur_use_denom = 1;
-	//the open paren must occur before the end paren
-	if (cur_entry > end) return -2;
-
-	//null terminate the parenthesis and tokenize by commas
-	end[0] = 0;
-	//read the omega value
-	tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
-	cur_omega = strtod(tok, NULL);
-	if (errno) { errno = 0;return -2; }
-	//read the gamma value
-	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	if (!tok) return -2;
-	cur_gamma = strtod(tok, NULL);
-	if (errno) { errno = 0;return -2; }
-	//read the sigma value
-	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	if (!tok) return -2;
-	cur_sigma = strtod(tok, NULL);
-	if (errno) { errno = 0;return -2; }
-	//read the (optional) use denom flag
-	tok = strtok_r(NULL, ",", &save_str);
-	if (tok) {
-	    tok = trim_whitespace(tok, NULL);
-	    cur_use_denom = strtol(tok, NULL, 10);
-	    if (errno) {
-		errno = 0;
-		cur_use_denom=1;
-		if (strcmp(tok, "drude") == 0 || strcmp(tok, "true") == 0) cur_use_denom = 0;
-	    }
-	    if (strcmp(tok, "lorentz") == 0 || strcmp(tok, "false") == 0) cur_use_denom = 1;
-	}
-
-	//save the information
-	s->eps_2_omega[s->n_susceptibilities] = cur_omega;
-	s->eps_2_gamma[s->n_susceptibilities] = cur_gamma;
-	s->eps_2_sigma[s->n_susceptibilities] = cur_sigma;
-	s->eps_2_use_denom[s->n_susceptibilities] = cur_use_denom;
-	++s->n_susceptibilities;
-
-	//advance to the next entry
-	if (end[1] == 0) break;
-	cur_entry = strchr(end+1, '(');
-	end = strchr(cur_entry, ')');
-    }
-
-    //realloc arrays to exactly fit memory
-    buf_size = s->n_susceptibilities;
-    s->eps_2_omega = (double*)realloc(s->eps_2_omega, buf_size*sizeof(double));
-    s->eps_2_gamma = (double*)realloc(s->eps_2_gamma, buf_size*sizeof(double));
-    s->eps_2_sigma = (double*)realloc(s->eps_2_sigma, buf_size*sizeof(double));
-    s->eps_2_use_denom = (bool*)realloc(s->eps_2_use_denom, buf_size*sizeof(int));
-
-    return 0;
-}
+    double omega_0;
+    double gamma;
+    double sigma;
+    bool use_denom;
+} drude_suscept;
 
 class bound_geom {
     public:
@@ -185,6 +79,7 @@ class bound_geom {
 
 	double ttot = 0;
 	_uint n_t_pts = 0;
+	std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
 };
 
 #endif //DISP_H
