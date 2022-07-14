@@ -300,7 +300,7 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
     }
     strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
     //read susceptibilities if they are available
-    for (auto it = roots.begin(); it != roots.end(); ++it) {
+    /*for (auto it = roots.begin(); it != roots.end(); ++it) {
 	std::vector<drude_suscept> cur_sups;
 	int res = 0;
 	if ((*it)->has_metadata("susceptibilities")) {
@@ -315,7 +315,7 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
 	    cgs_material_function scale_func(tmp_pair, 0.0);
 	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
 	}
-    }
+    }*/
 
     //create the fields
     fields = new meep::fields(strct);
