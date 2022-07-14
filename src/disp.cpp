@@ -184,14 +184,20 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
 	inf_eps_func.add_region(*it);
 	/** ============================ DEBUG ============================ **/
 	meep::vec test_loc_1(0.5,0.5,2);
-	meep::vec test_loc_2(0.5,0.1,6);
-	meep::vec test_loc_3(0.5,8,6);
-	meep::vec test_loc_4(0.5,12,6);
+	meep::vec test_loc_2(0.1,0.5,6);
+	meep::vec test_loc_3(0.5,0.1,6);
+	meep::vec test_loc_4(8,0.5,6);
+	meep::vec test_loc_5(0.5,8,6);
+	meep::vec test_loc_6(12,0.5,6);
+	meep::vec test_loc_7(0.5,12,6);
 	double ret_1 = inf_eps_func.eps(test_loc_1);
 	double ret_2 = inf_eps_func.eps(test_loc_2);
-	double ret_3 = inf_eps_func.eps(test_loc_1);
-	double ret_4 = inf_eps_func.eps(test_loc_2);
-	printf("%f %f %f %f\n", ret_1, ret_2, ret_3, ret_4);
+	double ret_3 = inf_eps_func.eps(test_loc_3);
+	double ret_4 = inf_eps_func.eps(test_loc_4);
+	double ret_5 = inf_eps_func.eps(test_loc_5);
+	double ret_6 = inf_eps_func.eps(test_loc_6);
+	double ret_7 = inf_eps_func.eps(test_loc_7);
+	printf("%f %f %f %f %f %f %f\n", ret_1, ret_2, ret_3, ret_4, ret_5, ret_6, ret_7);
 	/** ============================ DEBUG ============================ **/
     }
     strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
