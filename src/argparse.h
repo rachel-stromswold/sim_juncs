@@ -27,6 +27,7 @@ typedef struct {
     double ambient_eps = 1.0;
     char* geom_fname_al = NULL;
     char* geom_fname = NULL;
+    char* conf_fname = NULL;
     double eps_2 = 2.0;
     double amp = 1.0;
 
@@ -172,7 +173,15 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 	for (_uint i = 0; i < n_args; ++i) {
 	    _uint to_rm = 0;
 	    //look for known argument names
-	    if (strstr(argv[i], "--out-dir") == argv[i]) {
+	    if (strstr(argv[i], "--conf-file") == argv[i]) {
+		if (i == n_args-1) {
+		    printf("Usage: meep --conf-file file name");
+		    return 0;
+		} else {
+		    a->conf_fname = argv[i+1];
+		    to_rm = 2;
+		}
+	    } else if (strstr(argv[i], "--out-dir") == argv[i]) {
 		if (i == n_args-1) {
 		    printf("Usage: meep --out-dir <prefix to output hdf5 files to>");
 		    return 0;
