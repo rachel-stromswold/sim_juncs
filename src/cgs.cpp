@@ -653,7 +653,7 @@ CompositeObject* ObjectStack::get_root() {
     return buf[0].obj;
 }
 
-Scene::Scene(const char* p_fname) {
+Scene::Scene(const char* p_fname, parse_ercode* ercode) {
     char buf[BUF_SIZE];
     char func_name[BUF_SIZE];
     size_t n_args = 0;
@@ -671,8 +671,11 @@ Scene::Scene(const char* p_fname) {
     int invert = 0;
 
     //open the file for reading and read individual lines. We need to remove whitespace. Handily, we know the line length once we're done.
+    FILE* fp = NULL;
     if (p_fname) {
-	FILE* fp = fopen(p_fname, "r");
+        fp = fopen(p_fname, "r");
+    }
+    if (fp) {
 	size_t lineno = 1;
 	size_t line_len = 0;
 	char last_char = 0;
@@ -769,6 +772,9 @@ Scene::Scene(const char* p_fname) {
 	    ++lineno;
 	}
 	fclose(fp);
+    } else {
+        printf("Error: couldn't open file %s for reading!\n", p_fname);
+        if (ercode) *ercode = E_NOFILE;
     }
 }
 

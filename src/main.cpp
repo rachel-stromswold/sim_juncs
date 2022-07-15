@@ -35,7 +35,9 @@ int main(int argc, char **argv) {
     double y_loc = z_center;
 
     //create the geometry object
-    bound_geom geom(args);
+    parse_ercode ercode;
+    bound_geom geom(args, &ercode);
+    if (ercode) return (int)ercode;
 
     //create the EM-wave source at the specified location
     meep::gaussian_src_time src(args.freq, args.gauss_width, args.gauss_start_time, args.gauss_cutoff*args.gauss_width);

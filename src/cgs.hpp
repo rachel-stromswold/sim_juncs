@@ -17,7 +17,7 @@
 typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
-typedef enum { E_SUCCESS, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY } parse_ercode;
+typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY } parse_ercode;
 
 typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE } combine_type;
 //note that ROOTS are a special type of COMPOSITES
@@ -210,7 +210,7 @@ private:
 
 public:
     Scene() {}
-    Scene(const char* p_fname);
+    Scene(const char* p_fname, parse_ercode* ercode = NULL);
     ~Scene();
 
     std::vector<CompositeObject*> get_roots() { return roots; }

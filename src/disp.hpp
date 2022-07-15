@@ -60,7 +60,7 @@ typedef struct {
 
 class bound_geom {
     public:
-	bound_geom(const Settings& s);
+	bound_geom(const Settings& s, parse_ercode* ercode=NULL);
 	~bound_geom();
 
 	void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
@@ -72,8 +72,7 @@ class bound_geom {
     private:
 	//meep objects
 	meep::grid_volume vol;
-	meep::structure* strct = NULL;
-	meep::fields* fields = NULL;
+	meep::fields fields;
 
 	std::vector<meep::monitor_point*> monitor_locs;
 

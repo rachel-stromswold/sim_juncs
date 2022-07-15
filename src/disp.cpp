@@ -259,7 +259,9 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, i
     return ret;
 }
 
-bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
+double dummy_eps(const meep::vec& r) { return 1.0; }
+
+bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) : sc(s.geom_fname, ercode), fields(NULL) {
     //the arguments supplied will alter the location of the dielectric
     double z_center = s.len/2 + s.pml_thickness;
     double eps_scale = 1 / (sharpness*args.resolution);
@@ -298,9 +300,9 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
 	printf("%f %f %f %f %f %f %f\n", ret_1, ret_2, ret_3, ret_4, ret_5, ret_6, ret_7);
 	/** ============================ DEBUG ============================ **/
     }
-    strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
+    meep::structure strct(vol, inf_eps_func, meep::pml(args.pml_thickness));
     //read susceptibilities if they are available
-    /*for (auto it = roots.begin(); it != roots.end(); ++it) {
+    for (auto it = roots.begin(); it != roots.end(); ++it) {
 	std::vector<drude_suscept> cur_sups;
 	int res = 0;
 	if ((*it)->has_metadata("susceptibilities")) {
@@ -313,39 +315,37 @@ bound_geom::bound_geom(const Settings& s) : sc(s.geom_fname) {
 	    meep::lorentzian_susceptibility suscept( cur_sups[i].omega_0/s.um_scale, cur_sups[i].gamma/s.um_scale, !(cur_sups[i].use_denom) );
 	    region_scale_pair tmp_pair = {*it, cur_sups[i].sigma};
 	    cgs_material_function scale_func(tmp_pair, 0.0);
-	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
+	    strct.add_susceptibility(scale_func, meep::E_stuff, suscept);
 	}
-    }*/
+    }
 
     //create the fields
-    fields = new meep::fields(strct);
+    fields = meep::fields(&strct);
 }
 
 bound_geom::~bound_geom() {
-    if (strct) delete strct;
-    if (fields) delete fields;
     //delete all monitor locations
     for (_uint i = 0; i < monitor_locs.size(); ++i) delete monitor_locs[i];
 }
 
 void bound_geom::add_point_source(meep::component c, const meep::src_time &src, const meep::vec& source_loc, std::complex<double> amp) {
-    fields->add_point_source(c, src, source_loc, args.amp);
+    fields.add_point_source(c, src, source_loc, args.amp);
 
     //set the total timespan based on the added source
-    ttot = fields->last_source_time() + args.post_source_t;
-    n_t_pts = (_uint)(ttot / fields->dt);
+    ttot = fields.last_source_time() + args.post_source_t;
+    n_t_pts = (_uint)(ttot / fields.dt);
 }
 
 void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp) {
-    fields->add_volume_source(c, src, source_vol, args.amp);
+    fields.add_volume_source(c, src, source_vol, args.amp);
 
     //set the total timespan based on the added source
-    ttot = fields->last_source_time() + args.post_source_t;
-    n_t_pts = (_uint)(ttot / fields->dt);
+    ttot = fields.last_source_time() + args.post_source_t;
+    n_t_pts = (_uint)(ttot / fields.dt);
 }
 
 void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
-    fields->set_output_directory(fname_prefix);
+    fields.set_output_directory(fname_prefix);
 
     //open the file which will store poynting vector fluxes
     char flux_name[BUF_SIZE];
@@ -356,40 +356,40 @@ void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     /*fprintf(fp, "#time, ");
     monitor_locs.resize(locs.size());
     for (_uint i = 0; i < locs.size(); ++i) {
-	monitor_locs[i] = fields->get_new_point(locs[i]);
+	monitor_locs[i] = fields.get_new_point(locs[i]);
 	fprintf(fp, "(%f,%f,%f) ", locs[i].x(), locs[i].y(), locs[i].z());
     }
     fprintf(fp, "\n");*/
 
     //figure out the number of digits before the decimal and after
     int n_digits_a = (int)(ceil(log(ttot)/log(10)));
-    double rat = -log((double)(fields->dt))/log(10.0);
+    double rat = -log((double)(fields.dt))/log(10.0);
     int n_digits_b = (int)ceil(rat)+1;
     char h5_fname[BUF_SIZE];
     strcpy(h5_fname, "ex-");
 
     _uint i = 0;
-    for (; fields->time() < ttot; ++i) {
+    for (; fields.time() < ttot; ++i) {
         //magnetic and electric fields are stored at different times, we need to synchronize
-        /*fields->synchronize_magnetic_fields();
+        /*fields.synchronize_magnetic_fields();
 
 	//fetch monitor points
 	for (_uint j = 0; j < locs.size(); ++j) {
-	    fields->get_point(monitor_locs[j], locs[j]);
-	    fprintf(fp, "%f ", fields->get_field(meep::Ex, locs[j]));
+	    fields.get_point(monitor_locs[j], locs[j]);
+	    fprintf(fp, "%f ", fields.get_field(meep::Ex, locs[j]));
 	}
 	fprintf(fp, "\n");
 
         //restore the fields to the original state to allow for further stepping
-        fields->restore_magnetic_fields();*/
+        fields.restore_magnetic_fields();*/
 
         //open an hdf5 file with a reasonable name
         if (i % 4 == 0) {
-        size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields->time(), n_digits_a, n_digits_b);
-        meep::h5file* file = fields->open_h5file(h5_fname);
+        size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
+        meep::h5file* file = fields.open_h5file(h5_fname);
 
-        fields->output_hdf5(meep::Ex, vol.surroundings(), file);
-        fields->step();
+        fields.output_hdf5(meep::Ex, vol.surroundings(), file);
+        fields.step();
 
         //we're done with the file
         delete file;
