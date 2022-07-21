@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     double y_loc = z_center;
 
     //create the geometry object
-    parse_ercode ercode;
+    parse_ercode ercode = E_SUCCESS;
     bound_geom geom(args, &ercode);
     if (ercode) return (int)ercode;
 

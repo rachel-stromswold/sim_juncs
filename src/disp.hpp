@@ -28,7 +28,7 @@ class cgs_material_function : public meep::material_function {
     region_scale_pair* regions;
     
     //scaling and offset
-    double def_ret;
+    double def_ret = 1.0;
 
 public:
     cgs_material_function(double p_def_ret=1.0);
@@ -58,6 +58,9 @@ typedef struct {
     bool use_denom;
 } drude_suscept;
 
+std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
+meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode);
+
 class bound_geom {
     public:
 	bound_geom(const Settings& s, parse_ercode* ercode=NULL);
@@ -72,13 +75,13 @@ class bound_geom {
     private:
 	//meep objects
 	meep::grid_volume vol;
+    meep::structure* strct = NULL;
 	meep::fields fields;
 
 	std::vector<meep::monitor_point*> monitor_locs;
 
 	double ttot = 0;
-	_uint n_t_pts = 0;
-	std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
+	_uint n_t_pts = 0;	
 };
 
 #endif //DISP_H

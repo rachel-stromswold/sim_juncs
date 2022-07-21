@@ -399,53 +399,53 @@ parse_ercode Scene::parse_func(char* token, size_t open_par_ind, cgs_func& f, ch
     size_t last_non_space = 0;
     size_t i = 0;
     for (; arg_str[i] != 0; ++i) {
-	//it is possible that there is an array or function inside one of the arguments, we should ignore field separators in those blocks
-	if (arg_str[i] == '[') {
-	    ++s_block_in;
-	} else if (arg_str[i] == ']') {
-	    --s_block_in;
-	    if (s_block_in < 0) return E_BAD_SYNTAX;
-	} else if (arg_str[i] == '(') {
-	    ++p_block_in;
-	} else if (arg_str[i] == ')') {
-	    --p_block_in;
-	    //when we reach an end paren without a matching open paren we should stop reading the function
-	    if (p_block_in < 0) break;
-	} else if (arg_str[i] == '\"') {
-	    //TODO: handle single and double quotes separately
-	    q_block_in = 1 - q_block_in;
-	}
-	
-	//now if this character is a field separator we add it to the argument list
-	if (arg_str[i] == ',' && s_block_in == 0 && p_block_in == 0 && q_block_in == 0) {
-	    if (!tok_start) return E_LACK_TOKENS;
-	    arg_str[last_non_space+1] = 0;
-	    f.args[j++] = cur_tok;
-	    //now reset the current token
-	    cur_tok = arg_str + i + 1;
-	    tok_start = false;
-	    continue;
-	}
+        //it is possible that there is an array or function inside one of the arguments, we should ignore field separators in those blocks
+        if (arg_str[i] == '[') {
+            ++s_block_in;
+        } else if (arg_str[i] == ']') {
+            --s_block_in;
+            if (s_block_in < 0) return E_BAD_SYNTAX;
+        } else if (arg_str[i] == '(') {
+            ++p_block_in;
+        } else if (arg_str[i] == ')') {
+            --p_block_in;
+            //when we reach an end paren without a matching open paren we should stop reading the function
+            if (p_block_in < 0) break;
+        } else if (arg_str[i] == '\"') {
+            //TODO: handle single and double quotes separately
+            q_block_in = 1 - q_block_in;
+        }
+        
+        //now if this character is a field separator we add it to the argument list
+        if (arg_str[i] == ',' && s_block_in == 0 && p_block_in == 0 && q_block_in == 0) {
+            if (!tok_start) return E_LACK_TOKENS;
+            arg_str[last_non_space+1] = 0;
+            f.args[j++] = cur_tok;
+            //now reset the current token
+            cur_tok = arg_str + i + 1;
+            tok_start = false;
+            continue;
+        }
 
-	//we want to remove whitespace surrounding the arguments
-	if (arg_str[i] == ' ' || arg_str[i] == '\t') {
-	    if (!tok_start) {
-		cur_tok += 1;
-	    }
-	} else {
-	    last_non_space = i;
-	    tok_start = true;
-	}
+        //we want to remove whitespace surrounding the arguments
+        if (arg_str[i] == ' ' || arg_str[i] == '\t') {
+            if (!tok_start) {
+                cur_tok += 1;
+            }
+        } else {
+            last_non_space = i;
+            tok_start = true;
+        }
     }
     //this means that there wasn't a closing parenthesis found
     if (arg_str[i] == 0) return E_BAD_SYNTAX;
     //add the last token
-    if (j > 0) {
-	if (!tok_start) return E_LACK_TOKENS;
-	arg_str[last_non_space+1] = 0;
-	f.args[j++] = cur_tok;
-	arg_str[i] = 0;
-    }
+    //if (j > 0) {
+        if (!tok_start) return E_LACK_TOKENS;
+        arg_str[last_non_space+1] = 0;
+        f.args[j++] = cur_tok;
+        arg_str[i] = 0;
+    //}
     f.n_args = j;
     //assign the end pointer if the caller wants it
     if (end) *end = arg_str + i + 1;

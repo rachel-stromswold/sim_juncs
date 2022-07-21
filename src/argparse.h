@@ -214,13 +214,13 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--grid-num") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --grid-res <grid points per unit length>");
+		    printf("Usage: meep --grid-num total number of grid points to use");
 		    return 0;
 		} else {
 		    a->grid_num = strtol(argv[i+1], NULL, 10);
 		    //check for errors
 		    if (errno != 0) {
-			printf("Invalid floating point supplied to --grid-res");
+			printf("Invalid floating point supplied to --grid-num");
 			return errno;
 		    }
 		    to_rm = 2;
