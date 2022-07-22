@@ -207,6 +207,8 @@ void CompositeObject::add_child(_uint side, Object* o, object_type p_type) {
 }
 
 int CompositeObject::in(const evec3& r) {
+    //NOOP items should be ignored
+    if (cmb == CGS_CMB_NOOP) return 0;
     //if the right child is null then we don't apply any operations
     if (children[1] == NULL) {
 	if (children[0] == NULL)
@@ -362,6 +364,9 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
     } else if (strcmp(f.name, "difference") == 0) {
 	if (ptr) *ptr = new CompositeObject(CGS_DIFFERENCE, f, p_invert);
 	if (type) *type = CGS_COMPOSITE;
+    } else if (strcmp(f.name, "data") == 0) {
+	if (ptr) *ptr = new CompositeObject(CGS_CMB_NOOP, f, p_invert);
+	if (type) *type = CGS_DATA;
     } else {
 	if (ptr) *ptr = NULL;
 	if (type) *type = CGS_UNDEF;
@@ -392,50 +397,59 @@ parse_ercode Scene::parse_func(char* token, size_t open_par_ind, cgs_func& f, ch
     //keep track of information for individual arguments
     int s_block_in = 0;
     int p_block_in = 0;
-    int q_block_in = 0;
     size_t j = 0;
     bool tok_start = false;
     char* cur_tok = arg_str;
     size_t last_non_space = 0;
     size_t i = 0;
     for (; arg_str[i] != 0; ++i) {
-        //it is possible that there is an array or function inside one of the arguments, we should ignore field separators in those blocks
-        if (arg_str[i] == '[') {
-            ++s_block_in;
-        } else if (arg_str[i] == ']') {
-            --s_block_in;
-            if (s_block_in < 0) return E_BAD_SYNTAX;
-        } else if (arg_str[i] == '(') {
-            ++p_block_in;
-        } else if (arg_str[i] == ')') {
-            --p_block_in;
-            //when we reach an end paren without a matching open paren we should stop reading the function
-            if (p_block_in < 0) break;
-        } else if (arg_str[i] == '\"') {
-            //TODO: handle single and double quotes separately
-            q_block_in = 1 - q_block_in;
-        }
-        
-        //now if this character is a field separator we add it to the argument list
-        if (arg_str[i] == ',' && s_block_in == 0 && p_block_in == 0 && q_block_in == 0) {
-            if (!tok_start) return E_LACK_TOKENS;
-            arg_str[last_non_space+1] = 0;
-            f.args[j++] = cur_tok;
-            //now reset the current token
-            cur_tok = arg_str + i + 1;
-            tok_start = false;
-            continue;
-        }
+	//it is possible that there is an array or function inside one of the arguments, we should ignore field separators in those blocks
+	if (arg_str[i] == '[') {
+	    ++s_block_in;
+	} else if (arg_str[i] == ']') {
+	    --s_block_in;
+	    if (s_block_in < 0) return E_BAD_SYNTAX;
+	} else if (arg_str[i] == '(') {
+	    ++p_block_in;
+	} else if (arg_str[i] == ')') {
+	    --p_block_in;
+	    //when we reach an end paren without a matching open paren we should stop reading the function
+	    if (p_block_in < 0) break;
+	} else if (arg_str[i] == '\"') {
+	    arg_str[i] = ' ';
+	    //skip ahead until we find the end of the quote
+	    for (_uint j = i+1; arg_str[j] != 0; ++j) {
+		if (arg_str[j] == '\"' && arg_str[j-1] != '\\') {
+		    //once we reach the end of the string we need to set the higher level index accordingly
+		    last_non_space = j-1;
+		    i = j;
+		    arg_str[j] = ' ';//assign the character to be ignored
+		    break;
+		}
+	    }
+	    continue;
+	}
+	
+	//now if this character is a field separator we add it to the argument list
+	if (arg_str[i] == ',' && s_block_in == 0 && p_block_in == 0) {
+	    if (!tok_start) return E_LACK_TOKENS;
+	    arg_str[last_non_space+1] = 0;
+	    f.args[j++] = cur_tok;
+	    //now reset the current token
+	    cur_tok = arg_str + i + 1;
+	    tok_start = false;
+	    continue;
+	}
 
-        //we want to remove whitespace surrounding the arguments
-        if (arg_str[i] == ' ' || arg_str[i] == '\t') {
-            if (!tok_start) {
-                cur_tok += 1;
-            }
-        } else {
-            last_non_space = i;
-            tok_start = true;
-        }
+	//we want to remove whitespace surrounding the arguments
+	if (arg_str[i] == ' ' || arg_str[i] == '\t') {
+	    if (!tok_start) {
+		cur_tok += 1;
+	    }
+	} else {
+	    last_non_space = i;
+	    tok_start = true;
+	}
     }
     //this means that there wasn't a closing parenthesis found
     if (arg_str[i] == 0) return E_BAD_SYNTAX;
@@ -720,8 +734,12 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 				    //this is included so that we don't have to check whether something is a root or a composite every time
 				    type = CGS_COMPOSITE;
 				}
+				tree_pos.emplace_obj(obj, type);
+			    } else if (type == CGS_DATA) {
+				data_objs.push_back((CompositeObject*)obj);
+			    } else {
+				tree_pos.emplace_obj(obj, type);
 			    }
-			    tree_pos.emplace_obj(obj, type);
 			}
 			//jump ahead until after the end of the function
 			if (er == E_SUCCESS) i = endptr - buf;
@@ -752,7 +770,11 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 			}
 		    //check for literal experessions enclosed in quotes
 		    } else if (buf[i] == '\"') {
-			blk_stack.push(BLK_LITERAL);
+			if (blk_stack.peek() == BLK_LITERAL) {
+			    blk_stack.pop(NULL);
+			} else {
+			    blk_stack.push(BLK_LITERAL);
+			}
 		    } else if (buf[i] == '=') {
 			char* tok = CGS_trim_whitespace(buf, NULL);
 			size_t val_len;

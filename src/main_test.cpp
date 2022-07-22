@@ -183,6 +183,17 @@ TEST_CASE("Test Object Trees") {
 
 TEST_CASE("Test File Parsing") {
     Scene s("test.mt");
+    //check that metadata works
+    std::vector<CompositeObject*> data_vec = s.get_data();
+    CHECK(data_vec.size() > 0);
+    CHECK(data_vec[0]->has_metadata("name"));
+    CHECK(data_vec[0]->has_metadata("entry"));
+    std::string name_str = data_vec[0]->fetch_metadata("name");
+    std::string entry_str = data_vec[0]->fetch_metadata("entry");
+    CHECK(name_str == "foo");
+    CHECK(entry_str == "bar,(arr),[blah]");
+
+    //test geometric information
     std::vector<CompositeObject*> roots_vec = s.get_roots();
     CHECK(roots_vec.size() > 0);
     CompositeObject* root = roots_vec[0];
