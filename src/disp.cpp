@@ -170,7 +170,7 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
  *  -2 invalid or empty string
  *  -3 insufficient memory
  */
-std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, int* er) {
+std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er) {
     std::vector<drude_suscept> ret;
     //check that the Settings struct is valid and allocate memory
     if (!str) {
@@ -261,11 +261,13 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, i
 
 double dummy_eps(const meep::vec& r) { return 1.0; }
 
-bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) : sc(s.geom_fname, ercode) {
+meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode) {
+    Scene sc(s.geom_fname, ercode);
     //the arguments supplied will alter the location of the dielectric
     double z_center = s.len/2 + s.pml_thickness;
     double eps_scale = 1 / (sharpness*args.resolution);
 
+    meep::grid_volume vol;
     //initialize the volume
     if (s.n_dims == 1) {
 	vol = meep::vol1d(2*z_center, s.resolution);
@@ -300,7 +302,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) : sc(s.geom_fnam
 	printf("%f %f %f %f %f %f %f\n", ret_1, ret_2, ret_3, ret_4, ret_5, ret_6, ret_7);
 	/** ============================ DEBUG ============================ **/
     }
-    meep::structure strct(vol, inf_eps_func, meep::pml(args.pml_thickness));
+    meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
     //read susceptibilities if they are available
     for (auto it = roots.begin(); it != roots.end(); ++it) {
 	std::vector<drude_suscept> cur_sups;
@@ -315,15 +317,30 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) : sc(s.geom_fnam
 	    meep::lorentzian_susceptibility suscept( cur_sups[i].omega_0/s.um_scale, cur_sups[i].gamma/s.um_scale, !(cur_sups[i].use_denom) );
 	    region_scale_pair tmp_pair = {*it, cur_sups[i].sigma};
 	    cgs_material_function scale_func(tmp_pair, 0.0);
-	    strct.add_susceptibility(scale_func, meep::E_stuff, suscept);
+	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
 	}
     }
+    return strct;
+}
 
-    //create the fields
-    fields = meep::fields(&strct);
+bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
+    strct(structure_from_settings(s, ercode)),
+    fields(strct)
+{
+    //we have to kludge it to get around the very f** annoying fact that meep doesn't have default constructors for fields, just read the structure_from_settings comment
+    double z_center = s.len/2 + s.pml_thickness;
+    double eps_scale = 1 / (sharpness*args.resolution);
+    if (s.n_dims == 1) {
+	vol = meep::vol1d(2*z_center, s.resolution);
+    } else if (s.n_dims == 2) {
+	vol = meep::vol2d(2*z_center, 2*z_center, s.resolution);
+    } else {
+	vol = meep::vol3d(2*z_center, 2*z_center, 2*z_center, s.resolution);
+    }
 }
 
 bound_geom::~bound_geom() {
+    if (strct) delete strct;
     //delete all monitor locations
     for (_uint i = 0; i < monitor_locs.size(); ++i) delete monitor_locs[i];
 }
@@ -346,6 +363,9 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
 
 void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     fields.set_output_directory(fname_prefix);
+
+    //save the dielectric used
+    fields.output_hdf5(meep::Dielectric, fields.total_volume());
 
     //open the file which will store poynting vector fluxes
     char flux_name[BUF_SIZE];

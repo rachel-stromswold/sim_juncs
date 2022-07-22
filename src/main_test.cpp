@@ -12,6 +12,7 @@ TEST_CASE("Test function parsing") {
     const char* test_func_3 = "foo([0,1,2,3],a,banana)";
     const char* test_func_4 = "foo(a, Box(0,1,2,3), banana)";
     const char* test_func_5 = "foo ( a , b , c )";
+    const char* test_func_6 = "f(eps = 3.5)";
     const char* bad_test_func_1 = "foo ( a , b , c";
     const char* bad_test_func_2 = "foo ( a , b , c, )";
     const char* bad_test_func_3 = "foo ( a ,, c )";
@@ -71,6 +72,14 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[1], "b") == 0);
     INFO("func arg=", cur_func.args[2]);
     CHECK(strcmp(cur_func.args[2], "c") == 0);
+    //check string 6
+    strncpy(buf, test_func_6, BUF_SIZE);buf[BUF_SIZE-1] = 0;
+    sc.parse_func(buf, 1, cur_func, NULL);
+    CHECK(cur_func.n_args == 1);
+    INFO("func name=", cur_func.name);
+    CHECK(strcmp(cur_func.name, "f") == 0);
+    INFO("func arg=", cur_func.args[0]);
+    CHECK(strcmp(cur_func.args[0], "eps = 3.5") == 0);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     parse_ercode er = sc.parse_func(buf, 4, cur_func, NULL);
