@@ -261,7 +261,7 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, i
 
 double dummy_eps(const meep::vec& r) { return 1.0; }
 
-bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) : sc(s.geom_fname, ercode), fields(NULL) {
+bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) : sc(s.geom_fname, ercode) {
     //the arguments supplied will alter the location of the dielectric
     double z_center = s.len/2 + s.pml_thickness;
     double eps_scale = 1 / (sharpness*args.resolution);
