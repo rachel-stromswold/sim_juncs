@@ -116,6 +116,23 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
     }
 }
 
+//helper function to automatically adjust parameters if necessary
+inline void correct_defaults(Settings* s) {
+    //correct everything which involves length units to have the proper scale
+    if (s->um_scale != 1.0 && s->um_scale != 0.0) {
+        s->freq /= s->um_scale;
+        /*s->resolution /= s->um_scale;
+        s->len *= s->um_scale;*/
+        //s->len *= s->um_scale;
+    }
+
+	//if a number of grid points was specified, use that
+	if (s->grid_num > 0) {
+	    double total_len = s->len + 2*s->pml_thickness;
+	    s->resolution = (double)(s->grid_num) / total_len;
+	}
+}
+
 /**
  * Parse the .ini style configuration file specified by fname
  */
@@ -162,12 +179,7 @@ inline int parse_conf_file(Settings* s, char* fname) {
     }
     fclose(fp);
 
-    //correct everything which involves length units to have the proper scale
-    if (s->um_scale != 1.0) {
-        s->freq /= s->um_scale;
-	s->len *= s->um_scale;
-	s->pml_thickness *= s->um_scale;
-    }
+    correct_defaults(s);
     return 0;
 }
 
@@ -289,11 +301,7 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 	    }
 	}
 
-	//if a number of grid points was specified, use that
-	if (a->grid_num > 0) {
-	    double total_len = a->len + 2*a->pml_thickness;
-	    a->resolution = (double)(a->grid_num) / total_len;
-	}
+    correct_defaults(a);
     }
     *argc = n_args;
 
