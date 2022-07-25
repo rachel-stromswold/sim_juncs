@@ -183,6 +183,17 @@ TEST_CASE("Test Object Trees") {
 
 TEST_CASE("Test File Parsing") {
     Scene s("test.mt");
+    //check that metadata works
+    std::vector<CompositeObject*> data_vec = s.get_data();
+    CHECK(data_vec.size() > 0);
+    CHECK(data_vec[0]->has_metadata("name"));
+    CHECK(data_vec[0]->has_metadata("entry"));
+    std::string name_str = data_vec[0]->fetch_metadata("name");
+    std::string entry_str = data_vec[0]->fetch_metadata("entry");
+    CHECK(name_str == "foo");
+    CHECK(entry_str == "bar,(arr),[blah]");
+
+    //test geometric information
     std::vector<CompositeObject*> roots_vec = s.get_roots();
     CHECK(roots_vec.size() > 0);
     CompositeObject* root = roots_vec[0];
@@ -230,6 +241,7 @@ TEST_CASE("Test Geometric Inclusion") {
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {
+    parse_ercode er;
     //load settings from the configuration file
     Settings args;
     std::string name = "test.conf";
@@ -243,6 +255,21 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     CompositeObject* root = s.get_roots()[0];
     cgs_material_function mat_func(root);
 
+    //check the susceptibilities
+    char* dat = strdup(root->fetch_metadata("susceptibilities").c_str());
+    std::vector<drude_suscept> sups = parse_susceptibilities(dat, (int*)(&er));
+    free(dat);
+    CHECK(sups.size() == 2);
+    CHECK(sups[0].omega_0 == 1.0);
+    CHECK(sups[0].gamma == 0.48);
+    CHECK(sups[0].sigma == 68.5971845);
+    CHECK(sups[0].use_denom == false);
+    CHECK(sups[1].omega_0 == 8.0);
+    CHECK(sups[1].gamma == 0.816);
+    CHECK(sups[1].sigma == 452848600800781300);
+    CHECK(sups[1].use_denom == false);
+
+    //check locations
     meep::vec test_loc_1(0.5,0.5,0.5);
     meep::vec test_loc_2(0.5,0.1,2);
     meep::vec test_loc_3(2.5,0.5,0.1);

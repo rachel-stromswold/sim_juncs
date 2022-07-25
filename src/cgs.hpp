@@ -19,9 +19,9 @@ typedef unsigned char _uint8;
 
 typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY } parse_ercode;
 
-typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE } combine_type;
+typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE, CGS_CMB_NOOP } combine_type;
 //note that ROOTS are a special type of COMPOSITES
-typedef enum { CGS_UNDEF, CGS_ROOT, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_CYLINDER } object_type;
+typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_CYLINDER } object_type;
 
 typedef Eigen::Vector3d evec3;
 typedef Eigen::Vector4d evec4;
@@ -203,6 +203,7 @@ class Scene {
 private:
     //std::vector<Object*> objects;
     std::vector<CompositeObject*> roots;
+    std::vector<CompositeObject*> data_objs;
 
     parse_ercode lookup_val(char* tok, double& sto);
     //let users define constants
@@ -214,6 +215,7 @@ public:
     ~Scene();
 
     std::vector<CompositeObject*> get_roots() { return roots; }
+    std::vector<CompositeObject*> get_data() { return data_objs; }
     void read();
 
     parse_ercode parse_vector(char* str, evec3& sto);

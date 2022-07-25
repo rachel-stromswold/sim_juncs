@@ -75,7 +75,7 @@ class bound_geom {
     private:
 	//meep objects
 	meep::grid_volume vol;
-    meep::structure* strct = NULL;
+	meep::structure* strct = NULL;
 	meep::fields fields;
 
 	std::vector<meep::monitor_point*> monitor_locs;
