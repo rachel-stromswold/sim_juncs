@@ -3,6 +3,7 @@
 
 #include <meep.hpp>
 #include <vector>
+#include <random>
 #include <math.h>
 #include <hdf5.h>
 
@@ -30,10 +31,15 @@ class cgs_material_function : public meep::material_function {
     //scaling and offset
     double def_ret = 1.0;
 
+    //we use a stochastic smoothing process
+    _uint smooth_n = 1;
+    double* smooth_pts = NULL;
+    void generate_smooth_pts(double smooth_rad);
+
 public:
-    cgs_material_function(double p_def_ret=1.0);
-    cgs_material_function(CompositeObject* p_volume, std::string type="eps", double p_def_ret=1.0);
-    cgs_material_function(region_scale_pair p_volume, double p_def_ret=1.0);
+    cgs_material_function(double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
+    cgs_material_function(CompositeObject* p_volume, std::string type="eps", double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
+    cgs_material_function(region_scale_pair p_volume, double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
     cgs_material_function(const cgs_material_function& o);
     cgs_material_function(cgs_material_function&& o);
     cgs_material_function& operator=(cgs_material_function&& o);

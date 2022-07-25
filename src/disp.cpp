@@ -3,18 +3,51 @@
 const double eps_cutoff = 10;
 
 /**
- * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
+ * Helper function which initializes an array of smooth points
  */
-cgs_material_function::cgs_material_function(double p_def_ret) {
-    def_ret = p_def_ret;
-    n_regions = 0;
-    regions = NULL;
+void cgs_material_function::generate_smooth_pts(double smooth_rad) {
+    //generate a seed and set up Mersenne twister
+    std::random_device rd; 
+    std::mt19937 gen(rd());
+    std::normal_distribution<float> gaussian(0, smooth_rad);
+
+    //make sure that we have at least one point
+    if (smooth_n < 1) smooth_n = 1;
+    //avoid leaking old tables
+    if (smooth_pts) free(smooth_pts);
+    //we malloc this array even though it's constant because its size is unknown at compile time
+    //NOTE: size is multiplied by the number of spatial dimensions
+    smooth_pts = (double*)malloc(3*sizeof(double)*smooth_n);
+    
+    //fill up the array
+    for (_uint i = 0; i < smooth_n; ++i) {
+	smooth_pts[3*i] = gaussian(gen);
+	smooth_pts[3*i+1] = gaussian(gen);
+	smooth_pts[3*i+2] = gaussian(gen);
+    }
+    //we want to only use the exact point if there is only one sample
+    if (smooth_n == 1) {
+	smooth_pts[0] = 0.0;smooth_pts[1] = 0.0;smooth_pts[2] = 0.0;
+    }
 }
 
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
  */
-cgs_material_function::cgs_material_function(CompositeObject* p_volume, std::string type, double p_def_ret) {
+cgs_material_function::cgs_material_function(double p_def_ret, _uint p_smooth_n, double p_smooth_rad) {
+    def_ret = p_def_ret;
+    n_regions = 0;
+    regions = NULL;
+
+    //initialize smoothing
+    smooth_n = p_smooth_n;
+    generate_smooth_pts(p_smooth_rad);
+}
+
+/**
+ * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
+ */
+cgs_material_function::cgs_material_function(CompositeObject* p_volume, std::string type, double p_def_ret, _uint p_smooth_n, double p_smooth_rad) {
     //set the regions which are used
     n_regions = 1;
     regions = (region_scale_pair*)malloc(sizeof(region_scale_pair));
@@ -31,12 +64,16 @@ cgs_material_function::cgs_material_function(CompositeObject* p_volume, std::str
     }
     //set default return value
     def_ret = p_def_ret;
+
+    //initialize smoothing
+    smooth_n = p_smooth_n;
+    generate_smooth_pts(p_smooth_rad);
 }
 
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
  */
-cgs_material_function::cgs_material_function(region_scale_pair p_reg, double p_def_ret) {
+cgs_material_function::cgs_material_function(region_scale_pair p_reg, double p_def_ret, _uint p_smooth_n, double p_smooth_rad) {
     //set the regions which are used
     n_regions = 1;
     regions = (region_scale_pair*)malloc(sizeof(region_scale_pair));
@@ -47,6 +84,10 @@ cgs_material_function::cgs_material_function(region_scale_pair p_reg, double p_d
     }
     //set default return value
     def_ret = p_def_ret;
+
+    //initialize smoothing
+    smooth_n = p_smooth_n;
+    generate_smooth_pts(p_smooth_rad);
 }
 
 //copy constructor
@@ -60,6 +101,12 @@ cgs_material_function::cgs_material_function(const cgs_material_function& o) {
     } else {
 	n_regions = 0;
     }
+    //copy smoothing data points
+    smooth_n = o.smooth_n;
+    smooth_pts = (double*)malloc(3*sizeof(double)*smooth_n);
+    if (smooth_pts) {
+	for (_uint i = 0; i < 3*smooth_n; ++i) smooth_pts[i] = o.smooth_pts[i];
+    }
 }
 
 //move constructor
@@ -67,8 +114,12 @@ cgs_material_function::cgs_material_function(cgs_material_function&& o) {
     def_ret = o.def_ret;
     n_regions = o.n_regions;
     regions = o.regions;
+    smooth_pts = o.smooth_pts;
+    smooth_n = o.smooth_n;
     o.regions = NULL;
     o.n_regions = 0;
+    o.smooth_pts = NULL;
+    o.smooth_n = 0;
 }
 
 //= constructor
@@ -84,13 +135,24 @@ cgs_material_function& cgs_material_function::operator=(cgs_material_function&& 
     regions = o.regions;
     o.n_regions = tmp_n_regions;
     o.regions = tmp_regions;
+    //swap smoothing point data
+    double* tmp_smooth_pts = smooth_pts;
+    smooth_pts = o.smooth_pts;
+    o.smooth_pts = tmp_smooth_pts;
+    _uint tmp_smooth_n = smooth_n;
+    smooth_n = o.smooth_n;
+    o.smooth_n = tmp_smooth_n;
 
     return *this;
 }
 
 cgs_material_function::~cgs_material_function() {
     if (regions) free(regions);
+    regions = NULL;
     n_regions = 0;
+    if (smooth_pts) free(smooth_pts);
+    smooth_pts = NULL;
+    smooth_n = 0;
 }
 
 /**
@@ -118,10 +180,17 @@ void cgs_material_function::add_region(CompositeObject* p_reg, std::string type)
 //returns whether we're to the left or the right of the dielectric boundary 1 indicates we are, 0 that we are not
 double cgs_material_function::in_bound(const meep::vec &r) {
     if (!regions) return def_ret;
+
+    //we stochastically smooth boundaries by taking smooth_n samples from a 3d Gaussian distribution with variance smooth_rad^2 centered around r
+    double r_x = r.x();double r_y = r.y();double r_z = r.z();
+
     //look through each region and return the first that contains the vector
     for (_uint i = 0; i < n_regions; ++i) {
-	int ret = regions[i].c->in(evec3(r.x(), r.y(), r.z()));
-	if (ret) return regions[i].s;
+	int ret = 0;
+	for (_uint j = 0; j < smooth_n; ++j) {
+	    ret += regions[i].c->in(evec3(r_x + smooth_pts[3*j], r_y + smooth_pts[3*j+1], r_z + smooth_pts[3*j+2]));
+	}
+	if (ret) return regions[i].s*ret/smooth_n;
     }
     return def_ret;
 }
@@ -278,7 +347,7 @@ meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode
     //iterate over all objects specified in the scene
     std::vector<CompositeObject*> roots = sc.get_roots();
     //setup the structure with the infinite frequency dielectric component
-    cgs_material_function inf_eps_func(s.ambient_eps);
+    cgs_material_function inf_eps_func(s.ambient_eps, s.smooth_n, s.smooth_rad);
 
     for (auto it = roots.begin(); it != roots.end(); ++it) {
 	inf_eps_func.add_region(*it);
@@ -314,7 +383,7 @@ meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode
 	for (_uint i = 0; i < cur_sups.size(); ++i) {
 	    meep::lorentzian_susceptibility suscept( cur_sups[i].omega_0/s.um_scale, cur_sups[i].gamma/s.um_scale, !(cur_sups[i].use_denom) );
 	    region_scale_pair tmp_pair = {*it, cur_sups[i].sigma};
-	    cgs_material_function scale_func(tmp_pair, 0.0);
+	    cgs_material_function scale_func(tmp_pair, 0.0, s.smooth_n, s.smooth_rad);
 	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
 	}
     }

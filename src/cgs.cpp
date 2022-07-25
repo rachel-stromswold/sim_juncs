@@ -805,4 +805,7 @@ Scene::~Scene() {
     for (_uint i = 0; i < roots.size(); ++i) {
 	if (roots[i]) delete roots[i];
     }
+    for (_uint i = 0; i < data_objs.size(); ++i) {
+	if (data_objs[i]) delete data_objs[i];
+    }
 }
