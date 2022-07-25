@@ -232,7 +232,7 @@ TEST_CASE("Test Geometric Inclusion") {
 TEST_CASE("Test dispersion material volumentric inclusion") {
     //load settings from the configuration file
     Settings args;
-    std::string name = "params.conf";
+    std::string name = "test.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
     free(name_dup);

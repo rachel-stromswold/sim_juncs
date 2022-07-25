@@ -2,8 +2,6 @@
 
 const double eps_cutoff = 10;
 
-Settings args;
-
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
  */
@@ -265,7 +263,7 @@ meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode
     Scene sc(s.geom_fname, ercode);
     //the arguments supplied will alter the location of the dielectric
     double z_center = s.len/2 + s.pml_thickness;
-    double eps_scale = 1 / (sharpness*args.resolution);
+    double eps_scale = 1 / (sharpness*s.resolution);
 
     meep::grid_volume vol;
     //initialize the volume
@@ -302,7 +300,7 @@ meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode
 	printf("%f %f %f %f %f %f %f\n", ret_1, ret_2, ret_3, ret_4, ret_5, ret_6, ret_7);
 	/** ============================ DEBUG ============================ **/
     }
-    meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(args.pml_thickness));
+    meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
     //read susceptibilities if they are available
     for (auto it = roots.begin(); it != roots.end(); ++it) {
 	std::vector<drude_suscept> cur_sups;
@@ -329,7 +327,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 {
     //we have to kludge it to get around the very f** annoying fact that meep doesn't have default constructors for fields, just read the structure_from_settings comment
     double z_center = s.len/2 + s.pml_thickness;
-    double eps_scale = 1 / (sharpness*args.resolution);
+    double eps_scale = 1 / (sharpness*s.resolution);
     if (s.n_dims == 1) {
 	vol = meep::vol1d(2*z_center, s.resolution);
     } else if (s.n_dims == 2) {
@@ -337,6 +335,8 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     } else {
 	vol = meep::vol3d(2*z_center, 2*z_center, 2*z_center, s.resolution);
     }
+
+    post_source_t = s.post_source_t;
 }
 
 bound_geom::~bound_geom() {
@@ -346,18 +346,18 @@ bound_geom::~bound_geom() {
 }
 
 void bound_geom::add_point_source(meep::component c, const meep::src_time &src, const meep::vec& source_loc, std::complex<double> amp) {
-    fields.add_point_source(c, src, source_loc, args.amp);
+    fields.add_point_source(c, src, source_loc, amp);
 
     //set the total timespan based on the added source
-    ttot = fields.last_source_time() + args.post_source_t;
+    ttot = fields.last_source_time() + post_source_t;
     n_t_pts = (_uint)(ttot / fields.dt);
 }
 
 void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp) {
-    fields.add_volume_source(c, src, source_vol, args.amp);
+    fields.add_volume_source(c, src, source_vol, amp);
 
     //set the total timespan based on the added source
-    ttot = fields.last_source_time() + args.post_source_t;
+    ttot = fields.last_source_time() + post_source_t;
     n_t_pts = (_uint)(ttot / fields.dt);
 }
 

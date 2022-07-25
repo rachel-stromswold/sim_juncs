@@ -82,6 +82,7 @@ class bound_geom {
 
 	double ttot = 0;
 	_uint n_t_pts = 0;	
+    double post_source_t = 0.0;
 };
 
 #endif //DISP_H

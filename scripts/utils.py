@@ -163,7 +163,10 @@ class Geometry:
         self.middle_w = float(config["junction"]["middle_w"])
         self.junc_max_z = float(config["junction"]["junc_max_z"])
         self.eps_1 = float(config["physical"]["eps_1"])
-        self.eps_2 = float(config["physical"]["eps_2"])
+        try:
+            self.eps_2 = float(config["physical"]["eps_2"])
+        except KeyError:
+            self.eps_2 = self.eps_1
         self.src = Source(config)
 
         #calculated values
