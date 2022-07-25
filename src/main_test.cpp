@@ -241,6 +241,7 @@ TEST_CASE("Test Geometric Inclusion") {
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {
+    parse_ercode er;
     //load settings from the configuration file
     Settings args;
     std::string name = "params.conf";
@@ -254,6 +255,21 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     CompositeObject* root = s.get_roots()[0];
     cgs_material_function mat_func(root);
 
+    //check the susceptibilities
+    char* dat = strdup(root->fetch_metadata("susceptibilities").c_str());
+    std::vector<drude_suscept> sups = parse_susceptibilities(dat, (int*)(&er));
+    free(dat);
+    CHECK(sups.size() == 2);
+    CHECK(sups[0].omega_0 == 1.0);
+    CHECK(sups[0].gamma == 0.48);
+    CHECK(sups[0].sigma == 68.5971845);
+    CHECK(sups[0].use_denom == false);
+    CHECK(sups[1].omega_0 == 8.0);
+    CHECK(sups[1].gamma == 0.816);
+    CHECK(sups[1].sigma == 452848600800781300);
+    CHECK(sups[1].use_denom == false);
+
+    //check locations
     meep::vec test_loc_1(0.5,0.5,0.5);
     meep::vec test_loc_2(0.5,0.1,2);
     meep::vec test_loc_3(2.5,0.5,0.1);
