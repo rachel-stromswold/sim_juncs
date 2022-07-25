@@ -9,25 +9,56 @@ void cgs_material_function::generate_smooth_pts(double smooth_rad) {
     //generate a seed and set up Mersenne twister
     std::random_device rd; 
     std::mt19937 gen(rd());
-    std::normal_distribution<float> gaussian(0, smooth_rad);
+    std::normal_distribution<double> gaussian(0, smooth_rad);//negative values are fine since we include all reflections anyway
+    std::uniform_real_distribution<double> unif(0.0,1.0);
 
-    //make sure that we have at least one point
-    if (smooth_n < 1) smooth_n = 1;
     //avoid leaking old tables
     if (smooth_pts) free(smooth_pts);
-    //we malloc this array even though it's constant because its size is unknown at compile time
-    //NOTE: size is multiplied by the number of spatial dimensions
-    smooth_pts = (double*)malloc(3*sizeof(double)*smooth_n);
-    
-    //fill up the array
-    for (_uint i = 0; i < smooth_n; ++i) {
-	smooth_pts[3*i] = gaussian(gen);
-	smooth_pts[3*i+1] = gaussian(gen);
-	smooth_pts[3*i+2] = gaussian(gen);
+    smooth_pts = NULL;
+
+    //iteratively decrease the number of smoothing points until we can successfully allocate. Note that we malloc this array even though it's constant because its size is unknown at compile time.
+    if (smooth_n > 0)
+	smooth_pts = (double*)malloc(24*sizeof(double)*smooth_n);
+    while (smooth_pts == NULL && smooth_n > 1) {
+	smooth_n /= 2;
+	//NOTE: size is multiplied by the number of spatial dimensions times 8 so that each point is reflected through the origin
+	smooth_pts = (double*)malloc(24*sizeof(double)*smooth_n);
     }
+
     //we want to only use the exact point if there is only one sample
-    if (smooth_n == 1) {
-	smooth_pts[0] = 0.0;smooth_pts[1] = 0.0;smooth_pts[2] = 0.0;
+    if (smooth_pts) {
+	//fill up the array
+	for (_uint i = 0; i < smooth_n; ++i) {
+	    _uint j = 0;
+
+	    //generate a random direction on the sphere
+	    double theta_inv = unif(gen);
+	    double cos_theta = 1-2*theta_inv;
+	    double sin_theta = 2*sqrt(theta_inv*(1-theta_inv));
+	    double phi = 2*M_PI*unif(gen);
+	    double r = gaussian(gen);
+
+	    //convert into cartesian coordinates
+	    double x = r*sin_theta*cos(phi);
+	    double y = r*sin_theta*cos(phi);
+	    double z = r*cos_theta;
+
+	    //iterate over each of the eight possible reflections
+	    for (int xf = -1; xf < 2; xf += 2) {
+		for (int yf = -1; yf < 2; yf += 2) {
+		    for (int zf = -1; zf < 2; zf += 2) {
+			smooth_pts[24*i+3*j]   = x*xf;
+			smooth_pts[24*i+3*j+1] = y*yf;
+			smooth_pts[24*i+3*j+2] = z*zf;
+			++j;
+		    }
+		}
+	    }
+	}
+	//now that we're done, include all the reflections
+	smooth_n *= 8;
+    } else {
+	smooth_n = 0;
     }
 }
 
@@ -185,14 +216,18 @@ double cgs_material_function::in_bound(const meep::vec &r) {
     double r_x = r.x();double r_y = r.y();double r_z = r.z();
 
     //look through each region and return the first that contains the vector
+    double ret = 0;
     for (_uint i = 0; i < n_regions; ++i) {
-	int ret = 0;
-	for (_uint j = 0; j < smooth_n; ++j) {
-	    ret += regions[i].c->in(evec3(r_x + smooth_pts[3*j], r_y + smooth_pts[3*j+1], r_z + smooth_pts[3*j+2]));
+	//initialize such that we always include the origin
+	double this_ret = regions[i].c->in(evec3(r_x, r_y, r_z));
+	if (smooth_pts) {
+	    for (_uint j = 0; j < smooth_n; ++j) {
+		this_ret += regions[i].c->in(evec3(r_x + smooth_pts[3*j], r_y + smooth_pts[3*j+1], r_z + smooth_pts[3*j+2]));
+	    }
 	}
-	if (ret) return regions[i].s*ret/smooth_n;
+	ret += def_ret + (regions[i].s - def_ret)*this_ret/(smooth_n+1);
     }
-    return def_ret;
+    return ret;
 }
 
 double cgs_material_function::chi1p1(meep::field_type ft, const meep::vec &r) {
