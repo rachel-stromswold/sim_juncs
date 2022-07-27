@@ -363,8 +363,7 @@ std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er) {
 
 double dummy_eps(const meep::vec& r) { return 1.0; }
 
-meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode) {
-    Scene sc(s.geom_fname, ercode);
+meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode) {
     //the arguments supplied will alter the location of the dielectric
     double z_center = s.len/2 + s.pml_thickness;
     double eps_scale = 1 / (sharpness*s.resolution);
@@ -380,7 +379,7 @@ meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode
     }
 
     //iterate over all objects specified in the scene
-    std::vector<CompositeObject*> roots = sc.get_roots();
+    std::vector<CompositeObject*> roots = problem.get_roots();
     //setup the structure with the infinite frequency dielectric component
     cgs_material_function inf_eps_func(s.ambient_eps, s.smooth_n, s.smooth_rad);
 
@@ -425,10 +424,108 @@ meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode
     return strct;
 }
 
+source_info::source_info(std::string spec_str, const Scene& problem, parse_ercode* ercode) {
+    //read the specification for the pulse as a function
+    char* spec = strdup( spec_str.c_str() );
+    cgs_func env_func;
+    parse_ercode tmp_er = problem.parse_func(spec, -1, env_func, NULL);
+
+    //figure out the field component that the user wants to add (Default to electric field polarized in x direction)
+    component = meep::Ex;
+    //all sources require that a component and frequency be specified
+    if (tmp_er == E_SUCCESS) {
+	if (env_func.n_args > 2) {
+	    if (strcmp(env_func.args[0], "Ey") == 0) {
+		component = meep::Ey;
+	    } else if (strcmp(env_func.args[0], "Ez") == 0) {
+		component = meep::Ez;
+	    } else if (strcmp(env_func.args[0], "Hx") == 0) {
+		component = meep::Hx;
+	    } else if (strcmp(env_func.args[0], "Hy") == 0) {
+		component = meep::Hy;
+	    } else if (strcmp(env_func.args[0], "Hz") == 0) {
+		component = meep::Hz;
+	    } else {
+		tmp_er = E_BAD_TOKEN;
+	    }
+
+	    if (tmp_er == E_SUCCESS) {
+		freq = strtod(env_func.args[1], NULL);
+		if (errno) tmp_er = E_BAD_TOKEN;
+		//figure out what to do depending on what type of pulse envelope this is
+		if (strcmp(env_func.name, "gaussian") == 0 || strcmp(env_func.name, "Gaussian") == 0) {
+		    type = SRC_GAUSSIAN;
+		    //set default values for the envelope
+		    start_time = 0;
+		    cutoff = 5;
+		    if (env_func.n_args < 3) {
+			tmp_er = E_LACK_TOKENS;
+		    } else {
+			width = strtod(env_func.args[2], NULL);
+			if (errno) tmp_er = E_BAD_TOKEN;
+			//set default values
+			amplitude = 1;
+			start_time = 0;
+			cutoff = DEFAULT_WIDTH_N;
+			//read the start time if supplied
+			if (env_func.n_args > 3) {
+			    start_time = strtod(env_func.args[3], NULL);
+			    if (errno) tmp_er = E_BAD_TOKEN;
+			}
+			//read the cutoff if supplied
+			if (env_func.n_args > 4) {
+			    cutoff = strtod(env_func.args[4], NULL);
+			    if (errno) tmp_er = E_BAD_TOKEN;
+			}
+			//read the amplitude if supplied
+			if (env_func.n_args > 5) {
+			    amplitude = strtod(env_func.args[5], NULL);
+			    if (errno) tmp_er = E_BAD_TOKEN;
+			}
+		    }
+		} else if (strcmp(env_func.name, "continuous") == 0) {
+		    type = SRC_CONTINUOUS;
+		    if (env_func.n_args < 3) {
+			tmp_er = E_LACK_TOKENS;
+		    } else {
+			start_time = strtod(env_func.args[2], NULL);
+			if (errno) tmp_er = E_BAD_TOKEN;
+			//read the end time if supplied
+			if (env_func.n_args > 3) {
+			    end_time = strtod(env_func.args[3], NULL);
+			    if (errno) tmp_er = E_BAD_TOKEN;
+			}
+			//read the width if supplied
+			if (env_func.n_args > 4) {
+			    width = strtod(env_func.args[4], NULL);
+			    if (errno) tmp_er = E_BAD_TOKEN;
+			}
+			//read the amplitude if supplied
+			if (env_func.n_args > 5) {
+			    amplitude = strtod(env_func.args[5], NULL);
+			    if (errno) tmp_er = E_BAD_TOKEN;
+			}
+		    }
+		}
+	    }
+	} else {
+	    tmp_er = E_LACK_TOKENS;
+	}
+    }
+
+    //set the error code if there was one and the caller wants it
+    if (ercode) *ercode = tmp_er;
+
+    free(spec);
+}
+
 bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
-    strct(structure_from_settings(s, ercode)),
+    problem(s.geom_fname, ercode),
+    strct(structure_from_settings(s, problem, ercode)),
     fields(strct)
 {
+    if (ercode) *ercode = E_SUCCESS;
+
     //we have to kludge it to get around the very f** annoying fact that meep doesn't have default constructors for fields, just read the structure_from_settings comment
     double z_center = s.len/2 + s.pml_thickness;
     double eps_scale = 1 / (sharpness*s.resolution);
@@ -441,6 +538,56 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     }
 
     post_source_t = s.post_source_t;
+
+    //add fields specified in the problem
+    std::vector<CompositeObject*> data = problem.get_data();
+    for (size_t i = 0; i < data.size(); ++i) {
+	if (data[i]->has_metadata("type") && data[i]->fetch_metadata("type") == "field_source") {
+	    //figure out the volume for the field source
+	    const Object* l_child = data[i]->get_child_l();
+	    const Object* r_child = data[i]->get_child_r();
+	    object_type l_type = data[i]->get_child_type_l();
+	    //WLOG fix the left child to be the one we care about
+	    if (r_child && !l_child) {
+		l_child = r_child;
+		l_type = data[i]->get_child_type_r();
+	    }
+	    //make sure that the object is a box so that we can figure out the corner and the offset
+	    if (l_type == CGS_BOX) {
+		evec3 center = ((Box*)l_child)->get_center();
+		evec3 offset = ((Box*)l_child)->get_offset();
+		double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();
+		double y_0 = center.y() - offset.y();double y_1 = center.y() + offset.y();
+		double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
+		meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
+
+		//only continue if a shape for the pulse was specified
+		if (data[i]->has_metadata("envelope")) {
+		    source_info cur_info(data[i]->fetch_metadata("envelope"), problem, ercode);
+		    //create the EM-wave source at the specified location only if everything was read successfully
+		    if (*ercode == E_SUCCESS) {
+			if (cur_info.type == SRC_GAUSSIAN) {
+			    meep::gaussian_src_time src(cur_info.freq, cur_info.width, cur_info.start_time, cur_info.cutoff*cur_info.width);
+			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+			} else if (cur_info.type == SRC_CONTINUOUS) {
+			    meep::continuous_src_time src(cur_info.freq, cur_info.width, cur_info.start_time, cur_info.end_time);
+			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+			}
+#ifdef DEBUG_INFO
+			sources.push_back(cur_info);
+#endif
+		    }
+		}
+
+		//set the total timespan based on the added source
+		ttot = fields.last_source_time() + post_source_t;
+		n_t_pts = (_uint)(ttot / fields.dt);
+	    } else {
+		printf("Error: only boxes are currently supported for field volumes");
+		if (ercode) *ercode = E_BAD_VALUE;
+	    }
+	}
+    }
 }
 
 bound_geom::~bound_geom() {

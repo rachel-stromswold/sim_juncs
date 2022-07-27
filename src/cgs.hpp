@@ -1,3 +1,5 @@
+#define DEBUG_INFO 1
+
 #ifndef CGS_H
 #define CGS_H
 
@@ -17,7 +19,7 @@
 typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
-typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY } parse_ercode;
+typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY } parse_ercode;
 
 typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE, CGS_CMB_NOOP } combine_type;
 //note that ROOTS are a special type of COMPOSITES
@@ -79,6 +81,9 @@ private:
 public:
     Sphere(evec3& p_center, double p_rad, int p_invert=0);
     int in(const evec3& r);
+
+    evec3 get_center() { return center; }
+    double get_rad() { return rad; }
 };
 
 class Box : public Object {
@@ -90,6 +95,9 @@ public:
     Box(evec3& p_corner, evec3& p_offset, int p_invert=0);
     Box(evec3& p_corner, evec3& p_offset, Eigen::Quaterniond p_orientation, int p_invert=0);
     int in(const evec3& r);
+
+    evec3 get_center() { return center; }
+    evec3 get_offset() { return offset; }
 };
 
 class Cylinder : public Object {
@@ -103,6 +111,11 @@ private:
 public:
     Cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, int p_invert=0);
     int in(const evec3& r);
+
+    evec3 get_center() { return center; }
+    double get_height() { return height; }
+    double get_r1() { return sqrt(r1_sq); }
+    double get_r2() { return sqrt(r2_sq); }
 };
 
 class Scene;
@@ -137,8 +150,8 @@ public:
     //add a child to the composite object by parsing the string description
     void add_child(_uint side, Object* o, object_type p_type);
     int in(const evec3& r);
-    Object* get_child_l() { return children[0]; }
-    Object* get_child_r() { return children[1]; }
+    const Object* get_child_l() { return children[0]; }
+    const Object* get_child_r() { return children[1]; }
     object_type get_child_type_l() { return child_types[0]; }
     object_type get_child_type_r() { return child_types[1]; }
     combine_type get_combine_type() { return cmb; }
@@ -149,7 +162,7 @@ public:
 /**
  * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
  */
-typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_ROOT, BLK_COMPOSITE, BLK_LITERAL, BLK_COMMENT} block_type;
+typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_LITERAL, BLK_COMMENT} block_type;
 template <typename T>
 class CGS_Stack {
 protected:
@@ -205,22 +218,25 @@ private:
     std::vector<CompositeObject*> roots;
     std::vector<CompositeObject*> data_objs;
 
-    parse_ercode lookup_val(char* tok, double& sto);
+    parse_ercode lookup_val(char* tok, double& sto) const;
     //let users define constants
     std::unordered_map<std::string, std::string> named_items;
 
 public:
     Scene() {}
     Scene(const char* p_fname, parse_ercode* ercode = NULL);
+    Scene(const Scene& o);
+    Scene(Scene&& o);
+    Scene& operator=(Scene& o);
     ~Scene();
 
     std::vector<CompositeObject*> get_roots() { return roots; }
     std::vector<CompositeObject*> get_data() { return data_objs; }
     void read();
 
-    parse_ercode parse_vector(char* str, evec3& sto);
-    parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert);
-    parse_ercode parse_func(char* token, size_t open_par_ind, cgs_func& f, char** end);
+    parse_ercode parse_vector(char* str, evec3& sto) const;
+    parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const;
+    parse_ercode parse_func(char* token, long open_par_ind, cgs_func& f, char** end) const;
 };
 
 #endif //CGS_H
