@@ -4,6 +4,8 @@
 #include "cgs.hpp"
 #include "disp.hpp"
 
+const char* prog_name = "test";
+
 TEST_CASE("Test function parsing") {
     char buf[BUF_SIZE];
 
@@ -282,6 +284,52 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     CHECK(mat_func.in_bound(test_loc_4) == 1.0);
     CHECK(mat_func.in_bound(test_loc_5) == 1.0);
     CHECK(mat_func.in_bound(test_loc_6) == 1.0);
+
+    cleanup_settings(&args);
+}
+
+TEST_CASE("Test reading of field sources") {
+    int argcc = 1;
+    char** argvv = (char**)malloc(sizeof(char*)*argcc);
+    argvv[0] = strdup(prog_name);
+    meep::initialize mpi(argcc, argvv);
+    free(argvv[0]);
+    free(argvv);
+
+    parse_ercode er;
+
+    //load settings from the configuration file
+    Settings args;
+    args.resolution = 0.05;//make things a little faster because we don't care
+    std::string name = "test.conf";
+    char* name_dup = strdup(name.c_str());
+    int ret = parse_conf_file(&args, name_dup);
+    free(name_dup);
+    CHECK(ret == 0);
+
+    //try creating the geometry object
+    bound_geom geometry(args, &er);
+    CHECK(er == E_SUCCESS);
+#ifdef DEBUG_INFO
+    CHECK(geometry.sources.size() == 2);
+    source_info inf = geometry.sources[0];
+    CHECK(inf.type == SRC_GAUSSIAN);
+    CHECK(inf.component == meep::Ey);
+    CHECK(inf.freq == 0.75);
+    CHECK(inf.width == 1.0);
+    CHECK(inf.start_time == 0.2);
+    CHECK(inf.cutoff == 5.0);
+    CHECK(inf.amplitude == 1.0);
+
+    inf = geometry.sources[1];
+    CHECK(inf.type == SRC_CONTINUOUS);
+    CHECK(inf.component == meep::Hz);
+    CHECK(inf.freq == 0.75);
+    CHECK(inf.start_time == 0.2);
+    CHECK(inf.end_time == 1.2);
+    CHECK(inf.width == 0.1);
+    CHECK(inf.amplitude == 1.0);
+#endif
 
     cleanup_settings(&args);
 }
