@@ -15,6 +15,7 @@
 
 //simulation parameters
 const double sharpness = 5;
+const double DEF_SEED = 0xd9a28bf3;
 /*double z_center;
 double eps_scale;*/
 
@@ -36,7 +37,7 @@ class cgs_material_function : public meep::material_function {
     //we use a stochastic smoothing process
     _uint smooth_n = 1;
     double* smooth_pts = NULL;
-    void generate_smooth_pts(double smooth_rad);
+    void generate_smooth_pts(double smooth_rad, uint64_t seed);
 
 public:
     cgs_material_function(double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);

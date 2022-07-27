@@ -5,10 +5,11 @@ const double eps_cutoff = 10;
 /**
  * Helper function which initializes an array of smooth points
  */
-void cgs_material_function::generate_smooth_pts(double smooth_rad) {
+void cgs_material_function::generate_smooth_pts(double smooth_rad, uint64_t seed) {
     //generate a seed and set up Mersenne twister
-    std::random_device rd; 
-    std::mt19937 gen(rd());
+    std::seed_seq seeder{(uint32_t)(seed & 0x0000ffff), (uint32_t)((seed & 0xffff0000) >> 32)};
+    std::mt19937 gen(seeder);
+
     std::normal_distribution<double> gaussian(0, smooth_rad);//negative values are fine since we include all reflections anyway
     std::uniform_real_distribution<double> unif(0.0,1.0);
 
@@ -72,7 +73,8 @@ cgs_material_function::cgs_material_function(double p_def_ret, _uint p_smooth_n,
 
     //initialize smoothing
     smooth_n = p_smooth_n;
-    generate_smooth_pts(p_smooth_rad);
+    //TODO: find a way to read arguments for the seed instead of using a constant at compile time. Note, we don't care about entropy or statistical quality. We mostly care about getting arbitrary as opposed to random values.
+    generate_smooth_pts(p_smooth_rad, DEF_SEED);
 }
 
 /**
@@ -98,7 +100,7 @@ cgs_material_function::cgs_material_function(CompositeObject* p_volume, std::str
 
     //initialize smoothing
     smooth_n = p_smooth_n;
-    generate_smooth_pts(p_smooth_rad);
+    generate_smooth_pts(p_smooth_rad, DEF_SEED);
 }
 
 /**
@@ -118,7 +120,7 @@ cgs_material_function::cgs_material_function(region_scale_pair p_reg, double p_d
 
     //initialize smoothing
     smooth_n = p_smooth_n;
-    generate_smooth_pts(p_smooth_rad);
+    generate_smooth_pts(p_smooth_rad, DEF_SEED);
 }
 
 //copy constructor
