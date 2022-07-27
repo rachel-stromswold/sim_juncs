@@ -25,4 +25,4 @@ target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
 target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
 
 configure_file(tests/test.mt test.mt COPYONLY)
-configure_file(tests/params.conf params.conf COPYONLY)
+configure_file(tests/test.conf test.conf COPYONLY)

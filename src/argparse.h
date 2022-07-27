@@ -11,6 +11,9 @@
 #define DEFAULT_PULSE_WIDTH	1.0
 #define DEFAULT_RESOLUTION	2.0
 
+#define DEFAULT_SMOOTH_N	1
+#define DEFAULT_SMOOTH_RAD	0.05
+
 #define BUF_SIZE 1024
 
 typedef unsigned int _uint;
@@ -30,6 +33,9 @@ typedef struct {
     char* conf_fname = NULL;
     double eps_2 = 2.0;
     double amp = 1.0;
+
+    _uint smooth_n = DEFAULT_SMOOTH_N;
+    double smooth_rad = DEFAULT_SMOOTH_RAD;
 
     double source_z = 2.0;
     double freq = DEFAULT_PULSE_FREQ;
@@ -90,6 +96,10 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
 	s->um_scale = strtod(val, NULL);
     } else if (strcmp(tok, "length") == 0) {
 	s->len = strtod(val, NULL);
+    } else if (strcmp(tok, "smooth_rad") == 0) {
+	s->smooth_rad = strtod(val, NULL);
+    } else if (strcmp(tok, "smooth_n") == 0) {
+	s->smooth_n = strtod(val, NULL);
     } else if (strcmp(tok, "frequency") == 0) {
 	s->freq = strtod(val, NULL);
     } else if (strcmp(tok, "post_pulse_runtime") == 0) {

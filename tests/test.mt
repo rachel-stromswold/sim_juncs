@@ -1,4 +1,12 @@
-Composite(eps = 3.5, susceptibilities = "(0.0000000001,0.48,6859718450000000000000,drude),(0.065,0.816,6859718450000000000000,drude)") {
+data(name = foo, entry = "bar,(arr),[blah]")
+data(type = field_source, envelope = "Gaussian(Ey, 0.75, 1, 0.2, 5.0, 1.0)") {
+    Box([0,0,0], [1,1,0]);
+}
+data(type = field_source, envelope = "continuous(Hz, 0.75, 0.2, 1.2, 0.1, 1.0)") {
+    Box([0,0,1], [1,1,1]);
+}
+
+Composite(eps = 3.5, susceptibilities = "(1.0,0.48,68.5971845,drude),(8.0,0.816,452848600800781300,drude)") {
     union() {
 	Box([0,0,0], [1,1,1]);
 	Sphere([0,0,2], 1);

@@ -3,12 +3,15 @@
 
 #include <meep.hpp>
 #include <vector>
+#include <random>
 #include <math.h>
 #include <hdf5.h>
 
 #include "argparse.h"
 #include "cgs.hpp"
 #define PREFIX_LEN 3
+
+#define DEFAULT_WIDTH_N 5
 
 //simulation parameters
 const double sharpness = 5;
@@ -30,10 +33,15 @@ class cgs_material_function : public meep::material_function {
     //scaling and offset
     double def_ret = 1.0;
 
+    //we use a stochastic smoothing process
+    _uint smooth_n = 1;
+    double* smooth_pts = NULL;
+    void generate_smooth_pts(double smooth_rad);
+
 public:
-    cgs_material_function(double p_def_ret=1.0);
-    cgs_material_function(CompositeObject* p_volume, std::string type="eps", double p_def_ret=1.0);
-    cgs_material_function(region_scale_pair p_volume, double p_def_ret=1.0);
+    cgs_material_function(double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
+    cgs_material_function(CompositeObject* p_volume, std::string type="eps", double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
+    cgs_material_function(region_scale_pair p_volume, double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
     cgs_material_function(const cgs_material_function& o);
     cgs_material_function(cgs_material_function&& o);
     cgs_material_function& operator=(cgs_material_function&& o);
@@ -59,29 +67,49 @@ typedef struct {
 } drude_suscept;
 
 std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
-meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode);
+meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
+
+typedef enum { SRC_GAUSSIAN, SRC_CONTINUOUS } src_type;
+class source_info {
+public:
+    src_type type;
+    meep::component component;
+    double freq;
+    double width;
+    double start_time;
+    double end_time;
+    double cutoff;
+    double amplitude;
+
+    source_info(std::string spec_str, const Scene& problem, parse_ercode* ercode);
+};
 
 class bound_geom {
-    public:
-	bound_geom(const Settings& s, parse_ercode* ercode=NULL);
-	~bound_geom();
+public:
+    bound_geom(const Settings& s, parse_ercode* ercode=NULL);
+    ~bound_geom();
 
-	void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
-	void add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp = 1.0);
-	void run(const char* fname_prefix, std::vector<meep::vec> locs);
+    void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
+    void add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp = 1.0);
+    void run(const char* fname_prefix, std::vector<meep::vec> locs);
 
-	Scene sc;
+    Scene problem;
 
-    private:
-	//meep objects
-	meep::grid_volume vol;
+#ifdef DEBUG_INFO
+    std::vector<source_info> sources;
+#endif
+
+private:
+    //meep objects
+    meep::grid_volume vol;
     meep::structure* strct = NULL;
-	meep::fields fields;
+    meep::fields fields;
 
-	std::vector<meep::monitor_point*> monitor_locs;
+    std::vector<meep::monitor_point*> monitor_locs;
 
-	double ttot = 0;
-	_uint n_t_pts = 0;	
+    double ttot = 0;
+    _uint n_t_pts = 0;	
+    double post_source_t = 0.0;
 };
 
 #endif //DISP_H

@@ -207,6 +207,8 @@ void CompositeObject::add_child(_uint side, Object* o, object_type p_type) {
 }
 
 int CompositeObject::in(const evec3& r) {
+    //NOOP items should be ignored
+    if (cmb == CGS_CMB_NOOP) return 0;
     //if the right child is null then we don't apply any operations
     if (children[1] == NULL) {
 	if (children[0] == NULL)
@@ -230,11 +232,12 @@ int CompositeObject::in(const evec3& r) {
     return invert;
 }
 
-parse_ercode Scene::lookup_val(char* tok, double& sto) {
+parse_ercode Scene::lookup_val(char* tok, double& sto) const {
     errno = 0;
      std::string cpp_tok(tok);
     if (named_items.count(cpp_tok) == 0) return E_BAD_TOKEN;
-    sto = std::stof(named_items[cpp_tok]);
+    const std::string entry = named_items.at(cpp_tok);
+    sto = std::stof(entry);
     return E_SUCCESS;
 }
 
@@ -244,7 +247,7 @@ parse_ercode Scene::lookup_val(char* tok, double& sto) {
  * 	-1: insufficient tokens
  * 	-2: one of the tokens supplied was invalid
  */
-parse_ercode Scene::parse_vector(char* str, evec3& sto) {
+parse_ercode Scene::parse_vector(char* str, evec3& sto) const {
     parse_ercode er;
     //find the start and the end of the vector
     char* start = strchr(str, '[');
@@ -297,7 +300,7 @@ parse_ercode Scene::parse_vector(char* str, evec3& sto) {
  * Based on the declaration syntax produce the appropriate geometric shape and store the result in ptr. Ptr must not be initialized before a call to this function to avoid a memory leak.
  * returns: 0 on success or an error code
  */
-parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) {
+parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const {
     *ptr = NULL;
     parse_ercode er = E_SUCCESS;
 
@@ -362,6 +365,9 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
     } else if (strcmp(f.name, "difference") == 0) {
 	if (ptr) *ptr = new CompositeObject(CGS_DIFFERENCE, f, p_invert);
 	if (type) *type = CGS_COMPOSITE;
+    } else if (strcmp(f.name, "data") == 0) {
+	if (ptr) *ptr = new CompositeObject(CGS_CMB_NOOP, f, p_invert);
+	if (type) *type = CGS_DATA;
     } else {
 	if (ptr) *ptr = NULL;
 	if (type) *type = CGS_UNDEF;
@@ -378,11 +384,19 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
  * end: If not NULL, a pointer to the first character after the end of the string is stored here. If an error occurred during parsing end will be set to NULL.
  * returns: an errorcode if an invalid string was supplied.
  */
-parse_ercode Scene::parse_func(char* token, size_t open_par_ind, cgs_func& f, char** end) {
+parse_ercode Scene::parse_func(char* token, long open_par_ind, cgs_func& f, char** end) const {
     //by default we want to indicate that we didn't get to the end
     if (end) *end = NULL;
     f.n_args = 0;
-    if (token[open_par_ind] != '(') return E_BAD_TOKEN;
+    //infer the location of the open paren index if the user didn't specify it
+    if (open_par_ind < 0 || token[open_par_ind] != '(') {
+	char* par_char = strchr(token, '(');
+	//make sure there actually is an open paren
+	if (par_char == NULL) return E_BAD_TOKEN;
+	open_par_ind = par_char - token;
+    }
+
+    //break the string up at the parenthesis and remove surrounding whitespace
     token[open_par_ind] = 0;
     f.name = CGS_trim_whitespace(token, NULL);
 
@@ -392,50 +406,59 @@ parse_ercode Scene::parse_func(char* token, size_t open_par_ind, cgs_func& f, ch
     //keep track of information for individual arguments
     int s_block_in = 0;
     int p_block_in = 0;
-    int q_block_in = 0;
     size_t j = 0;
     bool tok_start = false;
     char* cur_tok = arg_str;
     size_t last_non_space = 0;
     size_t i = 0;
     for (; arg_str[i] != 0; ++i) {
-        //it is possible that there is an array or function inside one of the arguments, we should ignore field separators in those blocks
-        if (arg_str[i] == '[') {
-            ++s_block_in;
-        } else if (arg_str[i] == ']') {
-            --s_block_in;
-            if (s_block_in < 0) return E_BAD_SYNTAX;
-        } else if (arg_str[i] == '(') {
-            ++p_block_in;
-        } else if (arg_str[i] == ')') {
-            --p_block_in;
-            //when we reach an end paren without a matching open paren we should stop reading the function
-            if (p_block_in < 0) break;
-        } else if (arg_str[i] == '\"') {
-            //TODO: handle single and double quotes separately
-            q_block_in = 1 - q_block_in;
-        }
-        
-        //now if this character is a field separator we add it to the argument list
-        if (arg_str[i] == ',' && s_block_in == 0 && p_block_in == 0 && q_block_in == 0) {
-            if (!tok_start) return E_LACK_TOKENS;
-            arg_str[last_non_space+1] = 0;
-            f.args[j++] = cur_tok;
-            //now reset the current token
-            cur_tok = arg_str + i + 1;
-            tok_start = false;
-            continue;
-        }
+	//it is possible that there is an array or function inside one of the arguments, we should ignore field separators in those blocks
+	if (arg_str[i] == '[') {
+	    ++s_block_in;
+	} else if (arg_str[i] == ']') {
+	    --s_block_in;
+	    if (s_block_in < 0) return E_BAD_SYNTAX;
+	} else if (arg_str[i] == '(') {
+	    ++p_block_in;
+	} else if (arg_str[i] == ')') {
+	    --p_block_in;
+	    //when we reach an end paren without a matching open paren we should stop reading the function
+	    if (p_block_in < 0) break;
+	} else if (arg_str[i] == '\"') {
+	    arg_str[i] = ' ';
+	    //skip ahead until we find the end of the quote
+	    for (_uint j = i+1; arg_str[j] != 0; ++j) {
+		if (arg_str[j] == '\"' && arg_str[j-1] != '\\') {
+		    //once we reach the end of the string we need to set the higher level index accordingly
+		    last_non_space = j-1;
+		    i = j;
+		    arg_str[j] = ' ';//assign the character to be ignored
+		    break;
+		}
+	    }
+	    continue;
+	}
+	
+	//now if this character is a field separator we add it to the argument list
+	if (arg_str[i] == ',' && s_block_in == 0 && p_block_in == 0) {
+	    if (!tok_start) return E_LACK_TOKENS;
+	    arg_str[last_non_space+1] = 0;
+	    f.args[j++] = cur_tok;
+	    //now reset the current token
+	    cur_tok = arg_str + i + 1;
+	    tok_start = false;
+	    continue;
+	}
 
-        //we want to remove whitespace surrounding the arguments
-        if (arg_str[i] == ' ' || arg_str[i] == '\t') {
-            if (!tok_start) {
-                cur_tok += 1;
-            }
-        } else {
-            last_non_space = i;
-            tok_start = true;
-        }
+	//we want to remove whitespace surrounding the arguments
+	if (arg_str[i] == ' ' || arg_str[i] == '\t') {
+	    if (!tok_start) {
+		cur_tok += 1;
+	    }
+	} else {
+	    last_non_space = i;
+	    tok_start = true;
+	}
     }
     //this means that there wasn't a closing parenthesis found
     if (arg_str[i] == 0) return E_BAD_SYNTAX;
@@ -604,7 +627,7 @@ T CGS_Stack<T>::peek(size_t ind) {
  */
 parse_ercode ObjectStack::emplace_obj(Object* obj, object_type p_type) {
     if (stack_ptr == 0) {
-	if (p_type == CGS_COMPOSITE || p_type == CGS_ROOT) {
+	if (p_type == CGS_COMPOSITE || p_type == CGS_ROOT || p_type == CGS_DATA) {
 	    side_obj_pair cur(0, (CompositeObject*)obj);
 	    return push(cur);
 	} else {
@@ -689,9 +712,6 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 		//only interpret as normal code if we aren't in a comment or literal block
 		if (cur_type != BLK_COMMENT && cur_type != BLK_LITERAL) {
 		    if (buf[i] == '(' && blk_stack.peek() != BLK_LITERAL) {
-			if (last_type != BLK_UNDEF)
-			    printf("Error on line %d: Expected '{' before function name\n", lineno);
-
 			//initialize a new cgs_func with the appropriate arguments
 			cgs_func cur_func;
 			char* endptr;
@@ -720,6 +740,10 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 				    //this is included so that we don't have to check whether something is a root or a composite every time
 				    type = CGS_COMPOSITE;
 				}
+			    } else if (type == CGS_DATA) {
+				data_objs.push_back((CompositeObject*)obj);
+				last_type = BLK_DATA;
+				type = CGS_COMPOSITE;
 			    }
 			    tree_pos.emplace_obj(obj, type);
 			}
@@ -752,7 +776,11 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 			}
 		    //check for literal experessions enclosed in quotes
 		    } else if (buf[i] == '\"') {
-			blk_stack.push(BLK_LITERAL);
+			if (blk_stack.peek() == BLK_LITERAL) {
+			    blk_stack.pop(NULL);
+			} else {
+			    blk_stack.push(BLK_LITERAL);
+			}
 		    } else if (buf[i] == '=') {
 			char* tok = CGS_trim_whitespace(buf, NULL);
 			size_t val_len;
@@ -769,6 +797,10 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 		}
 		last_char = buf[i];
 	    }
+	    //don't clutter up the tree if we have a global data object
+	    if (blk_stack.is_empty()) {
+		tree_pos.reset();
+	    }
 	    ++lineno;
 	}
 	fclose(fp);
@@ -778,9 +810,41 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
     }
 }
 
+Scene::Scene(const Scene& o) {
+    roots.resize(o.roots.size());
+    data_objs.resize(o.data_objs.size());
+    for (_uint i = 0; i < roots.size(); ++i) {
+	roots[i] = new CompositeObject( *(o.roots[i]) );
+    }
+    for (_uint i = 0; i < data_objs.size(); ++i) {
+	data_objs[i] = new CompositeObject( *(o.data_objs[i]) );
+    }
+    named_items = o.named_items;
+}
+
+Scene::Scene(Scene&& o) {
+    roots = o.roots;
+    data_objs = o.data_objs;
+    named_items = o.named_items;
+    o.roots.clear();
+    o.data_objs.clear();
+    o.named_items.clear();
+}
+
+Scene& Scene::operator=(Scene& o) {
+    roots = o.roots;
+    data_objs = o.data_objs;
+    named_items = o.named_items;
+
+    return *this;
+}
+
 Scene::~Scene() {
     //TODO: double frees are bad lol
     for (_uint i = 0; i < roots.size(); ++i) {
 	if (roots[i]) delete roots[i];
+    }
+    for (_uint i = 0; i < data_objs.size(); ++i) {
+	if (data_objs[i]) delete data_objs[i];
     }
 }
