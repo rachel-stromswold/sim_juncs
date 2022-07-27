@@ -416,8 +416,17 @@ meep::structure* structure_from_settings(const Settings& s, parse_ercode* ercode
 	}
 	//add frequency dependent susceptibility
 	for (_uint i = 0; i < cur_sups.size(); ++i) {
-	    meep::lorentzian_susceptibility suscept( cur_sups[i].omega_0/s.um_scale, cur_sups[i].gamma/s.um_scale, !(cur_sups[i].use_denom) );
-	    region_scale_pair tmp_pair = {*it, cur_sups[i].sigma};
+        double omega_0 = cur_sups[i].omega_0;
+        double gamma = cur_sups[i].gamma/s.um_scale;
+        double sigma = cur_sups[i].sigma;
+        if (cur_sups[i].use_denom) {
+            //the scaling of omega_0 should only occur if there is a rescaling
+            omega_0 /= s.um_scale;
+        } else {
+            sigma /= (s.um_scale*s.um_scale);
+        }
+	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[i].use_denom) );
+	    region_scale_pair tmp_pair = {*it, sigma};
 	    cgs_material_function scale_func(tmp_pair, 0.0, s.smooth_n, s.smooth_rad);
 	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
 	}
