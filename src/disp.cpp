@@ -446,7 +446,9 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
     //all sources require that a component and frequency be specified
     if (tmp_er == E_SUCCESS) {
 	if (env_func.n_args > 2) {
-	    if (strcmp(env_func.args[0], "Ey") == 0) {
+	    if (strcmp(env_func.args[0], "Ex") == 0) {
+		component = meep::Ex;
+	    } else if (strcmp(env_func.args[0], "Ey") == 0) {
 		component = meep::Ey;
 	    } else if (strcmp(env_func.args[0], "Ez") == 0) {
 		component = meep::Ez;
