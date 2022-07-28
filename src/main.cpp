@@ -58,6 +58,7 @@ int main(int argc, char **argv) {
         monitor_locs.emplace_back(z_center, y_loc, 2*z_center - args.pml_thickness);
     }
 
+    printf("chuck testa\n");
     geom.run(args.out_dir, monitor_locs);
 
     cleanup_settings(&args);

@@ -627,6 +627,7 @@ void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     fields.set_output_directory(fname_prefix);
 
     //save the dielectric used
+    printf("Set output directory to %s\n", fname_prefix);
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
 
     //open the file which will store poynting vector fluxes
@@ -650,6 +651,7 @@ void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     char h5_fname[BUF_SIZE];
     strcpy(h5_fname, "ex-");
 
+    printf("starting simulations\n");
     _uint i = 0;
     for (; fields.time() < ttot; ++i) {
         //magnetic and electric fields are stored at different times, we need to synchronize
