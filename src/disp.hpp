@@ -67,9 +67,6 @@ typedef struct {
     bool use_denom;
 } drude_suscept;
 
-std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
-meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
-
 typedef enum { SRC_GAUSSIAN, SRC_CONTINUOUS } src_type;
 class source_info {
 public:
@@ -111,6 +108,15 @@ private:
     double ttot = 0;
     _uint n_t_pts = 0;	
     double post_source_t = 0.0;
+
+    //the arguments supplied will alter the location of the dielectric
+    double pml_thickness;
+    double len;
+    double z_center;
+    double eps_scale;
+
+    std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
+    meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
 };
 
 #endif //DISP_H

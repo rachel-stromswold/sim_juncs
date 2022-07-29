@@ -265,176 +265,6 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
     return in_bound(r);
 }
 
-/**
- * Add the list of susceptibilities to the Settings file s. The string should have the format (omega_0,gamma_0,sigma_0),(omega_1,gamma_1,sigma_1),...
- * returns: a vector list of susceptibilities
- * If an error is encountered, a code will be saved to er if it is not NULL
- *  0 on success
- *  -1 null string
- *  -2 invalid or empty string
- *  -3 insufficient memory
- */
-std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er) {
-    std::vector<drude_suscept> ret;
-    //check that the Settings struct is valid and allocate memory
-    if (!str) {
-	set_ercode(er, -1);
-	return ret;
-    }
-
-    drude_suscept cur_sus;
-
-    //used for strtok_r
-    char* save_str;
-    char* tok;
-    //find the first entry
-    char* cur_entry = strchr(str, '(');
-    char* end = strchr(str, ')');
-
-    //only proceed if we have pointers to the start and end of the current entry
-    while (cur_entry && end) {
-	cur_sus.omega_0 = 0.0;
-	cur_sus.gamma = 0.0;
-	cur_sus.sigma = 0.0;
-	cur_sus.use_denom = 1;
-	//the open paren must occur before the end paren
-	if (cur_entry > end) {
-	    set_ercode(er, -2);
-	    return ret;
-	}
-
-	//null terminate the parenthesis and tokenize by commas
-	end[0] = 0;
-	//read the omega value
-	tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
-	cur_sus.omega_0 = strtod(tok, NULL);
-	if (errno) {
-	    errno = 0;
-	    set_ercode(er, -2);
-	    return ret;
-	}
-	//read the gamma value
-	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	if (!tok) {
-	    set_ercode(er, -2);
-	    return ret;
-	}
-	cur_sus.gamma = strtod(tok, NULL);
-	if (errno) {
-	    errno = 0;
-	    set_ercode(er, -2);
-	    return ret;
-	}
-	//read the sigma value
-	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	if (!tok) {
-	    set_ercode(er, -2);
-	    return ret;
-	}
-	cur_sus.sigma = strtod(tok, NULL);
-	if (errno) {
-	    errno = 0;
-	    set_ercode(er, -2);
-	    return ret;
-	}
-	//read the (optional) use denom flag
-	tok = strtok_r(NULL, ",", &save_str);
-	if (tok) {
-	    tok = trim_whitespace(tok, NULL);
-	    cur_sus.use_denom = strtol(tok, NULL, 10);
-	    if (errno) {
-		errno = 0;
-		cur_sus.use_denom = 1;
-		if (strcmp(tok, "drude") == 0 || strcmp(tok, "true") == 0) cur_sus.use_denom = 0;
-	    }
-	    if (strcmp(tok, "lorentz") == 0 || strcmp(tok, "false") == 0) cur_sus.use_denom = 1;
-	}
-
-	//save the information
-	ret.push_back(cur_sus);
-
-	//advance to the next entry
-	if (end[1] == 0) break;
-	cur_entry = strchr(end+1, '(');
-	if (!cur_entry) break;
-	end = strchr(cur_entry, ')');
-    }
-
-    return ret;
-}
-
-double dummy_eps(const meep::vec& r) { return 1.0; }
-
-meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode) {
-    //the arguments supplied will alter the location of the dielectric
-    double z_center = s.len/2 + s.pml_thickness;
-    double eps_scale = 1 / (sharpness*s.resolution);
-
-    meep::grid_volume vol;
-    //initialize the volume
-    if (s.n_dims == 1) {
-	vol = meep::vol1d(2*z_center, s.resolution);
-    } else if (s.n_dims == 2) {
-	vol = meep::vol2d(2*z_center, 2*z_center, s.resolution);
-    } else {
-	vol = meep::vol3d(2*z_center, 2*z_center, 2*z_center, s.resolution);
-    }
-
-    //iterate over all objects specified in the scene
-    std::vector<CompositeObject*> roots = problem.get_roots();
-    //setup the structure with the infinite frequency dielectric component
-    cgs_material_function inf_eps_func(s.ambient_eps, s.smooth_n, s.smooth_rad);
-
-    for (auto it = roots.begin(); it != roots.end(); ++it) {
-	inf_eps_func.add_region(*it);
-	/** ============================ DEBUG ============================ **/
-	meep::vec test_loc_1(0.5,0.5,2);
-	meep::vec test_loc_2(0.1,0.5,6);
-	meep::vec test_loc_3(0.5,0.1,6);
-	meep::vec test_loc_4(8,0.5,6);
-	meep::vec test_loc_5(0.5,8,6);
-	meep::vec test_loc_6(12,0.5,6);
-	meep::vec test_loc_7(0.5,12,6);
-	double ret_1 = inf_eps_func.eps(test_loc_1);
-	double ret_2 = inf_eps_func.eps(test_loc_2);
-	double ret_3 = inf_eps_func.eps(test_loc_3);
-	double ret_4 = inf_eps_func.eps(test_loc_4);
-	double ret_5 = inf_eps_func.eps(test_loc_5);
-	double ret_6 = inf_eps_func.eps(test_loc_6);
-	double ret_7 = inf_eps_func.eps(test_loc_7);
-	printf("%f %f %f %f %f %f %f\n", ret_1, ret_2, ret_3, ret_4, ret_5, ret_6, ret_7);
-	/** ============================ DEBUG ============================ **/
-    }
-    meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
-    //read susceptibilities if they are available
-    for (auto it = roots.begin(); it != roots.end(); ++it) {
-	std::vector<drude_suscept> cur_sups;
-	int res = 0;
-	if ((*it)->has_metadata("susceptibilities")) {
-	    char* dat = strdup((*it)->fetch_metadata("susceptibilities").c_str());
-	    cur_sups = parse_susceptibilities(dat, &res);
-	    free(dat);
-	}
-	//add frequency dependent susceptibility
-	for (_uint i = 0; i < cur_sups.size(); ++i) {
-        double omega_0 = cur_sups[i].omega_0;
-        double gamma = cur_sups[i].gamma/s.um_scale;
-        double sigma = cur_sups[i].sigma;
-        if (cur_sups[i].use_denom) {
-            //the scaling of omega_0 should only occur if there is a rescaling
-            omega_0 /= s.um_scale;
-        } else {
-            sigma /= (s.um_scale*s.um_scale);
-        }
-	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[i].use_denom) );
-	    region_scale_pair tmp_pair = {*it, sigma};
-	    cgs_material_function scale_func(tmp_pair, 0.0, s.smooth_n, s.smooth_rad);
-	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
-	}
-    }
-    return strct;
-}
-
 source_info::source_info(std::string spec_str, const Scene& problem, parse_ercode* ercode) {
     //read the specification for the pulse as a function
     char* spec = strdup( spec_str.c_str() );
@@ -530,6 +360,191 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
     if (ercode) *ercode = tmp_er;
 
     free(spec);
+}
+
+
+
+/**
+ * Add the list of susceptibilities to the Settings file s. The string should have the format (omega_0,gamma_0,sigma_0),(omega_1,gamma_1,sigma_1),...
+ * returns: a vector list of susceptibilities
+ * If an error is encountered, a code will be saved to er if it is not NULL
+ *  0 on success
+ *  -1 null string
+ *  -2 invalid or empty string
+ *  -3 insufficient memory
+ */
+std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, int* er) {
+    std::vector<drude_suscept> ret;
+    //check that the Settings struct is valid and allocate memory
+    if (!str) {
+	set_ercode(er, -1);
+	return ret;
+    }
+
+    drude_suscept cur_sus;
+
+    //used for strtok_r
+    char* save_str;
+    char* tok;
+    //find the first entry
+    char* cur_entry = strchr(str, '(');
+    char* end = strchr(str, ')');
+
+    //only proceed if we have pointers to the start and end of the current entry
+    while (cur_entry && end) {
+	cur_sus.omega_0 = 0.0;
+	cur_sus.gamma = 0.0;
+	cur_sus.sigma = 0.0;
+	cur_sus.use_denom = 1;
+	//the open paren must occur before the end paren
+	if (cur_entry > end) {
+	    set_ercode(er, -2);
+	    return ret;
+	}
+
+	//null terminate the parenthesis and tokenize by commas
+	end[0] = 0;
+	//read the omega value
+	tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
+	cur_sus.omega_0 = strtod(tok, NULL);
+	if (errno) {
+	    errno = 0;
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	//read the gamma value
+	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+	if (!tok) {
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	cur_sus.gamma = strtod(tok, NULL);
+	if (errno) {
+	    errno = 0;
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	//read the sigma value
+	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+	if (!tok) {
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	cur_sus.sigma = strtod(tok, NULL);
+	if (errno) {
+	    errno = 0;
+	    set_ercode(er, -2);
+	    return ret;
+	}
+	//read the (optional) use denom flag
+	tok = strtok_r(NULL, ",", &save_str);
+	if (tok) {
+	    tok = trim_whitespace(tok, NULL);
+	    cur_sus.use_denom = strtol(tok, NULL, 10);
+	    if (errno) {
+		errno = 0;
+		cur_sus.use_denom = 1;
+		if (strcmp(tok, "drude") == 0 || strcmp(tok, "true") == 0) cur_sus.use_denom = 0;
+	    }
+	    if (strcmp(tok, "lorentz") == 0 || strcmp(tok, "false") == 0) cur_sus.use_denom = 1;
+	}
+
+	//save the information
+	ret.push_back(cur_sus);
+
+	//advance to the next entry
+	if (end[1] == 0) break;
+	cur_entry = strchr(end+1, '(');
+	if (!cur_entry) break;
+	end = strchr(cur_entry, ')');
+    }
+
+    return ret;
+}
+
+double dummy_eps(const meep::vec& r) { return 1.0; }
+
+meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode) {
+    pml_thickness = s.pml_thickness;
+    len = s.len;
+
+    //read information about the problem size from the geometry file
+    std::vector<CompositeObject*> data = problem.get_data();
+    for (size_t i = 0; i < data.size(); ++i) {
+	if (data[i]->has_metadata("pml_thickness")) {
+	    pml_thickness = std::stod(data[i]->fetch_metadata("pml_thickness"));
+	}
+	if (data[i]->has_metadata("length")) {
+	    len = std::stod(data[i]->fetch_metadata("length"));
+	}
+    }
+
+    //the arguments supplied will alter the location of the dielectric
+    z_center = len/2 + pml_thickness;
+    eps_scale = 1 / (sharpness*s.resolution);
+
+    //initialize the volume
+    if (s.n_dims == 1) {
+	vol = meep::vol1d(2*z_center, s.resolution);
+    } else if (s.n_dims == 2) {
+	vol = meep::vol2d(2*z_center, 2*z_center, s.resolution);
+    } else {
+	vol = meep::vol3d(2*z_center, 2*z_center, 2*z_center, s.resolution);
+    }
+
+    //iterate over all objects specified in the scene
+    std::vector<CompositeObject*> roots = problem.get_roots();
+    //setup the structure with the infinite frequency dielectric component
+    cgs_material_function inf_eps_func(s.ambient_eps, s.smooth_n, s.smooth_rad);
+
+    for (auto it = roots.begin(); it != roots.end(); ++it) {
+	inf_eps_func.add_region(*it);
+	/** ============================ DEBUG ============================ **/
+	meep::vec test_loc_1(0.5,0.5,2);
+	meep::vec test_loc_2(0.1,0.5,6);
+	meep::vec test_loc_3(0.5,0.1,6);
+	meep::vec test_loc_4(8,0.5,6);
+	meep::vec test_loc_5(0.5,8,6);
+	meep::vec test_loc_6(12,0.5,6);
+	meep::vec test_loc_7(0.5,12,6);
+	double ret_1 = inf_eps_func.eps(test_loc_1);
+	double ret_2 = inf_eps_func.eps(test_loc_2);
+	double ret_3 = inf_eps_func.eps(test_loc_3);
+	double ret_4 = inf_eps_func.eps(test_loc_4);
+	double ret_5 = inf_eps_func.eps(test_loc_5);
+	double ret_6 = inf_eps_func.eps(test_loc_6);
+	double ret_7 = inf_eps_func.eps(test_loc_7);
+	printf("%f %f %f %f %f %f %f\n", ret_1, ret_2, ret_3, ret_4, ret_5, ret_6, ret_7);
+	/** ============================ DEBUG ============================ **/
+    }
+    meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
+    //read susceptibilities if they are available
+    for (auto it = roots.begin(); it != roots.end(); ++it) {
+	std::vector<drude_suscept> cur_sups;
+	int res = 0;
+	if ((*it)->has_metadata("susceptibilities")) {
+	    char* dat = strdup((*it)->fetch_metadata("susceptibilities").c_str());
+	    cur_sups = parse_susceptibilities(dat, &res);
+	    free(dat);
+	}
+	//add frequency dependent susceptibility
+	for (_uint i = 0; i < cur_sups.size(); ++i) {
+	    double omega_0 = cur_sups[i].omega_0;
+	    double gamma = cur_sups[i].gamma/s.um_scale;
+	    double sigma = cur_sups[i].sigma;
+	    if (cur_sups[i].use_denom) {
+		//the scaling of omega_0 should only occur if there is a rescaling
+		omega_0 /= s.um_scale;
+	    } else {
+		sigma /= (s.um_scale*s.um_scale);
+	    }
+	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[i].use_denom) );
+	    region_scale_pair tmp_pair = {*it, sigma};
+	    cgs_material_function scale_func(tmp_pair, 0.0, s.smooth_n, s.smooth_rad);
+	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
+	}
+    }
+    return strct;
 }
 
 bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :

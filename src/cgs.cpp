@@ -29,18 +29,18 @@ int Sphere::in(const evec3& r) {
     return 1 - invert;
 }
 
-Box::Box(evec3& p_corner, evec3& p_offset, int p_invert) : Object(p_invert) {
-    offset = p_offset/2;
-    center = p_corner + offset;
+Box::Box(evec3& p_corner_1, evec3& p_corner_2, int p_invert) : Object(p_invert) {
+    offset = (p_corner_2 - p_corner_1)/2;
+    center = p_corner_1 + offset;
     //wlog, fix the offset to always be positive from the center
     if (offset.x() < 0) offset.x() *= -1;
     if (offset.y() < 0) offset.y() *= -1;
     if (offset.z() < 0) offset.z() *= -1;
 }
 
-Box::Box(evec3& p_corner, evec3& p_offset, Eigen::Quaterniond p_orientation, int p_invert) : Object(p_orientation, p_invert) {
-    offset = p_offset/2;
-    center = p_corner + offset;
+Box::Box(evec3& p_corner_1, evec3& p_corner_2, Eigen::Quaterniond p_orientation, int p_invert) : Object(p_orientation, p_invert) {
+    offset = (p_corner_2 - p_corner_1)/2;
+    center = p_corner_1 + offset;
     //wlog, fix the offset to always be positive from the center
     if (offset.x() < 0) offset.x() *= -1;
     if (offset.y() < 0) offset.y() *= -1;
@@ -308,12 +308,12 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
     //switch between all potential types
     if (strcmp(f.name, "Box") == 0) {
 	if (f.n_args < 2) return E_LACK_TOKENS;
-	evec3 corner;
-	evec3 size;
+	evec3 corner_1;
+	evec3 corner_2;
 	//read both vector arguments and throw errors if necessary
 	if ((er = parse_vector(f.args[0], corner)) != E_SUCCESS) return er;
 	if ((er = parse_vector(f.args[1], size)) != E_SUCCESS) return er;
-	if (ptr) *ptr = new Box(corner, size, p_invert);
+	if (ptr) *ptr = new Box(corner_1, corner_2, p_invert);
 	if (type) *type = CGS_BOX;
     } else if (strcmp(f.name, "Sphere") == 0) {
 	if (f.n_args < 2) return E_LACK_TOKENS;

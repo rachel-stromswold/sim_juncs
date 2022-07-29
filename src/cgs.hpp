@@ -92,8 +92,8 @@ private:
     evec3 offset;
 
 public:
-    Box(evec3& p_corner, evec3& p_offset, int p_invert=0);
-    Box(evec3& p_corner, evec3& p_offset, Eigen::Quaterniond p_orientation, int p_invert=0);
+    Box(evec3& p_corner_1, evec3& p_corner_2, int p_invert=0);
+    Box(evec3& p_corner_1, evec3& p_corner_2, Eigen::Quaterniond p_orientation, int p_invert=0);
     int in(const evec3& r);
 
     evec3 get_center() { return center; }
