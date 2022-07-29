@@ -260,6 +260,7 @@ parse_ercode Scene::parse_vector(char* str, evec3& sto) const {
     if (!tok) return E_LACK_TOKENS;
     tok = CGS_trim_whitespace(tok, NULL);
     double val;
+    errno = 0;
     sto.x() = strtod(tok, NULL);
     if (errno) {
 	//if the string couldn't be interpreted as a double, try looking it up in the dictionary

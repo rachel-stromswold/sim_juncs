@@ -1,10 +1,8 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
 #include <meep.hpp>
 #include "cgs.hpp"
 #include "disp.hpp"
-
-const char* prog_name = "test";
 
 TEST_CASE("Test function parsing") {
     char buf[BUF_SIZE];
@@ -290,21 +288,14 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
 }
 
 TEST_CASE("Test reading of field sources") {
-    int argcc = 1;
-    char** argvv = (char**)malloc(sizeof(char*)*argcc);
-    argvv[0] = strdup(prog_name);
-    meep::initialize mpi(argcc, argvv);
-    free(argvv[0]);
-    free(argvv);
-
     parse_ercode er;
 
     //load settings from the configuration file
     Settings args;
-    args.resolution = 0.05;//make things a little faster because we don't care
     std::string name = "test.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
+    args.resolution = 0.05;//make things a little faster because we don't care
     free(name_dup);
     CHECK(ret == 0);
 
@@ -333,4 +324,24 @@ TEST_CASE("Test reading of field sources") {
 #endif
 
     cleanup_settings(&args);
+}
+
+int main(int argc, char** argv) {
+    meep::initialize mpi(argc, argv);
+
+    doctest::Context context;
+    context.applyCommandLine(argc, argv);
+
+    // overrides
+    context.setOption("no-breaks", true);             // don't break in the debugger when assertions fail
+
+    int res = context.run(); // run
+
+    if(context.shouldExit()) // important - query flags (and --exit) rely on the user doing this
+        return res;          // propagate the result of the tests
+    
+    int client_stuff_return_code = 0;
+    // your program - if the testing framework is integrated in your production code
+    
+    return res + client_stuff_return_code; // the result from doctest is propagated here as well
 }
