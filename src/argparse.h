@@ -25,6 +25,7 @@ typedef struct {
     double pml_thickness = DEFAULT_PML_THICK;
     double um_scale = 1.0;
     double resolution = DEFAULT_RESOLUTION;
+    double courant = 0.5;//0.5 is the meep default
     long grid_num = -1;
     double len = DEFAULT_LEN;
     double ambient_eps = 1.0;
@@ -100,6 +101,8 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
 	s->smooth_rad = strtod(val, NULL);
     } else if (strcmp(tok, "smooth_n") == 0) {
 	s->smooth_n = strtod(val, NULL);
+    } else if (strcmp(tok, "courant") == 0) {
+	s->courant = strtod(val, NULL);
     } else if (strcmp(tok, "frequency") == 0) {
 	s->freq = strtod(val, NULL);
     } else if (strcmp(tok, "post_pulse_runtime") == 0) {
@@ -137,10 +140,13 @@ inline void correct_defaults(Settings* s) {
     }
 
 	//if a number of grid points was specified, use that
-	if (s->grid_num > 0) {
-	    double total_len = s->len + 2*s->pml_thickness;
-	    s->resolution = (double)(s->grid_num) / total_len;
+	if (s->grid_num < 0) {
+	    //ensure that we have an odd number of grid points
+        s->grid_num = 2*int( 0.5*(1 + (s->len)*(s->resolution)) ) + 1;
 	}
+	
+    double total_len = s->len + 2*s->pml_thickness;
+    s->resolution = (double)(s->grid_num) / total_len;
 }
 
 /**
@@ -189,7 +195,7 @@ inline int parse_conf_file(Settings* s, char* fname) {
     }
     fclose(fp);
 
-    correct_defaults(s);
+    //correct_defaults(s);
     return 0;
 }
 
@@ -223,10 +229,7 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		    printf("Usage: meep --grid-res <grid points per unit length>");
 		    return 0;
 		} else {
-		    //a->resolution = strtod(argv[i+1], NULL);
-		    double res = strtod(argv[i+1], NULL);
-		    //ensure that we have an odd number of grid points
-		    a->grid_num = 2*int(0.5*(1 + (a->len)*res)) + 1;
+		    a->resolution = strtod(argv[i+1], NULL);
 		    //check for errors
 		    if (errno != 0) {
 			printf("Invalid floating point supplied to --grid-res");
@@ -311,7 +314,7 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 	    }
 	}
 
-    correct_defaults(a);
+    //correct_defaults(a);
     }
     *argc = n_args;
 

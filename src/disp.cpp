@@ -405,7 +405,7 @@ meep::structure* structure_from_settings(const Settings& s, Scene& problem, pars
 	printf("%f %f %f %f %f %f %f\n", ret_1, ret_2, ret_3, ret_4, ret_5, ret_6, ret_7);
 	/** ============================ DEBUG ============================ **/
     }
-    meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
+    meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness), meep::identity(), 0, s.courant);
     //read susceptibilities if they are available
     for (auto it = roots.begin(); it != roots.end(); ++it) {
 	std::vector<drude_suscept> cur_sups;
@@ -417,15 +417,9 @@ meep::structure* structure_from_settings(const Settings& s, Scene& problem, pars
 	}
 	//add frequency dependent susceptibility
 	for (_uint i = 0; i < cur_sups.size(); ++i) {
-        double omega_0 = cur_sups[i].omega_0;
-        double gamma = cur_sups[i].gamma/s.um_scale;
+        double omega_0 = cur_sups[i].omega_0 / s.um_scale;
+        double gamma = cur_sups[i].gamma / s.um_scale;
         double sigma = cur_sups[i].sigma;
-        if (cur_sups[i].use_denom) {
-            //the scaling of omega_0 should only occur if there is a rescaling
-            omega_0 /= s.um_scale;
-        } else {
-            sigma /= (s.um_scale*s.um_scale);
-        }
 	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[i].use_denom) );
 	    region_scale_pair tmp_pair = {*it, sigma};
 	    cgs_material_function scale_func(tmp_pair, 0.0, s.smooth_n, s.smooth_rad);
@@ -542,6 +536,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     //we have to kludge it to get around the very f** annoying fact that meep doesn't have default constructors for fields, just read the structure_from_settings comment
     double z_center = s.len/2 + s.pml_thickness;
     double eps_scale = 1 / (sharpness*s.resolution);
+    printf("using simulation side length %f, resolution %f\n", s.len, s.resolution);
     if (s.n_dims == 1) {
 	vol = meep::vol1d(2*z_center, s.resolution);
     } else if (s.n_dims == 2) {
