@@ -96,6 +96,8 @@ public:
 #ifdef DEBUG_INFO
     std::vector<source_info> sources;
 #endif
+    std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
+    meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
 
 private:
     //meep objects
@@ -114,9 +116,6 @@ private:
     double len;
     double z_center;
     double eps_scale;
-
-    std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
-    meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
 };
 
 #endif //DISP_H

@@ -8,7 +8,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 PML_EXCLUDE_FACT = 2.0
-FIELD_RANGE = (-1.0, 1.0)
+FIELD_RANGE = (-0.5, 0.5)
 
 LIGHT_SPEED = 1.0
 PULSE_RES = 0.02
@@ -52,7 +52,7 @@ class dielectric_func:
 
 def get_h5_list(datname, directory):
     '''returns a sorted list of all h5 files matching the specified prefix, sorted alphabetically'''
-    h5_lst = sorted(glob.glob(directory+"/*.h5"))
+    h5_lst = sorted(glob.glob(directory+"/"+datname+"*.h5"))
     prefix_len = len(datname)
     #remove all h5 files that aren't of the type we want (x componenet of field)
     for i, name in enumerate(h5_lst):
@@ -206,6 +206,24 @@ class Geometry:
         self.coeff_ts = 2*self.n_2s*self.n_1 / (self.eps_2s + self.n_2s*self.eps_1)
         self.rt_cent = abs(self.z_center-self.src.src_loc)*self.n_1/LIGHT_SPEED
 
+    #convert micrometers into the length units used by meep
+    def um_to_meep_len(self, l):
+        return l * self.um_scale
+
+    #convert seconds into the time units used by meep
+    def sec_to_meep_time(self, t):
+        #speed of light in um/sec = 299792458000000
+        return 299792458000000*t / self.um_scale
+
+    #convert the length units used by meep into micrometers
+    def meep_len_to_um(self, l):
+        return l / self.um_scale
+
+    #convert the time units used by meep into seconds
+    def meep_time_to_sec(self, t):
+        #speed of light in um/sec = 299792458000000
+        return self.um_scale*t / 299792458000000
+
     #this is a more general version of get_field_x that uses the fourier decomposition, allowing for the inclusion of a dispersion relation
     def get_electric(r, t, c=LIGHT_SPEED, p=0):
         rt = abs(r-self.src.src_loc)*self.n_1/c
@@ -251,9 +269,9 @@ class Geometry:
         axs: the axs on which the plot should be drawn. If this is set to None (default) then a new figure and set of axes is created and saved to fname.pdf
         er_axs: the axes on which the errors between simulated and analytic results should be drawn. If set to none, then no drawing is performed
         '''
+        fig = None
         if axs is None:
-            plt.figure()
-            axs = plt.axes()
+            fig, axs = plt.subplots()
         if time < 0:
             compare_anyl=False
 
@@ -300,7 +318,7 @@ class Geometry:
 
         #we can't calculate the errors if there's no analytic info provided
         if not compare_anyl:
-            return axs, 0
+            return fig, 0
 
         #find the integral square error between the analytic and simulated fields. Note that we have to exclude the absorbing boundary conditions as they are unphysical
         sq_err = (field_anyl-field_list)**2
@@ -317,7 +335,16 @@ class Geometry:
                 tmp_im = er_axs.imshow(field_list, cmap='bwr')
 
         #integrate to find the mean squared error
-        return axs, np.sum(sq_err[left_pml+1:right_pml])/(right_pml-left_pml-2)
+        return fig, np.sum(sq_err[left_pml+1:right_pml])/(right_pml-left_pml-2)
+
+    def get_cross_section_fields(self, fname, z_heights):
+        field_list, z_pts = get_fields_from_file(fname, slice_ax=0, max_z=self.tot_len)
+        ret_fields = []
+        #iterate through each desired cross-section
+        for i, z in enumerate(z_heights):
+            ind = round(len(z_pts)*z/(z_pts[-1] - z_pts[0]))
+            ret_fields.append(field_list[ind, :])
+        return np.array(ret_fields), z_pts
 
     def plot_cross_section(self, fname, z_heights, axs=None, max_z=1.0):
         '''Helper function to plot an array of z cross sections onto the matplotlib axes specified by axs.
@@ -331,13 +358,10 @@ class Geometry:
         if len(axs) != len(z_heights):
             raise ValueError("z_heights={} and axs={} must have the same length".format(z_heights, axs));
 
-        field_list, z_pts = get_fields_from_file(fname, slice_ax=0, max_z=self.tot_len)
-        ret_fields = []
+        ret_fields,z_pts = self.get_cross_section_fields(fname, z_heights)
         #iterate through each desired cross-section
-        for i, (z, ax) in enumerate(zip(z_heights, axs)):
-            ind = round(len(z_pts)*z/(z_pts[-1] - z_pts[0]))
-            ret_fields.append(field_list[ind, :])
-            ax.plot(z_pts, ret_fields[-1])
+        for i, ax in enumerate(axs):
+            ax.plot(z_pts, ret_fields[i])
             ax.set_ylim(FIELD_RANGE)
             ax.set_xlim((z_pts[0], z_pts[-1]))
             #shade the pml region out since it is unphysical
@@ -346,4 +370,4 @@ class Geometry:
             ax.axvline(self.l_junc, color='gray')
             ax.axvline(self.r_junc, color='gray')
 
-        return fig, axs, np.array(ret_fields)
+        return fig, axs

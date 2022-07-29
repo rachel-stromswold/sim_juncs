@@ -13,6 +13,7 @@ field_range = (-1.0, 1.0)
 sq_er_range = (0.0, 0.002)
 #the field times we are interested in
 field_times = ["16.", "20.", "24.", "28.", "32.", "36."]
+#field_times = ["16.", "17.", "18.", "19.", "20.", "21."]
 N_ROWS = 2
 N_COLS = len(field_times)//N_ROWS
 MOVIE_FRAME_SKIP = 1
@@ -107,7 +108,7 @@ for i, ft in enumerate(field_times):
         cur_axs = axs_nd[i//N_COLS, i%N_COLS]
         cur_er_axs = er_axs[i//N_COLS, i%N_COLS]
 
-    _, tmp_err = geom.plot_h5_fields(fname, False, time=time, axs=axs_nd[i//N_COLS, i%N_COLS], er_axs=cur_er_axs)
+    _,tmp_err = geom.plot_h5_fields(fname, False, time=time, axs=axs_nd[i//N_COLS, i%N_COLS], er_axs=cur_er_axs)
     geom.plot_cross_section(fname, [geom.z_center-geom.junc_max_z/2, geom.z_center+geom.junc_max_z/2], axs=axs_xs[i, :])
     for ax in axs_xs[i, :]:
         ax.set_ylabel("t={}".format(ft))
@@ -134,10 +135,9 @@ if (args.movie):
             outname = args.prefix+"/im_{}.png".format(i//MOVIE_FRAME_SKIP)
             #plot_h5_fields(fname, False)
             #tmp_fig,_ = plot_cross_section(fname, [geom.z_center-junc_max_z/2, geom.z_center+junc_max_z/2])
-            tmp_fig,_ = geom.plot_h5_fields(fname, False)
+            tmp_fig,er = geom.plot_h5_fields(fname, False)
             plt.savefig(outname)
-            plt.clf()
-            #plt.close(tmp_fig)
+            plt.close(tmp_fig)
 
 if args.fitting:
     #normalize the posterior distribution and find mode and expectation value

@@ -258,8 +258,9 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     cgs_material_function mat_func(root);
 
     //check the susceptibilities
+    bound_geom geometry(args, &er);
     char* dat = strdup(root->fetch_metadata("susceptibilities").c_str());
-    std::vector<drude_suscept> sups = parse_susceptibilities(dat, (int*)(&er));
+    std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat, (int*)(&er));
     free(dat);
     CHECK(sups.size() == 2);
     CHECK(sups[0].omega_0 == 1.0);

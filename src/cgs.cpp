@@ -311,8 +311,8 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
 	evec3 corner_1;
 	evec3 corner_2;
 	//read both vector arguments and throw errors if necessary
-	if ((er = parse_vector(f.args[0], corner)) != E_SUCCESS) return er;
-	if ((er = parse_vector(f.args[1], size)) != E_SUCCESS) return er;
+	if ((er = parse_vector(f.args[0], corner_1)) != E_SUCCESS) return er;
+	if ((er = parse_vector(f.args[1], corner_2)) != E_SUCCESS) return er;
 	if (ptr) *ptr = new Box(corner_1, corner_2, p_invert);
 	if (type) *type = CGS_BOX;
     } else if (strcmp(f.name, "Sphere") == 0) {

@@ -557,6 +557,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     //we have to kludge it to get around the very f** annoying fact that meep doesn't have default constructors for fields, just read the structure_from_settings comment
     double z_center = s.len/2 + s.pml_thickness;
     double eps_scale = 1 / (sharpness*s.resolution);
+    printf("using simulation side length %f, resolution %f\n", s.len, s.resolution);
     if (s.n_dims == 1) {
 	vol = meep::vol1d(2*z_center, s.resolution);
     } else if (s.n_dims == 2) {
