@@ -120,6 +120,9 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
     } else if (strcmp(tok, "ambient_eps") == 0) {
 	s->ambient_eps = strtod(val, NULL);
     } else if (strcmp(tok, "geom_fname") == 0) {
+    //deallocate memory if necessary
+    if (s->geom_fname_al) free(s->geom_fname_al);
+    //copy only the non whitespace portion
 	s->geom_fname_al = strdup(val);
 	s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);
     } else if (strcmp(tok, "eps_2") == 0) {
@@ -215,6 +218,18 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		} else {
 		    a->conf_fname = argv[i+1];
 		    to_rm = 2;
+		}
+	    } else if (strstr(argv[i], "--geom-file") == argv[i]) {
+		if (i == n_args-1) {
+		    printf("Usage: meep --out-dir <prefix to output hdf5 files to>");
+		    return 0;
+		} else {
+            //deallocate memory if necessary
+            if (a->geom_fname_al) free(a->geom_fname_al);
+            //copy only the non whitespace portion
+            a->geom_fname_al = strdup(argv[i+1]);
+            a->geom_fname = trim_whitespace(a->geom_fname_al, NULL);
+		    to_rm = 2; //we need to remove both this and the next argument from the list
 		}
 	    } else if (strstr(argv[i], "--out-dir") == argv[i]) {
 		if (i == n_args-1) {
