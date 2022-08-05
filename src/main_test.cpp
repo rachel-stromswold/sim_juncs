@@ -182,7 +182,9 @@ TEST_CASE("Test Object Trees") {
 }
 
 TEST_CASE("Test File Parsing") {
-    Scene s("test.mt");
+    parse_ercode er;
+    Scene s("test.eps", &er);
+    CHECK(er == E_SUCCESS);
     //check that metadata works
     std::vector<CompositeObject*> data_vec = s.get_data();
     CHECK(data_vec.size() > 0);
@@ -229,7 +231,9 @@ TEST_CASE("Test File Parsing") {
 }
 
 TEST_CASE("Test Geometric Inclusion") {
-    Scene s("test.mt");
+    parse_ercode er;
+    Scene s("test.eps", &er);
+    CHECK(er == E_SUCCESS);
     CompositeObject* root = s.get_roots()[0];
 
     CHECK(root->in(Eigen::Vector3d(0.5,0.5,0.5)) == 1);
@@ -251,7 +255,8 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     CHECK(ret == 0);
 
     //create the geometry object
-    Scene s("test.mt");
+    Scene s("test.eps", &er);
+    CHECK(er == E_SUCCESS);
     CompositeObject* root = s.get_roots()[0];
     cgs_material_function mat_func(root);
 
@@ -295,7 +300,7 @@ TEST_CASE("Test reading of field sources") {
     std::string name = "test.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
-    args.resolution = 0.05;//make things a little faster because we don't care
+    args.resolution = 2.0;//make things a little faster because we don't care
     free(name_dup);
     CHECK(ret == 0);
 

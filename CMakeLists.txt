@@ -24,5 +24,5 @@ target_link_libraries(${TEST_EXE} PRIVATE Eigen3::Eigen meep)
 target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
 target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
 
-configure_file(tests/test.mt test.mt COPYONLY)
+configure_file(tests/test.eps test.eps COPYONLY)
 configure_file(tests/test.conf test.conf COPYONLY)

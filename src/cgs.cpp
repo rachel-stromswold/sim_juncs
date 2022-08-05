@@ -51,9 +51,15 @@ int Box::in(const evec3& r) {
     //find the relative offset between the input vector and the center of the box
     evec3 r_rel = trans_mat*(r - center);
     //check if we're outside the bounding box
-    if (abs(r_rel.x()) > offset.x()) return invert;
-    if (abs(r_rel.y()) > offset.y()) return invert;
-    if (abs(r_rel.z()) > offset.z()) return invert;
+    if (fabs(r_rel.x()) > offset.x()) {
+        return invert;
+    }
+    if (fabs(r_rel.y()) > offset.y()) {
+        return invert;
+    }
+    if (fabs(r_rel.z()) > offset.z()) {
+        return invert;
+    }
     //if we reach this point in execution we're inside the box
     return 1 - invert;
 }
@@ -678,6 +684,7 @@ CompositeObject* ObjectStack::get_root() {
 }
 
 Scene::Scene(const char* p_fname, parse_ercode* ercode) {
+    if (ercode) *ercode = E_SUCCESS;
     char buf[BUF_SIZE];
     char func_name[BUF_SIZE];
     size_t n_args = 0;
