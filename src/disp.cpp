@@ -590,7 +590,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    //create the EM-wave source at the specified location only if everything was read successfully
 		    if (*ercode == E_SUCCESS) {
 			if (cur_info.type == SRC_GAUSSIAN) {
-			    meep::gaussian_src_time src(cur_info.freq, cur_info.width, cur_info.start_time, cur_info.cutoff*cur_info.width);
+			    meep::gaussian_src_time src(cur_info.freq/s.um_scale, cur_info.width, cur_info.start_time, cur_info.cutoff*cur_info.width);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			} else if (cur_info.type == SRC_CONTINUOUS) {
 			    meep::continuous_src_time src(cur_info.freq, cur_info.width, cur_info.start_time, cur_info.end_time);

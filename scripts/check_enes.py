@@ -12,6 +12,7 @@ import matplotlib
 field_range = (-1.0, 1.0)
 sq_er_range = (0.0, 0.002)
 #the field times we are interested in
+#field_times = ["1.", "2.", "3.", "4.", "5.", "6."]
 field_times = ["16.", "20.", "24.", "28.", "32.", "36."]
 #field_times = ["16.", "17.", "18.", "19.", "20.", "21."]
 N_ROWS = 2
@@ -26,6 +27,8 @@ parser.add_argument('--movie', action='store_true', help='If set to true, save p
 parser.add_argument('--fitting', action='store_true', help='If set to true, generate posterior probabilities for the speed of light', default=False)
 parser.add_argument('--ene-flux', action='store_true', help='If set to true, calculate the flux of energies through points', default=False)
 parser.add_argument('--show-plots', action='store_true', help='If set to true, show plots instead of saving them', default=False)
+parser.add_argument('--gap-width', type=float, help='The width of the junction gap', default=-1.0)
+parser.add_argument('--gap-thick', type=float, help='The thickness of the junction', default=-1.0)
 args = parser.parse_args()
 show_plt = args.show_plots
 #disable display if we aren't showing plots
@@ -45,7 +48,7 @@ pml_exclude_fact = 2.0
 epsilon = 0.01
 
 #initialize information classes
-geom = utils.Geometry("params.conf")
+geom = utils.Geometry("params.conf", gap_width=args.gap_thick, gap_thick=args.gap_thick)
 
 #plot the fourier components of the Gaussian envelope for debugging purposes
 if args.show_plots:
@@ -109,7 +112,7 @@ for i, ft in enumerate(field_times):
         cur_er_axs = er_axs[i//N_COLS, i%N_COLS]
 
     _,tmp_err = geom.plot_h5_fields(fname, False, time=time, axs=axs_nd[i//N_COLS, i%N_COLS], er_axs=cur_er_axs)
-    geom.plot_cross_section(fname, [geom.z_center-geom.junc_max_z/2, geom.z_center+geom.junc_max_z/2], axs=axs_xs[i, :])
+    geom.plot_cross_section(fname, [geom.z_center-geom.gap_thick/2, geom.z_center+geom.gap_thick/2], axs=axs_xs[i, :])
     for ax in axs_xs[i, :]:
         ax.set_ylabel("t={}".format(ft))
     sq_err_int_space += tmp_err / len(field_times)
@@ -134,7 +137,7 @@ if (args.movie):
         if i % MOVIE_FRAME_SKIP == 0:
             outname = args.prefix+"/im_{}.png".format(i//MOVIE_FRAME_SKIP)
             #plot_h5_fields(fname, False)
-            #tmp_fig,_ = plot_cross_section(fname, [geom.z_center-junc_max_z/2, geom.z_center+junc_max_z/2])
+            #tmp_fig,_ = plot_cross_section(fname, [geom.z_center-gap_thick/2, geom.z_center+gap_thick/2])
             tmp_fig,er = geom.plot_h5_fields(fname, False)
             plt.savefig(outname)
             plt.close(tmp_fig)
