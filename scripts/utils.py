@@ -151,7 +151,7 @@ class Source:
                             * np.exp(1j*BEST_PHASE)/np.sqrt(8*np.pi)
 
 class Geometry:
-    def __init__(self, fname):
+    def __init__(self, fname, gap_width=-1, gap_thick=-1):
         #read parameters from the params.conf file
         config = configparser.ConfigParser()
         config.read(fname)
@@ -160,8 +160,12 @@ class Geometry:
         self.n_dims = int(config["simulation"]["dimensions"])
         self.um_scale = float(config["simulation"]["um_scale"])
         self.length = float(config["simulation"]["length"])
-        self.middle_w = float(config["junction"]["middle_w"])
-        self.junc_max_z = float(config["junction"]["junc_max_z"])
+        self.gap_width = gap_width
+        self.gap_thick = gap_thick
+        if gap_width < 0:
+            self.gap_width = float(config["junction"]["gap_width"])
+        if gap_thick < 0:
+            self.gap_thick = float(config["junction"]["gap_thick"])
         self.eps_1 = float(config["physical"]["eps_1"])
         try:
             self.eps_2 = float(config["physical"]["eps_2"])
@@ -174,14 +178,14 @@ class Geometry:
         self.z_center = self.tot_len / 2
         self.vol_loc_l = self.pml_thick/self.um_scale
         self.vol_loc_r = (self.tot_len - self.pml_thick)/self.um_scale
-        self.l_junc = (self.z_center-self.middle_w/2)/self.um_scale
-        self.r_junc = (self.z_center+self.middle_w/2)/self.um_scale
-        self.b_junc = (self.z_center+self.junc_max_z/2)/self.um_scale
-        self.t_junc = (self.z_center-self.junc_max_z/2)/self.um_scale
-        self.lft_x = 0.5 - self.middle_w/(4*self.z_center)
-        self.rht_x = 0.5 + self.middle_w/(4*self.z_center)
-        self.top_y = 0.5 + self.junc_max_z/(4*self.z_center)
-        self.bot_y = 0.5 - self.junc_max_z/(4*self.z_center)
+        self.l_junc = self.z_center - self.gap_width*self.um_scale/2
+        self.r_junc = self.z_center + self.gap_width*self.um_scale/2
+        self.b_junc = self.z_center + self.gap_thick*self.um_scale/2
+        self.t_junc = self.z_center - self.gap_thick*self.um_scale/2
+        self.lft_x = 0.5 - self.gap_width*self.um_scale/(4*self.z_center)
+        self.rht_x = 0.5 + self.gap_width*self.um_scale/(4*self.z_center)
+        self.top_y = 0.5 + self.gap_thick*self.um_scale/(4*self.z_center)
+        self.bot_y = 0.5 - self.gap_thick*self.um_scale/(4*self.z_center)
 
         #calculate indices of refraction and reflection coefficients based on dielectric constants
         self.n_1 = np.sqrt(self.eps_1)
@@ -300,13 +304,14 @@ class Geometry:
             else:
                 axs.set_xlabel(r"$z$")
         else:
-            axs.imshow(field_list, vmin=FIELD_RANGE[0], vmax=FIELD_RANGE[1], extent=[0, 2*self.z_center/self.um_scale, 0, 2*self.z_center/self.um_scale], cmap='bwr')
-            axs.axvline(self.l_junc, self.bot_y, self.top_y, color='gray')
-            axs.axvline(self.r_junc, self.bot_y, self.top_y, color='gray')
-            axs.axhline(self.t_junc, 0, self.lft_x, color='gray')
-            axs.axhline(self.b_junc, 0, self.lft_x, color='gray')
-            axs.axhline(self.t_junc, self.rht_x, 2*self.z_center, color='gray')
-            axs.axhline(self.b_junc, self.rht_x, 2*self.z_center, color='gray')
+            um_max = 2*self.z_center/self.um_scale
+            axs.imshow(field_list, vmin=FIELD_RANGE[0], vmax=FIELD_RANGE[1], extent=[0, um_max, 0, um_max], cmap='bwr')
+            axs.axvline(self.l_junc/self.um_scale, self.bot_y, self.top_y, color='gray')
+            axs.axvline(self.r_junc/self.um_scale, self.bot_y, self.top_y, color='gray')
+            axs.axhline(self.t_junc/self.um_scale, 0, self.lft_x, color='gray')
+            axs.axhline(self.b_junc/self.um_scale, 0, self.lft_x, color='gray')
+            axs.axhline(self.t_junc/self.um_scale, self.rht_x, 2*self.z_center, color='gray')
+            axs.axhline(self.b_junc/self.um_scale, self.rht_x, 2*self.z_center, color='gray')
             if time >= 0:
                 axs.set_title("t={}".format(time))
             if n_dims == 2:
@@ -337,15 +342,6 @@ class Geometry:
         #integrate to find the mean squared error
         return fig, np.sum(sq_err[left_pml+1:right_pml])/(right_pml-left_pml-2)
 
-    def get_cross_section_fields(self, fname, z_heights):
-        field_list, z_pts = get_fields_from_file(fname, slice_ax=0, max_z=self.tot_len)
-        ret_fields = []
-        #iterate through each desired cross-section
-        for i, z in enumerate(z_heights):
-            ind = round(len(z_pts)*z/(z_pts[-1] - z_pts[0]))
-            ret_fields.append(field_list[ind, :])
-        return np.array(ret_fields), z_pts
-
     def plot_cross_section(self, fname, z_heights, axs=None, max_z=1.0):
         '''Helper function to plot an array of z cross sections onto the matplotlib axes specified by axs.
         h5_fields: name of the file to read from
@@ -358,10 +354,13 @@ class Geometry:
         if len(axs) != len(z_heights):
             raise ValueError("z_heights={} and axs={} must have the same length".format(z_heights, axs));
 
-        ret_fields,z_pts = self.get_cross_section_fields(fname, z_heights)
+        field_list, z_pts = get_fields_from_file(fname, slice_ax=0, max_z=self.tot_len)
+        ret_fields = []
         #iterate through each desired cross-section
-        for i, ax in enumerate(axs):
-            ax.plot(z_pts, ret_fields[i])
+        for i, (z, ax) in enumerate(zip(z_heights, axs)):
+            ind = round(len(z_pts)*z/(z_pts[-1] - z_pts[0]))
+            ret_fields.append(field_list[ind, :])
+            ax.plot(z_pts, ret_fields[-1])
             ax.set_ylim(FIELD_RANGE)
             ax.set_xlim((z_pts[0], z_pts[-1]))
             #shade the pml region out since it is unphysical
@@ -370,4 +369,4 @@ class Geometry:
             ax.axvline(self.l_junc, color='gray')
             ax.axvline(self.r_junc, color='gray')
 
-        return fig, axs
+        return fig, axs, np.array(ret_fields)
