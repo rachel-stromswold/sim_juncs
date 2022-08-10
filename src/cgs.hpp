@@ -25,6 +25,7 @@ typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE, CGS_CMB_NOOP } combine_
 //note that ROOTS are a special type of COMPOSITES
 typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_CYLINDER } object_type;
 
+typedef Eigen::Matrix3d emat3;
 typedef Eigen::Vector3d evec3;
 typedef Eigen::Vector4d evec4;
 
@@ -63,14 +64,16 @@ class Object {
 private:
     friend class GeometricObject;
 protected:
-    Eigen::Matrix3d trans_mat;
+    emat3 trans_mat;
     int invert;
 
 public:
     Object(int p_invert=0);
-    Object(Eigen::Quaterniond& orientation, int p_invert=0);
+    Object(const Eigen::Quaterniond& orientation, int p_invert=0);
     virtual int in(const evec3& r) = 0;
     void set_inversion(int p_invert);
+    void rescale(const evec3& components);
+    void set_trans_mat(const emat3& new_mat) { trans_mat = new_mat; }
 };
 
 class Sphere : public Object {
@@ -80,6 +83,7 @@ private:
 
 public:
     Sphere(evec3& p_center, double p_rad, int p_invert=0);
+    Sphere(evec3& p_center, evec3& p_rad, int p_invert=0);
     int in(const evec3& r);
 
     evec3 get_center() { return center; }
@@ -162,7 +166,7 @@ public:
 /**
  * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
  */
-typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_LITERAL, BLK_COMMENT} block_type;
+typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_LITERAL, BLK_COMMENT} block_type;
 template <typename T>
 class CGS_Stack {
 protected:
@@ -221,6 +225,8 @@ private:
     parse_ercode lookup_val(char* tok, double& sto) const;
     //let users define constants
     std::unordered_map<std::string, std::string> named_items;
+    parse_ercode fail_exit(parse_ercode er, FILE* fp);
+    parse_ercode read_file(const char* p_fname);
 
 public:
     Scene() {}
@@ -236,6 +242,7 @@ public:
 
     parse_ercode parse_vector(char* str, evec3& sto) const;
     parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const;
+    parse_ercode make_transformation(const cgs_func& f, emat3& res) const;
     parse_ercode parse_func(char* token, long open_par_ind, cgs_func& f, char** end) const;
 };
 

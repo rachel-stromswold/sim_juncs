@@ -2,13 +2,13 @@
 
 Object::Object(int p_invert) {
     invert = p_invert;
-    trans_mat = Eigen::Matrix3d::Identity();
+    trans_mat = emat3::Identity();
 }
 
-Object::Object(Eigen::Quaterniond& p_orientation, int p_invert) {
+/*Object::Object(Eigen::Quaterniond& p_orientation, int p_invert) {
     invert = p_invert;
     trans_mat = p_orientation.toRotationMatrix();
-}
+}*/
 
 void Object::set_inversion(int p_invert) {
     if (p_invert == 0)
@@ -17,14 +17,24 @@ void Object::set_inversion(int p_invert) {
 	invert = 1;
 }
 
+void Object::rescale(const evec3& components) {
+    trans_mat = trans_mat*(components.asDiagonal());
+}
+
 Sphere::Sphere(evec3& p_center, double p_rad, int p_invert) : Object(p_invert) {
     center = p_center;
     rad = p_rad;
 }
 
+Sphere::Sphere(evec3& p_center, evec3& p_rad, int p_invert) : Object(p_invert) {
+    center = p_center;
+    rad = 1;
+    rescale( evec3(1/p_rad.x(), 1/p_rad.y(), 1/p_rad.z()) );
+}
+
 int Sphere::in(const evec3& r) {
     //find the relative offset between the input vector and the center of the box
-    evec3 r_rel = r - center;
+    evec3 r_rel = trans_mat*(r - center);
     if (r_rel.norm() > rad) return invert;
     return 1 - invert;
 }
@@ -38,14 +48,14 @@ Box::Box(evec3& p_corner_1, evec3& p_corner_2, int p_invert) : Object(p_invert) 
     if (offset.z() < 0) offset.z() *= -1;
 }
 
-Box::Box(evec3& p_corner_1, evec3& p_corner_2, Eigen::Quaterniond p_orientation, int p_invert) : Object(p_orientation, p_invert) {
+/*Box::Box(evec3& p_corner_1, evec3& p_corner_2, Eigen::Quaterniond p_orientation, int p_invert) : Object(p_orientation, p_invert) {
     offset = (p_corner_2 - p_corner_1)/2;
     center = p_corner_1 + offset;
     //wlog, fix the offset to always be positive from the center
     if (offset.x() < 0) offset.x() *= -1;
     if (offset.y() < 0) offset.y() *= -1;
     if (offset.z() < 0) offset.z() *= -1;
-}
+}*/
 
 int Box::in(const evec3& r) {
     //find the relative offset between the input vector and the center of the box
@@ -213,6 +223,7 @@ void CompositeObject::add_child(_uint side, Object* o, object_type p_type) {
 }
 
 int CompositeObject::in(const evec3& r) {
+    evec3 r_trans = trans_mat*r;
     //NOOP items should be ignored
     if (cmb == CGS_CMB_NOOP) return 0;
     //if the right child is null then we don't apply any operations
@@ -220,13 +231,13 @@ int CompositeObject::in(const evec3& r) {
 	if (children[0] == NULL)
 	    return invert;
 	else
-	    return invert ^ call_child_in(0, r);
+	    return invert ^ call_child_in(0, r_trans);
     } else {
 	if (children[0] == NULL) {
-	    return invert ^ call_child_in(1, r);
+	    return invert ^ call_child_in(1, r_trans);
 	} else {
-	    int l_res = call_child_in(0, r);
-	    int r_res = call_child_in(1, r);
+	    int l_res = call_child_in(0, r_trans);
+	    int r_res = call_child_in(1, r_trans);
 	    if (cmb == CGS_UNION) {
 		return invert ^ (l_res | r_res);
 	    } else if (cmb == CGS_INTERSECT || cmb == CGS_DIFFERENCE) {
@@ -378,6 +389,45 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
     } else {
 	if (ptr) *ptr = NULL;
 	if (type) *type = CGS_UNDEF;
+    }
+
+    return E_SUCCESS;
+}
+
+/**
+ * Produce an appropriate transformation matrix
+ */
+parse_ercode Scene::make_transformation(const cgs_func& f, emat3& res) const {
+    parse_ercode er = E_SUCCESS;
+
+    if (!f.name) return E_BAD_TOKEN;
+    //switch between all potential types
+    if (strcmp(f.name, "rotate") == 0) {
+	if (f.n_args < 2) return E_LACK_TOKENS;
+	double angle = strtod(f.args[0], NULL);
+	if (errno) {
+	    //if the string couldn't be interpreted as a double, try looking it up in the dictionary
+	    if ((er = lookup_val(f.args[0], angle)) != E_SUCCESS) return er;
+	}
+	evec3 axis;
+	//read both vector arguments and throw errors if necessary
+	if ((er = parse_vector(f.args[1], axis)) != E_SUCCESS) return er;
+	res = Eigen::AngleAxisd(angle, axis);
+    } else if (strcmp(f.name, "scale") == 0) {
+	if (f.n_args < 1) return E_LACK_TOKENS;
+	evec3 scale;
+	//if there aren't enough values then interpret it as a uniform scaling along all axes
+	if ((er = parse_vector(f.args[0], scale)) != E_SUCCESS) {
+	    double val = strtod(f.args[0], NULL);
+	    if (errno) {
+		//if the string couldn't be interpreted as a double, try looking it up in the dictionary
+		if ((er = lookup_val(f.args[0], val)) != E_SUCCESS) return er;
+	    }
+	    scale.x() = val;
+	    scale.y() = val;
+	    scale.z() = val;
+	}
+	res = scale.asDiagonal();
     }
 
     return E_SUCCESS;
@@ -683,8 +733,13 @@ CompositeObject* ObjectStack::get_root() {
     return buf[0].obj;
 }
 
-Scene::Scene(const char* p_fname, parse_ercode* ercode) {
-    if (ercode) *ercode = E_SUCCESS;
+parse_ercode Scene::fail_exit(parse_ercode er, FILE* fp) {
+    fclose(fp);
+    return er;
+}
+
+parse_ercode Scene::read_file(const char* p_fname) {
+    parse_ercode er = E_SUCCESS;
     char buf[BUF_SIZE];
     char func_name[BUF_SIZE];
     size_t n_args = 0;
@@ -700,6 +755,10 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
     block_type last_type = BLK_UNDEF;
     CompositeObject* last_comp = NULL;
     int invert = 0;
+    //keep track of transformations
+    CGS_Stack<emat3> transform_stack;
+    emat3 cur_trans_mat;
+    emat3 next_trans_mat;
 
     //open the file for reading and read individual lines. We need to remove whitespace. Handily, we know the line length once we're done.
     FILE* fp = NULL;
@@ -710,6 +769,7 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 	size_t lineno = 1;
 	size_t line_len = 0;
 	char last_char = 0;
+	//iterate over each line in the file
 	while (fgets(buf, BUF_SIZE, fp)) {
 	    char* red_str = CGS_trim_whitespace(buf, &line_len);
 	    cur_token = buf;
@@ -723,10 +783,14 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 			//initialize a new cgs_func with the appropriate arguments
 			cgs_func cur_func;
 			char* endptr;
-			parse_ercode er = parse_func(cur_token, i, cur_func, &endptr);
+			er = parse_func(cur_token, i, cur_func, &endptr);
 			switch (er) {
-			    case E_BAD_TOKEN: printf("Error on line %d: Invalid function name \"%s\"\n", lineno, cur_token);break;
-			    case E_BAD_SYNTAX: printf("Error on line %d: Invalid syntax\n", lineno);break;
+			    case E_BAD_TOKEN:
+				printf("Error on line %d: Invalid function name \"%s\"\n", lineno, cur_token);
+				return fail_exit(er, fp);
+			    case E_BAD_SYNTAX:
+				printf("Error on line %d: Invalid syntax\n", lineno);
+				return fail_exit(er, fp);
 			    default: break;
 			}
 			//try interpreting the function as a geometric object
@@ -734,9 +798,13 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 			object_type type;
 			make_object(cur_func, &obj, &type, invert);
 			if (!obj) {
+			    emat3 tmp;
 			    //if that failed try interpreting it as an operation (TODO: are there any useful things to put here?)
 			    if (strcmp(cur_func.name, "invert") == 0) {
 				last_type = BLK_INVERT;
+			    } else if ((er = make_transformation(cur_func, tmp)) == E_SUCCESS) {
+				last_type = BLK_TRANSFORM;
+				next_trans_mat = tmp*cur_trans_mat;
 			    }
 			} else {
 			    if (type == CGS_ROOT) {
@@ -770,6 +838,7 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 			switch (last_type) {
 			    case BLK_INVERT: invert = 1 - invert;break;
 			    case BLK_ROOT: roots.push_back(last_comp);break;
+			    case BLK_TRANSFORM: cur_trans_mat=next_trans_mat;transform_stack.push(next_trans_mat);break;
 			    default: break;
 			}
 			blk_stack.push(last_type);
@@ -780,6 +849,7 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 			switch (bt) {
 			    case BLK_INVERT: invert = 1 - invert;break;
 			    case BLK_ROOT: tree_pos.reset();
+			    case BLK_TRANSFORM: transform_stack.pop(&cur_trans_mat);break;
 			    default: break;
 			}
 		    //check for literal experessions enclosed in quotes
@@ -798,9 +868,9 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 		} else {
 		    //check if we reached the end of a comment or string literal block
 		    if (cur_type == BLK_COMMENT && (buf[i] == '*' && i < line_len-1 && buf[i+1] == '/')) {
-			blk_stack.pop(NULL);
+			er = blk_stack.pop(NULL);
 		    } else if (cur_type == BLK_LITERAL && (buf[i] == '\"' && last_char != '\\')) {
-			blk_stack.pop(NULL);
+			er = blk_stack.pop(NULL);
 		    }
 		}
 		last_char = buf[i];
@@ -814,8 +884,15 @@ Scene::Scene(const char* p_fname, parse_ercode* ercode) {
 	fclose(fp);
     } else {
         printf("Error: couldn't open file %s for reading!\n", p_fname);
-        if (ercode) *ercode = E_NOFILE;
+        return E_NOFILE;
     }
+
+    return er;
+}
+
+Scene::Scene(const char* p_fname, parse_ercode* ercode) {
+    if (ercode) *ercode = E_SUCCESS;
+    *ercode = read_file(p_fname);
 }
 
 Scene::Scene(const Scene& o) {

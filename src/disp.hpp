@@ -12,6 +12,7 @@
 #define PREFIX_LEN 3
 
 #define DEFAULT_WIDTH_N 5
+#define THICK_SCALE 1.0
 
 //simulation parameters
 const double sharpness = 5;

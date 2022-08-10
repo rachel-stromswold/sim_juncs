@@ -497,8 +497,15 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     //setup the structure with the infinite frequency dielectric component
     cgs_material_function inf_eps_func(s.ambient_eps, s.smooth_n, s.smooth_rad);
 
-    for (auto it = roots.begin(); it != roots.end(); ++it) {
-	inf_eps_func.add_region(*it);
+    std::vector<double> thicknesses(roots.size());
+    for (size_t i = 0; i < roots.size(); ++i) {
+	//we need to adjust the thickness and conductivity of the sample if it is 2D
+	thicknesses[i] = 1.0;
+	if (roots[i]->has_metadata("make_2d") && roots[i]->fetch_metadata("make_2d") != "false" && roots[i]->fetch_metadata("make_2d") != "0") {
+	    thicknesses[i] = THICK_SCALE / s.resolution;
+	    roots[i]->rescale(evec3(1.0, 1.0, thicknesses[i]));
+	}
+	inf_eps_func.add_region(roots[i]);
 	/** ============================ DEBUG ============================ **/
 	meep::vec test_loc_1(0.5,0.5,2);
 	meep::vec test_loc_2(0.1,0.5,6);
@@ -529,11 +536,13 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
 	}
 	//add frequency dependent susceptibility
 	for (_uint i = 0; i < cur_sups.size(); ++i) {
-	    double omega_0 = cur_sups[i].omega_0/s.um_scale;
-	    double gamma = cur_sups[i].gamma/s.um_scale;
-	    double sigma = cur_sups[i].sigma;
+	    //create the susceptibility, accounting for the scale factor correction
+	    double omega_0 = cur_sups[i].omega_0 / s.um_scale;
+	    double gamma = cur_sups[i].gamma / s.um_scale;
+	    double sigma = cur_sups[i].sigma / thicknesses[i];
 	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[i].use_denom) );
 	    region_scale_pair tmp_pair = {*it, sigma};
+	    //add the susceptibility to the appropriate region
 	    cgs_material_function scale_func(tmp_pair, 0.0, s.smooth_n, s.smooth_rad);
 	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
 	}
