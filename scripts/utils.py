@@ -304,7 +304,7 @@ class Geometry:
             else:
                 axs.set_xlabel(r"$z$")
         else:
-            um_max = 2*self.z_center/self.um_scale
+            um_max = self.meep_len_to_um(self.tot_len)
             axs.imshow(field_list, vmin=FIELD_RANGE[0], vmax=FIELD_RANGE[1], extent=[0, um_max, 0, um_max], cmap='bwr')
             axs.axvline(self.l_junc/self.um_scale, self.bot_y, self.top_y, color='gray')
             axs.axvline(self.r_junc/self.um_scale, self.bot_y, self.top_y, color='gray')
@@ -342,6 +342,16 @@ class Geometry:
         #integrate to find the mean squared error
         return fig, np.sum(sq_err[left_pml+1:right_pml])/(right_pml-left_pml-2)
 
+    def get_cross_section_fields(self, fname, z_heights):
+        field_list, z_pts = get_fields_from_file(fname, slice_ax=0, max_z=self.tot_len/self.um_scale)
+        ret_fields = []
+
+        #iterate through each desired cross-section
+        for i, z in enumerate(z_heights):
+            ind = round(len(z_pts)*z/(z_pts[-1] - z_pts[0]))
+            ret_fields.append(field_list[ind, :])
+        return np.array(ret_fields), z_pts
+
     def plot_cross_section(self, fname, z_heights, axs=None, max_z=1.0):
         '''Helper function to plot an array of z cross sections onto the matplotlib axes specified by axs.
         h5_fields: name of the file to read from
@@ -354,13 +364,10 @@ class Geometry:
         if len(axs) != len(z_heights):
             raise ValueError("z_heights={} and axs={} must have the same length".format(z_heights, axs));
 
-        field_list, z_pts = get_fields_from_file(fname, slice_ax=0, max_z=self.tot_len)
-        ret_fields = []
+        fields, z_pts = self.get_cross_section_fields(fname, z_heights)
         #iterate through each desired cross-section
-        for i, (z, ax) in enumerate(zip(z_heights, axs)):
-            ind = round(len(z_pts)*z/(z_pts[-1] - z_pts[0]))
-            ret_fields.append(field_list[ind, :])
-            ax.plot(z_pts, ret_fields[-1])
+        for i, (field, ax) in enumerate(zip(fields, axs)):
+            ax.plot(z_pts, field)
             ax.set_ylim(FIELD_RANGE)
             ax.set_xlim((z_pts[0], z_pts[-1]))
             #shade the pml region out since it is unphysical
@@ -369,4 +376,4 @@ class Geometry:
             ax.axvline(self.l_junc, color='gray')
             ax.axvline(self.r_junc, color='gray')
 
-        return fig, axs, np.array(ret_fields)
+        return fig, axs, fields

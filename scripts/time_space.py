@@ -14,6 +14,8 @@ FIELD_LABEL = "ex-"
 #parse arguments supplied via command line
 parser = argparse.ArgumentParser(description='Query sky-surveys for redshift data corresponding to a gravitational-wave detection.')
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
+parser.add_argument('--gap-width', type=float, help='The width of the junction gap', default=-1.0)
+parser.add_argument('--gap-thick', type=float, help='The thickness of the junction', default=-1.0)
 args = parser.parse_args()
 
 #read information from the parameters file
@@ -28,10 +30,10 @@ last_time = pulse_width*devs + post_pulse_runtime
 ex_lst = utils.get_h5_list(FIELD_LABEL[:-1], args.prefix)
 
 #initialize information classes
-geom = utils.Geometry("params.conf")
+geom = utils.Geometry("params.conf", gap_width=args.gap_thick, gap_thick=args.gap_thick)
 
 #information about which points in space we're interested in looking at
-z_slices = [geom.z_center-geom.junc_max_z/2, geom.z_center, geom.z_center+geom.junc_max_z/2]
+z_slices = [geom.meep_len_to_um(geom.t_junc), geom.meep_len_to_um(geom.z_center), geom.meep_len_to_um(geom.b_junc)]
 n_slices = len(z_slices)
 n_t_pts = len(ex_lst)
 
@@ -65,8 +67,8 @@ for j in range(n_slices):
     axs_col[2*j+1].imshow(np.angle(fours_mid[:top_ind//2, :]), cmap='twilight_shifted')
     #axs_col[j].set_xlim((0, geom.tot_len/geom.um_scale))
     #axs_col[j].set_ylim((four_freqs[0], four_freqs[-1]))
-    #axs_col[j].axvline((geom.z_center+middle_w/2)/geom.um_scale, 0, 1, color='gray')
-    #axs_col[j].axvline((geom.z_center-middle_w/2)/geom.um_scale, 0, 1, color='gray')
+    #axs_col[j].axvline((geom.z_center+gap_width/2)/geom.um_scale, 0, 1, color='gray')
+    #axs_col[j].axvline((geom.z_center-gap_width/2)/geom.um_scale, 0, 1, color='gray')
     axs_col[j].set_xlabel(r'$x$ (um)')
 axs_col[0].set_ylabel(r'frequency ($1/\lambda$)')
 
