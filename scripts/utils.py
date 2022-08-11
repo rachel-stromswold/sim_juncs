@@ -219,6 +219,21 @@ class Geometry:
         #speed of light in um/sec = 299792458000000
         return 299792458000000*t / self.um_scale
 
+    #convert electron-volts into the energy units used by meep
+    def ev_to_meep_energy(self, ene):
+        #The conversion is based on using hc=1 units so that energy and 1/length have the same units note hc=1.23984193 eV.um
+        return self.um_scale*ene / 1.23984193
+
+    #convert meep units for electric field into volts per meter
+    def mks_e_field_to_meep_field(self, e_mag):
+        #We already know how to express energy and charge in terms of meep units, length units are trivial. The electric field has units energy.charge^-1.length^-1. After some algebra we end up with a conversion factor of um_scale*3e14*hc*6.02e-19/sqrt(4pi)
+        return 59526.1143716197*e_mag/self.um_scale
+
+    #convert coulombs to meep charge units
+    def meep_charge_to_coulomb(self, chrg):
+        #consider two charges of one meep charge unit separated by 1 um. The force (in meep unis is (q_m/um_scale)^2 where q_m is meep units charge. Note u_0=1 in meep. Note 3.5449... is sqrt(4pi)
+        return chrg*self.um_scale*299792458000000/3.5449077018110318
+
     #convert the length units used by meep into micrometers
     def meep_len_to_um(self, l):
         return l / self.um_scale
@@ -227,6 +242,21 @@ class Geometry:
     def meep_time_to_sec(self, t):
         #speed of light in um/sec = 299792458000000
         return self.um_scale*t / 299792458000000
+
+    #convert electron-volts into the energy units used by meep
+    def meep_energy_to_ev(self, ene):
+        #The conversion is based on using hc=1 units so that energy and 1/length have the same units note hc=1.23984193 eV.um
+        return 1.23984193*ene / self.um_scale
+
+    #convert meep charge units to coulombs
+    def meep_charge_to_coulomb(self, chrg):
+        #consider two charges of one meep charge unit separated by 1 um. The force (in meep unis is (q_m/um_scale)^2 where q_m is meep units charge. Note u_0=1 in meep. Note 3.5449... is sqrt(4pi)
+        return chrg*3.5449077018110318/(self.um_scale*299792458000000)
+
+    #convert meep units for electric field into volts per meter
+    def meep_field_to_mks_e_field(self, e_mag):
+        #We already know how to express energy and charge in terms of meep units, length units are trivial. The electric field has units energy.charge^-1.length^-1. After some algebra we end up with a conversion factor of um_scale*3e14*hc*6.02e-19/sqrt(4pi)
+        return 1.6799349504942165e-05*e_mag*self.um_scale
 
     #this is a more general version of get_field_x that uses the fourier decomposition, allowing for the inclusion of a dispersion relation
     def get_electric(r, t, c=LIGHT_SPEED, p=0):
