@@ -1,4 +1,4 @@
-data(type = field_source, envelope = "Gaussian(Ex, 1.33, 3.5, 0.0, 10.0, 1.0)") {
+data(type = field_source, envelope = "Gaussian(Ex, 1.33, 3.5, 0.0, 10.0, $FIELD_AMP)") {
     Box([0,0,1], [18,18,1]);
 }
 
@@ -15,4 +15,11 @@ Composite(eps = 1.0, susceptibilities = "(1e-10, 0.04274738474121455, 4.03140521
 //wavelength range: 0.25 - 1.77 μm
 Composite(make_2d=1, eps=1.0, susceptibilities="(1.0, 0.1, 2.88575e31, lorentz)") {
     Box([0, $LEFT, $DELTA_TOP], [18, $RGHT, $DELTA_BOT]);
+}
+
+//SiO2
+//ref: http://www.horiba.com/fileadmin/uploads/Scientific/Downloads/OpticalSchool_CN/TN/ellipsometer/Lorentz_Dispersion_Model.pdf
+//wavelength range: 0.25 - 1.77 μm
+Composite(eps = 1.0, susceptibilities = "(9.67865314895427, 0.08065544290795199, 1.12, lorentz)") {
+    Box([0, 0, $BOT], [18, 18, 18]);
 }
