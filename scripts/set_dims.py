@@ -17,7 +17,7 @@ rght = str(geom.r_junc)
 top =  str(geom.t_junc)
 bot =  str(geom.b_junc)
 
-with open(r'junc_template.eps', 'r') as file:
+with open(r'junc_template.geom', 'r') as file:
     data = file.read()
     data = data.replace('$LEFT', left)
     data = data.replace('$RGHT', rght)
