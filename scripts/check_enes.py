@@ -112,7 +112,7 @@ for i, ft in enumerate(field_times):
         cur_er_axs = er_axs[i//N_COLS, i%N_COLS]
 
     _,tmp_err = geom.plot_h5_fields(fname, False, time=time, axs=axs_nd[i//N_COLS, i%N_COLS], er_axs=cur_er_axs)
-    geom.plot_cross_section(fname, [geom.z_center-geom.gap_thick/2, geom.z_center+geom.gap_thick/2], axs=axs_xs[i, :])
+    geom.plot_cross_section(fname, [geom.t_junc/geom.um_scale, geom.b_junc/geom.um_scale], axs=axs_xs[i, :])
     for ax in axs_xs[i, :]:
         ax.set_ylabel("t={}".format(ft))
     sq_err_int_space += tmp_err / len(field_times)
@@ -137,7 +137,7 @@ if (args.movie):
         if i % MOVIE_FRAME_SKIP == 0:
             outname = args.prefix+"/im_{}.png".format(i//MOVIE_FRAME_SKIP)
             #plot_h5_fields(fname, False)
-            #tmp_fig,_ = plot_cross_section(fname, [geom.z_center-gap_thick/2, geom.z_center+gap_thick/2])
+            #tmp_fig,_ = plot_cross_section(fname, [geom.t_junc/geom.um_scale, geom.b_junc/geom.um_scale])
             tmp_fig,er = geom.plot_h5_fields(fname, False)
             plt.savefig(outname)
             plt.close(tmp_fig)

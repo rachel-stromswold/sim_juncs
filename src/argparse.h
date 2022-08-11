@@ -91,6 +91,8 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
     errno = 0;
     if (strcmp(tok, "pml_thickness") == 0) {
 	s->pml_thickness = strtod(val, NULL);
+    } else if (strcmp(tok, "resolution") == 0) {
+	s->resolution = strtod(val, NULL);
     } else if (strcmp(tok, "dimensions") == 0) {
 	s->n_dims = strtol(val, NULL, 10);
     } else if (strcmp(tok, "um_scale") == 0) {
@@ -148,6 +150,11 @@ inline void correct_defaults(Settings* s) {
         s->grid_num = 2*int( 0.5*(1 + (s->len)*(s->resolution)) ) + 1;
 	}
 	
+    //simple but hacky way to let users override the params.conf file if needed
+    if (s->resolution < 0) {
+        s->resolution *= -1;
+    }
+
     double total_len = s->len + 2*s->pml_thickness;
     s->resolution = (double)(s->grid_num) / total_len;
 }
@@ -204,8 +211,6 @@ inline int parse_conf_file(Settings* s, char* fname) {
 
 //parse arguments used by the test program and remove them from the list so that they may safely be passed to open_mp initialization, returns 0 if no errors were detected and an error code otherwise
 inline int parse_args(Settings* a, int* argc, char ** argv) {
-    double tmp_resolution = -1.0;
-
     int n_args = *argc;//dereferencing that pointer all the time is kinda annoying
     if (a) {
 	for (_uint i = 0; i < n_args; ++i) {
@@ -244,7 +249,7 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		    printf("Usage: meep --grid-res <grid points per unit length>");
 		    return 0;
 		} else {
-		    a->resolution = strtod(argv[i+1], NULL);
+		    a->resolution = -strtod(argv[i+1], NULL);
 		    //check for errors
 		    if (errno != 0) {
 			printf("Invalid floating point supplied to --grid-res");
