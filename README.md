@@ -18,7 +18,7 @@ cmake .. && make
 ```
 
 ## cmake options
-By default, configuration files for a graphene junction are copied into the build directory as per Boolakee, T. et al. Nature 605, 251–255 (2022). To use a diferent junction geometry, you can pass the `-DJUNCTION_TYPE` argument when calling cmake. Valid names for this option are given as directories in the `junctions` folder. For example, to use a silica junction you can call the following:
+By default, configuration files for a graphene junction (with parameters based on Boolakee, T. et al. Nature 605, 251–255 (2022)) are copied into the build directory. To use a diferent junction geometry, you can pass the `-DJUNCTION_TYPE` argument when calling cmake. Valid names for this option are given as directories in the `junctions` folder. For example, to use a silica junction you can call the following:
 ```
 cmake .. -DJUNCTION_TYPE=Au_SiO2_box
 ```
