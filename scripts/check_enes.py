@@ -22,6 +22,8 @@ MOVIE_FRAME_SKIP = 1
 #parse arguments supplied via command line
 parser = argparse.ArgumentParser(description='Query sky-surveys for redshift data corresponding to a gravitational-wave detection.')
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
+parser.add_argument('--compare-prefix', type=str, help='prefix to use when opening files for comparison', default='')
+parser.add_argument('--compare-scaling', type=float, help='Apply a scaling factor to fields obtained from the comparison prefix', default=1)
 parser.add_argument('--grid-res', type=float, help='Size of the grid used for simulations', default='20.0')
 parser.add_argument('--movie', action='store_true', help='If set to true, save pngs for an animation of the electic field', default=False)
 parser.add_argument('--fitting', action='store_true', help='If set to true, generate posterior probabilities for the speed of light', default=False)
@@ -93,6 +95,17 @@ fig_nd.suptitle("Field strength as a function of position (resolution={}, scale 
 
 sq_err_int_space = 0.0
 worst_sq_err_int_space = 0.0
+#if the user supplied a comparison prefix, perform the comparison and check for errors
+if (args.compare_prefix != ''):
+    ex_lst_2 = utils.get_h5_list(field_label[:-1], args.compare_prefix)
+    for i, ft in enumerate(field_times):
+        fname_1,time = utils.get_closest_time(ft, args.prefix)
+        fname_2,_ = utils.get_closest_time(ft, args.compare_prefix)
+        field_list_1,_ = utils.get_fields_from_file(fname_1, max_z=geom.tot_len)
+        field_list_2,_ = utils.get_fields_from_file(fname_2, max_z=geom.tot_len)
+        diff_sq = np.sum((field_list_1 - args.compare_scaling*field_list_2)**2)
+        print("Square error at time t={}: {}".format(time, diff_sq))
+
 #generate plots comparing analytic and simulated results
 for i, ft in enumerate(field_times):
     #plt.subplot(5, 1, i+1)

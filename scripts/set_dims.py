@@ -11,7 +11,7 @@ parser.add_argument('--params', type=str, help='name of parameter file', default
 args = parser.parse_args()
 
 #initialize information classes
-geom = utils.Geometry(args.params)
+geom = utils.Geometry(args.params, args.width, args.thickness)
 
 left = str(geom.l_junc)
 rght = str(geom.r_junc)
@@ -19,7 +19,7 @@ top =  str(geom.t_junc)
 bot =  str(geom.b_junc)
 delta_top = str(geom.t_junc - 1.0)
 delta_bot = str(geom.t_junc + 1.0)
-field_amp_meep = str(geom.mks_e_field_to_meep_field(geom.field_amp*10e10))
+field_amp_meep = str(geom.mks_e_field_to_meep_field(args.field_amp*10e10))
 
 with open(r'junc_template.geom', 'r') as file:
     data = file.read()

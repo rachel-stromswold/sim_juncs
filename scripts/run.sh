@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -p femto --time=02:00:00 --mem=244G
-#SBATCH -a 1-4
+#SBATCH -a 1-8
 
 run_local="f"
 run_simuls="t"
@@ -44,17 +44,20 @@ echo "output name: $pname        run local? $run_local"
 rm -rf $pname/figures
 rm -f $pname/errors.txt
 
-#the widths used for each job in the array. These are similar to those used in Boolakee et al.
-widths=("0.001" "0.002" "0.005" "0.01")
-thickness="0.03"
+#the widths used for each job in the array. These are similar to those used in Boolakee et al. For a graphene junction.
+#widths=("0.5" "1.0" "2.0" "5.0")
+#thickness="0.3"
+#the widths used for each job in the array. These are similar to those used in Schiffrin et al. For a SiO2 junction.
+widths=("0.02" "0.03" "0.04" "0.05" "0.06" "0.07" "0.08" "0.09")
+thickness="0.2"
 resolution="12.0"
 h5dir="$pname/test_$SLURM_ARRAY_TASK_ID"
 mkdir $h5dir
 if [ $run_simuls == "t" ]; then
     rm -f $h5dir/*
     #valgrind --leak-check=full --track-origins=yes ./sim_geom --out-dir $h5dir --grid-res ${resolutions[$((SLURM_ARRAY_TASK_ID-1))]}
-    python set_dims.py ${widths[$((SLURM_ARRAY_TASK_ID-1))]} $thickness > $h5dir/junc.eps
-    ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file $h5dir/junc.eps
+    python set_dims.py ${widths[$((SLURM_ARRAY_TASK_ID-1))]} $thickness > $h5dir/junc.geom
+    ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file "$h5dir"/junc.geom
     eps_file=$(ls | grep eps)
     echo "eps_fname = $eps_file"
     cp $eps_file "$h5dir/$eps_file"
@@ -70,8 +73,8 @@ fi
 
 python check_enes.py --prefix $h5dir --grid-res $resolution --gap-width ${widths[$((SLURM_ARRAY_TASK_ID-1))]} --gap-thick $thickness | tee $h5dir/tmp.log
 awk '$1 == "square_errors:" { $1=""; print $0; }' $h5dir/tmp.log >> $pname/errors.txt
-python plot_convergence.py --in-prefix $pname --out-prefix $pname/figures
+python time_space.py --prefix $h5dir --gap-width ${widths[$((SLURM_ARRAY_TASK_ID-1))]} --gap-thick $thickness
 
 #move the plots into a folder where we can view them
-cp "$h5dir"/space_plot.pdf "$pname"/figures/space_plot_${widths[$((SLURM_ARRAY_TASK_ID-1))]}.pdf
-cp "$h5dir"/cross_plot.pdf "$pname"/figures/cross_plot_${widths[$((SLURM_ARRAY_TASK_ID-1))]}.pdf
+cp "$h5dir"/space_plot.pdf "$pname"/figures/space_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/cross_plot.pdf "$pname"/figures/cross_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
