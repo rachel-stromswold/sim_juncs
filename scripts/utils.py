@@ -332,7 +332,7 @@ class Geometry:
             #shade the pml region out since it is unphysical
             ax.fill_between(z_pts, FIELD_RANGE[0], FIELD_RANGE[1], where=z_pts<self.vol_loc_l, color='red', alpha=0.3)
             ax.fill_between(z_pts, FIELD_RANGE[0], FIELD_RANGE[1], where=z_pts>self.vol_loc_r, color='red', alpha=0.3)
-            ax.axvline(self.l_junc, color='gray')
-            ax.axvline(self.r_junc, color='gray')
+            ax.axvline(self.meep_len_to_um(self.l_junc), color='gray')
+            ax.axvline(self.meep_len_to_um(self.r_junc), color='gray')
 
         return fig, axs, fields

@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+EPSILON = 0.1
 FIELD_LABEL = "ex-"
 
 #parse arguments supplied via command line
@@ -19,44 +20,65 @@ parser.add_argument('--gap-thick', type=float, help='The thickness of the juncti
 args = parser.parse_args()
 
 #read information from the parameters file
-config = configparser.ConfigParser()
-config.read("params.conf")
-devs = float(config["pulse_shape"]["pulse_cutoff"])
-pulse_width = float(config["pulse_shape"]["pulse_width"])
-post_pulse_runtime = float(config["pulse_shape"]["post_pulse_runtime"])
-last_time = pulse_width*devs + post_pulse_runtime
 
 #get a list of all h5 files with the electric field
 ex_lst = utils.get_h5_list(FIELD_LABEL[:-1], args.prefix)
+last_name =  ex_lst[-1].split('/')[-1]
+per_ind = last_name.find('.')
+#we expect there to be a decimal in the file name, so find the second instance
+last_per_ind = last_name.find('.', per_ind+1)
+if last_per_ind > 0:
+    per_ind = last_per_ind
+last_time = float(last_name[len(FIELD_LABEL):per_ind])
 
 #initialize information classes
 geom = utils.Geometry("params.conf", gap_width=args.gap_thick, gap_thick=args.gap_thick)
 
-#information about which points in space we're interested in looking at
-z_slices = [geom.meep_len_to_um(geom.t_junc), geom.meep_len_to_um(geom.z_center), geom.meep_len_to_um(geom.b_junc)]
-n_slices = len(z_slices)
+#information about which points in space we're interested in looking at. Look near the source, just below the interface, and at the center of the junction. For x points, look near the edge (far into the gold), just inside the gold, and at the center
+z_slices = [geom.meep_len_to_um(2*geom.pml_thick), geom.meep_len_to_um(geom.t_junc + EPSILON), geom.meep_len_to_um(geom.z_center)]
+x_slices = [geom.meep_len_to_um(2*geom.pml_thick), geom.meep_len_to_um(geom.l_junc - EPSILON), geom.meep_len_to_um(geom.z_center)]
+x_inds = []
+n_z_slices = len(z_slices)
+n_x_slices = len(x_slices)
 n_t_pts = len(ex_lst)
 
 #store information about the fields as a function of time
-center_fields = [np.zeros(n_t_pts) for z in z_slices]
-mid_fields = [[] for z in range(n_slices)]
+sample_fields = [[np.zeros(n_t_pts) for i in range(n_x_slices)] for j in range(n_z_slices)]
+mid_fields = [[] for z in range(n_z_slices)]
 
 #iterate over the h5 files to get information in time
 for i, fname in enumerate(ex_lst):
     fields,_ = geom.get_cross_section_fields(fname, z_slices)
-    for j in range(n_slices):
-        center_fields[j][i] = fields[j][fields.shape[1]//2]
-        mid_fields[j].append(fields[j, :])
+    #figure out the x indices we want to read from based on the slices array. We check if it has already been initialized so that we don't have to repeat computations
+    if len(x_inds) < len(x_slices):
+        for x in x_slices:
+            x_inds.append( int(geom.um_to_meep_len(x)*fields.shape[1]/geom.tot_len) )
+    #add the time point to the sample field arrays
+    for j in range(n_z_slices):
+        for k, ii in enumerate(x_inds):
+            sample_fields[j][k][i] = fields[j][ii]
+            mid_fields[j].append(fields[j, :])
 
 mid_fields = np.array(mid_fields)
 
-fig_td, axs_td = plt.subplots(n_slices)
-fig_fd, axs_fd = plt.subplots(n_slices)
-fig_col, axs_col = plt.subplots(1, 2*n_slices)
-for j in range(n_slices):
-    four = rfft(center_fields[j])
-    axs_td[j].plot(center_fields[j])
-    axs_fd[j].plot(rfftfreq(center_fields[j].shape[0]), four)
+fig_td, axs_td = plt.subplots(n_z_slices, n_x_slices)
+fig_fd, axs_fd = plt.subplots(n_z_slices, n_x_slices)
+fig_col, axs_col = plt.subplots(1, 2*n_z_slices)
+
+#set labels for the plots
+for j in range(n_z_slices):
+    axs_td[j][0].set_ylabel(r"$z={} \mu m$".format(z_slices[j]))
+    axs_fd[j][0].set_ylabel(r"$z={} \mu m$".format(z_slices[j]))
+for k in range(n_x_slices):
+    axs_td[0][k].set_xlabel(r"$x={} \mu m$".format(x_slices[k]))
+    axs_fd[0][k].set_xlabel(r"$x={} \mu m$".format(x_slices[k]))
+
+for j in range(n_z_slices):
+    for k in range(n_x_slices):
+        four = rfft(sample_fields[j][k])
+        axs_td[j][k].plot(sample_fields[j][k])
+        axs_fd[j][k].plot(rfftfreq(sample_fields[j][k].shape[0]), np.abs(four), color='black')
+        axs_fd[j][k].plot(rfftfreq(sample_fields[j][k].shape[0]), np.angle(four), linestyle=':', color='red')
     #draw the frequency color plots
     fours_mid = np.transpose(np.array([rfft(mid_fields[j, :, i]) for i in range(mid_fields.shape[-1])]))
     #convert into units of seconds and figure out the scale of the frequencies

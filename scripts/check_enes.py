@@ -12,11 +12,16 @@ import matplotlib
 field_range = (-1.0, 1.0)
 sq_er_range = (0.0, 0.002)
 #the field times we are interested in
-#field_times = ["1.", "2.", "3.", "4.", "5.", "6."]
+#field_times = ["1.", "2.", "3.", "4."]
 field_times = ["16.", "20.", "24.", "28.", "32.", "36."]
 #field_times = ["16.", "17.", "18.", "19.", "20.", "21."]
 N_ROWS = 2
 N_COLS = len(field_times)//N_ROWS
+
+EPSILON = 0.1
+
+MOVIE_FIELDS = 1
+MOVIE_CROSS_SECS = 2
 MOVIE_FRAME_SKIP = 1
 
 #parse arguments supplied via command line
@@ -25,7 +30,7 @@ parser.add_argument('--prefix', type=str, help='prefix to use when opening files
 parser.add_argument('--compare-prefix', type=str, help='prefix to use when opening files for comparison', default='')
 parser.add_argument('--compare-scaling', type=float, help='Apply a scaling factor to fields obtained from the comparison prefix', default=1)
 parser.add_argument('--grid-res', type=float, help='Size of the grid used for simulations', default='20.0')
-parser.add_argument('--movie', action='store_true', help='If set to true, save pngs for an animation of the electic field', default=False)
+parser.add_argument('--movie', type=str, help='If set to true, save pngs for an animation of the electic field', default='')
 parser.add_argument('--fitting', action='store_true', help='If set to true, generate posterior probabilities for the speed of light', default=False)
 parser.add_argument('--ene-flux', action='store_true', help='If set to true, calculate the flux of energies through points', default=False)
 parser.add_argument('--show-plots', action='store_true', help='If set to true, show plots instead of saving them', default=False)
@@ -39,6 +44,13 @@ if not show_plt:
 import matplotlib.pyplot as plt
 plt.rcParams['figure.figsize'] = [10, 6]
 
+#figure out what type of movies to make
+movie_type = 0
+if args.movie != '':
+    movie_type = MOVIE_CROSS_SECS
+    if (args.movie == 'fields'):
+        movie_type = MOVIE_FIELDS
+
 #in theory we're working in c=1 units, but the simulation seems to behave better with a slightly lower value
 conf_level = 0.95
 C_PRIOR_RANGE = (0.999, 1.001)
@@ -51,6 +63,9 @@ epsilon = 0.01
 
 #initialize information classes
 geom = utils.Geometry("params.conf", gap_width=args.gap_thick, gap_thick=args.gap_thick)
+
+#specify which z values we want for cross sections
+CROSS_SEC_ZS = [geom.meep_len_to_um(2*geom.pml_thick), geom.meep_len_to_um(geom.t_junc + EPSILON), geom.meep_len_to_um(geom.z_center)]
 
 #plot the fourier components of the Gaussian envelope for debugging purposes
 if args.show_plots:
@@ -86,11 +101,12 @@ if geom.n_dims == 1:
     er_fig, er_axs = plt.subplots(len(field_times))
 else:
     fig_nd, axs_nd = plt.subplots(N_ROWS, N_COLS)
-    fig_xs, axs_xs = plt.subplots(len(field_times), 2)
+    fig_xs, axs_xs = plt.subplots(len(field_times), len(CROSS_SEC_ZS))
     er_fig, er_axs = plt.subplots(N_ROWS, N_COLS)
     for i in range(len(field_times)):
         axs_xs[i, 0].set_xlabel("above junction")
-        axs_xs[i, 1].set_xlabel("below junction")
+        axs_xs[i, 1].set_xlabel("middle junction")
+        axs_xs[i, 2].set_xlabel("below junction")
 fig_nd.suptitle("Field strength as a function of position (resolution={}, scale ratio={})".format(args.grid_res, geom.um_scale))
 
 sq_err_int_space = 0.0
@@ -125,7 +141,7 @@ for i, ft in enumerate(field_times):
         cur_er_axs = er_axs[i//N_COLS, i%N_COLS]
 
     _,tmp_err = geom.plot_h5_fields(fname, False, time=time, axs=axs_nd[i//N_COLS, i%N_COLS], er_axs=cur_er_axs)
-    geom.plot_cross_section(fname, [geom.t_junc/geom.um_scale, geom.b_junc/geom.um_scale], axs=axs_xs[i, :])
+    geom.plot_cross_section(fname, CROSS_SEC_ZS, axs=axs_xs[i, :])
     for ax in axs_xs[i, :]:
         ax.set_ylabel("t={}".format(ft))
     sq_err_int_space += tmp_err / len(field_times)
@@ -145,15 +161,20 @@ else:
     plt.clf()
 
 #make an animation of the wave if the user asked for one
-if (args.movie):
+if movie_type > 0:
     for i, fname in enumerate(ex_lst):
         if i % MOVIE_FRAME_SKIP == 0:
             outname = args.prefix+"/im_{}.png".format(i//MOVIE_FRAME_SKIP)
             #plot_h5_fields(fname, False)
-            #tmp_fig,_ = plot_cross_section(fname, [geom.t_junc/geom.um_scale, geom.b_junc/geom.um_scale])
-            tmp_fig,er = geom.plot_h5_fields(fname, False)
-            plt.savefig(outname)
-            plt.close(tmp_fig)
+            if movie_type == MOVIE_FIELDS:
+                tmp_fig,er = geom.plot_h5_fields(fname, False)
+                plt.savefig(outname)
+                plt.close(tmp_fig)
+            else:
+                tmp_fig, tmp_axs = plt.subplots(len(CROSS_SEC_ZS))
+                geom.plot_cross_section(fname, CROSS_SEC_ZS, tmp_axs)
+                tmp_fig.savefig(outname)
+                plt.close(tmp_fig)
 
 if args.fitting:
     #normalize the posterior distribution and find mode and expectation value
