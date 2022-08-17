@@ -14,6 +14,6 @@ Composite(eps = 1.0, susceptibilities = "(1e-10, 0.04274738474121455, 4.03140521
 //ref: http://www.horiba.com/fileadmin/uploads/Scientific/Downloads/OpticalSchool_CN/TN/ellipsometer/Lorentz_Dispersion_Model.pdf
 //wavelength range: 0.25 - 1.77 μm
 Composite(eps = 1.0, susceptibilities = "(9.67865314895427, 0.08065544290795199, 1.12, lorentz)") {
-    Box([0, $LEFT, $TOP], [18, $RIGHT, $BOT]);
+    Box([0, $LEFT, $TOP], [18, $RGHT, $BOT]);
     Box([0, 0, $BOT], [18, 18, 18]);
 }

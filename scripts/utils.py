@@ -8,7 +8,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 PML_EXCLUDE_FACT = 2.0
-FIELD_RANGE = (-0.5, 0.5)
+FIELD_RANGE = (-1.0, 1.0)
 
 LIGHT_SPEED = 1.0
 PULSE_RES = 0.02
@@ -124,31 +124,6 @@ def get_fields_from_file(fname, slice_ax=-1, slice_ind=-1, n_dims=3, max_z=1.0, 
         z_pts = np.linspace(0, max_z, num=field_list.shape[0])
     return field_list, z_pts
 
-class Source:
-    def __init__(self, config):
-        #source info
-        self.src_loc = float(config["pulse_shape"]["pulse_loc_z"])
-        self.devs = float(config["pulse_shape"]["pulse_cutoff"])
-        self.pulse_width = float(config["pulse_shape"]["pulse_width"])
-        self.post_pulse_runtime = float(config["pulse_shape"]["post_pulse_runtime"])
-        self.peak_freq = 2*np.pi*float(config["pulse_shape"]["frequency"])
-        src_mon_dist = float(config["monitors"]["near_rad"])
-        um_scale = float(config["simulation"]["um_scale"])
-        #calculated values
-        self.src_loc_l = self.src_loc - src_mon_dist
-        self.src_loc_r = self.src_loc + src_mon_dist
-        #for the analytic expression we decompose the gaussian source into its fourier components
-        self.t_0 = self.devs*self.pulse_width/2
-        self.E_0 = -1.0
-        self.rt_2_i = np.sqrt(2)*self.t_0*1j
-        self.min_freq = self.peak_freq - FREQ_RANGE_SCALE*self.devs*um_scale/self.pulse_width
-        self.max_freq = self.peak_freq + FREQ_RANGE_SCALE*self.devs*um_scale/self.pulse_width
-        self.pulse_freqs = np.arange(self.min_freq, self.max_freq, PULSE_RES)
-
-        #create an array with the pulse components
-        self.pulse_comps = self.E_0*self.pulse_width*np.exp(-0.5*(self.pulse_width*(self.pulse_freqs-self.peak_freq))**2) \
-                            * np.exp(1j*BEST_PHASE)/np.sqrt(8*np.pi)
-
 class Geometry:
     def __init__(self, fname, gap_width=-1, gap_thick=-1):
         #read parameters from the params.conf file
@@ -159,22 +134,38 @@ class Geometry:
         self.n_dims = int(config["simulation"]["dimensions"])
         self.um_scale = float(config["simulation"]["um_scale"])
         self.length = float(config["simulation"]["length"])
+        #calculate the total side length of the simulation
+        self.tot_len = self.length + 2*self.pml_thick
+        self.z_center = self.tot_len / 2
         self.gap_width = gap_width
         self.gap_thick = gap_thick
         if gap_width < 0:
-            self.gap_width = float(config["junction"]["gap_width"])
+            try:
+                self.gap_width = float(config["junction"]["gap_width"])
+            except:
+                pass
         if gap_thick < 0:
-            self.gap_thick = float(config["junction"]["gap_thick"])
-        self.eps_1 = float(config["physical"]["eps_1"])
+            try:
+                self.gap_thick = float(config["junction"]["gap_thick"])
+            except:
+                pass
+        #if there is a frequency dependence in the dielectric constant, account for it
+        try:
+            suscep_str = config["physical"]["susceptibilities_2"]
+        except KeyError:
+            suscep_str = ""
+        #figure out the ambient eps or set it to 1 (vacuum) if there isn't a provided value
+        try:
+            self.eps_1 = float(config["physical"]["ambient_eps"])
+        except KeyError:
+            self.eps_1 = 1
+        #set the dielectric constant for the second material
         try:
             self.eps_2 = float(config["physical"]["eps_2"])
         except KeyError:
             self.eps_2 = self.eps_1
-        self.src = Source(config)
 
         #calculated values
-        self.tot_len = self.length + 2*self.pml_thick
-        self.z_center = self.tot_len / 2
         self.vol_loc_l = self.pml_thick/self.um_scale
         self.vol_loc_r = (self.tot_len - self.pml_thick)/self.um_scale
         self.l_junc = self.z_center - self.gap_width*self.um_scale/2
@@ -185,28 +176,6 @@ class Geometry:
         self.rht_x = 0.5 + self.gap_width*self.um_scale/(4*self.z_center)
         self.top_y = 0.5 + self.gap_thick*self.um_scale/(4*self.z_center)
         self.bot_y = 0.5 - self.gap_thick*self.um_scale/(4*self.z_center)
-
-        #calculate indices of refraction and reflection coefficients based on dielectric constants
-        self.n_1 = np.sqrt(self.eps_1)
-        self.n_2 = np.sqrt(self.eps_2)
-        self.coeff_r = abs(self.n_1*self.eps_2 - self.n_2*self.eps_1)/(self.n_1*self.eps_2 + self.n_2*self.eps_1)
-        self.coeff_t = 2*self.n_2/(self.n_1*self.eps_2 + self.n_2*self.eps_1)
-
-        #if there is a frequency dependence in the dielectric constant, account for it
-        try:
-            suscep_str = config["physical"]["susceptibilities_2"]
-        except KeyError:
-            suscep_str = ""
-        self.eps_2_func = dielectric_func(suscep_str, self.eps_2, um_scale=self.um_scale)
-        self.eps_2s = self.eps_2_func.get_eps_arr(self.src.pulse_freqs*2*np.pi)
-        self.n_2s = np.sqrt(self.eps_2s)
-
-        #if the dielectric function has a frequency dependence, then so will the reflection and transmission coefficients and the refractive index
-        self.k_2_rs = np.real(self.n_2s)/LIGHT_SPEED
-        self.k_2_is = np.imag(self.n_2s)/LIGHT_SPEED
-        self.coeff_rs = (self.n_2s*self.n_1 - self.eps_1) / (self.n_2s*self.n_1 + self.eps_1)
-        self.coeff_ts = 2*self.n_2s*self.n_1 / (self.eps_2s + self.n_2s*self.eps_1)
-        self.rt_cent = abs(self.z_center-self.src.src_loc)*self.n_1/LIGHT_SPEED
 
     #convert micrometers into the length units used by meep
     def um_to_meep_len(self, l):
@@ -255,44 +224,6 @@ class Geometry:
     def meep_field_to_mks_e_field(self, e_mag):
         #We already know how to express energy and charge in terms of meep units, length units are trivial. The electric field has units energy.charge^-1.length^-1. After some algebra we end up with a conversion factor of um_scale*3e14*hc*6.02e-19/sqrt(4pi)
         return 16.799349504942165*e_mag*self.um_scale
-
-    #this is a more general version of get_field_x that uses the fourier decomposition, allowing for the inclusion of a dispersion relation
-    def get_electric(r, t, c=LIGHT_SPEED, p=0):
-        rt = abs(r-self.src.src_loc)*self.n_1/c
-        #since we work in c=1 units k=omega
-        #if we're to the left of the barrier, consider the source and reflected
-        if r < self.z_center:
-            rt_c = abs(r-self.z_center)*self.n_1/c
-            return np.array([np.sum( self.src.pulse_comps*np.exp(1j*self.src.pulse_freqs*(t-t_0-rt)) \
-                    - self.coeff_rs*self.src.pulse_comps*np.exp(1j*self.src.pulse_freqs*(t-t_0-rt_c-self.rt_cent)) ) \
-                        *np.exp(1j*p)*PULSE_RES, 0, 0])
-        else:
-            decay = abs(r-self.z_center)*self.k_2_is*self.src.pulse_freqs
-            rt_c = abs(r-self.z_center)*self.k_2_rs
-            #decay = 0
-            #rt_c = abs(r-z_center)*n_2/c
-            return np.array([np.sum( self.coeff_ts*self.src.pulse_comps*np.exp(1j*self.src.pulse_freqs*(t-t_0-rt_c-self.rt_cent) - decay) )
-                                        *np.exp(1j*p)*self.src.pulse_res, 0, 0])
-        #return np.sum(pulse_comps*( np.exp(-1j*pulse_freqs*((r-src_loc)+t))))
-
-    def get_magnetic(r, t, c=1.0, p=0):
-        return np.roll(self.get_electric(r, t, c=c, p=p), 1)
-
-    def light_posterior(c_pts, simul_pts, left_pml, right_pml, sigma_data=0.1):
-        '''Perform a least squares fit of the speed of light to the observed data'''
-        def get_sq_err(c):
-            anyl_pts = np.array([np.real(self.get_electric(z, time, c=c))[0] for z in z_pts]) 
-            return np.exp( np.sum(-0.5*(anyl_pts[left_pml+1:right_pml]-simul_pts[left_pml+1:right_pml])**2/sigma_data) )
-
-        return np.array([get_sq_err(c) for c in c_pts])
-
-    def phase_posterior(p_pts, simul_pts, left_pml, right_pml, sigma_data=0.1):
-        '''Perform a least squares fit of the speed of light to the observed data'''
-        def get_sq_err(p):
-            anyl_pts = np.array([np.real(get_electric(z, time, p=p))[0] for z in z_pts]) 
-            return np.exp( np.sum(-0.5*(anyl_pts[left_pml+1:right_pml]-simul_pts[left_pml+1:right_pml])**2/sigma_data) )
-
-        return np.array([get_sq_err(p) for p in p_pts])
 
     def plot_h5_fields(self, fname, compare_anyl, time=-1, axs=None, er_axs=None):
         '''Generate a plot of the fields in the file specified by fname and place it on the axs specified
@@ -401,7 +332,7 @@ class Geometry:
             #shade the pml region out since it is unphysical
             ax.fill_between(z_pts, FIELD_RANGE[0], FIELD_RANGE[1], where=z_pts<self.vol_loc_l, color='red', alpha=0.3)
             ax.fill_between(z_pts, FIELD_RANGE[0], FIELD_RANGE[1], where=z_pts>self.vol_loc_r, color='red', alpha=0.3)
-            ax.axvline(self.l_junc, color='gray')
-            ax.axvline(self.r_junc, color='gray')
+            ax.axvline(self.meep_len_to_um(self.l_junc), color='gray')
+            ax.axvline(self.meep_len_to_um(self.r_junc), color='gray')
 
         return fig, axs, fields
