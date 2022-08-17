@@ -8,6 +8,7 @@
 #include <hdf5.h>
 
 #include "argparse.h"
+#include "data_utils.hpp"
 #include "cgs.hpp"
 #define PREFIX_LEN 3
 

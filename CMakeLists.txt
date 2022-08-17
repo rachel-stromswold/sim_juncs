@@ -23,7 +23,7 @@ set(Eigen3_DIR "/software/eigen/3.3.7/b1/share/eigen3/cmake")
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 
 #add targets for libraries
-add_executable( ${TEST_EXE} src/cgs.cpp src/disp.cpp src/main_test.cpp )
+add_executable( ${TEST_EXE} src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
 add_executable( ${APP_EXE} src/cgs.cpp src/disp.cpp src/main.cpp )
 
 #linking
@@ -43,7 +43,7 @@ configure_file(junctions/${JUNCTION_TYPE}/junc_template.geom COPYONLY)
 configure_file(junctions/${JUNCTION_TYPE}/params.conf COPYONLY)
 
 #copy utility scripts that are used
-configure_file(scripts/run.sh COPYONLY)
+#configure_file(scripts/run.sh COPYONLY)
 configure_file(scripts/utils.py COPYONLY)
 configure_file(scripts/set_dims.py COPYONLY)
 configure_file(scripts/check_enes.py COPYONLY)
