@@ -62,7 +62,7 @@ pml_exclude_fact = 2.0
 epsilon = 0.01
 
 #initialize information classes
-geom = utils.Geometry("params.conf", gap_width=args.gap_thick, gap_thick=args.gap_thick)
+geom = utils.Geometry("params.conf", gap_width=args.gap_width, gap_thick=args.gap_thick)
 
 #specify which z values we want for cross sections
 CROSS_SEC_ZS = [geom.meep_len_to_um(2*geom.pml_thick), geom.meep_len_to_um(geom.t_junc + EPSILON), geom.meep_len_to_um(geom.z_center)]
