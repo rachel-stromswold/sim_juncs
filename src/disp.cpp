@@ -598,11 +598,16 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    source_info cur_info(data[i]->fetch_metadata("envelope"), problem, ercode);
 		    //create the EM-wave source at the specified location only if everything was read successfully
 		    if (*ercode == E_SUCCESS) {
+			//We specify the width of the pulse in units of the oscillation period
+			double frequency = cur_info.freq/s.um_scale;
+			double width = cur_info.width * frequency;
+			double start_time = cur_info.start_time * frequency;
+			double end_time = cur_info.end_time * frequency;
 			if (cur_info.type == SRC_GAUSSIAN) {
-			    meep::gaussian_src_time src(cur_info.freq/s.um_scale, cur_info.width, cur_info.start_time, cur_info.cutoff*cur_info.width);
+			    meep::gaussian_src_time src(frequency, width, start_time, cur_info.cutoff*width);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			} else if (cur_info.type == SRC_CONTINUOUS) {
-			    meep::continuous_src_time src(cur_info.freq, cur_info.width, cur_info.start_time, cur_info.end_time);
+			    meep::continuous_src_time src(frequency, width, start_time, end_time);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			}
 #ifdef DEBUG_INFO
@@ -620,12 +625,75 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 	    }
 	}
     }
+
+    //check if the user wants any locations to be monitored
+    if (s.monitor_locs) {
+	//break up the string by end parens
+	char* save_str;
+	char* tok = NULL;
+	//find the first entry
+	char* cur_entry = strchr(s.monitor_locs, '(');
+	char* end = strchr(s.monitor_locs, ')');
+
+	double x = 0.0; double y = 0.0; double z = 0.0;
+	//only proceed if we have pointers to the start and end of the current entry
+	while (cur_entry && end) {
+	    x = 0.0;
+	    y = 0.0;
+	    z = 0.0;
+	    //the open paren must occur before the end paren
+	    if (cur_entry > end) {
+		printf("Error: Invalid monitor locations string: %s", s.monitor_locs);
+		break;
+	    }
+
+	    //null terminate the parenthesis and tokenize by commas
+	    end[0] = 0;
+	    //read the x value
+	    tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
+	    x = strtod(tok, NULL);
+	    if (errno) {
+		printf("Error: Invalid token: %s", tok);
+		errno = 0;
+		break;
+	    }
+	    //read the y value
+	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+	    if (!tok) {
+		printf("Error: Invalid monitor locations string: %s", s.monitor_locs);
+		break;
+	    }
+	    y = strtod(tok, NULL);
+	    if (errno) {
+		printf("Error: Invalid token: %s", tok);
+		break;
+	    }
+	    //read the z value
+	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+	    if (!tok) {
+		printf("Error: Invalid monitor locations string: %s", s.monitor_locs);
+		break;
+	    }
+	    z = strtod(tok, NULL);
+	    if (errno) {
+		printf("Error: Invalid token: %s", tok);
+		break;
+	    }
+
+	    //save the information
+	    monitor_locs.push_back( meep::vec(x, y, z) );
+
+	    //advance to the next entry
+	    if (end[1] == 0) break;
+	    cur_entry = strchr(end+1, '(');
+	    if (!cur_entry) break;
+	    end = strchr(cur_entry, ')');
+	}
+    }
 }
 
 bound_geom::~bound_geom() {
     if (strct) delete strct;
-    //delete all monitor locations
-    for (_uint i = 0; i < monitor_locs.size(); ++i) delete monitor_locs[i];
 }
 
 void bound_geom::add_point_source(meep::component c, const meep::src_time &src, const meep::vec& source_loc, std::complex<double> amp) {
@@ -644,7 +712,7 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
     n_t_pts = (_uint)(ttot / fields.dt);
 }
 
-void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
+void bound_geom::run(const char* fname_prefix) {
     fields.set_output_directory(fname_prefix);
 
     //save the dielectric used
@@ -656,14 +724,11 @@ void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     snprintf(flux_name, BUF_SIZE, "%s/Poynting_fluxes.txt", fname_prefix);
     FILE* fp = fopen(flux_name, "w");
 
-    //initialize the array of monitor locations and write to the fluxes header
-    /*fprintf(fp, "#time, ");
-    monitor_locs.resize(locs.size());
-    for (_uint i = 0; i < locs.size(); ++i) {
-	monitor_locs[i] = fields.get_new_point(locs[i]);
-	fprintf(fp, "(%f,%f,%f) ", locs[i].x(), locs[i].y(), locs[i].z());
+    //make sure the time series corresponding to each monitor point is long enough to hold all of its information
+    field_times.resize(monitor_locs.size());
+    for (_uint j = 0; j < field_times.size(); ++j) {
+	make_data_arr(&(field_times[j]), n_t_pts);
     }
-    fprintf(fp, "\n");*/
 
     //figure out the number of digits before the decimal and after
     int n_digits_a = (int)(ceil(log(ttot)/log(10)));
@@ -675,30 +740,63 @@ void bound_geom::run(const char* fname_prefix, std::vector<meep::vec> locs) {
     printf("starting simulations\n");
     _uint i = 0;
     for (; fields.time() < ttot; ++i) {
-        //magnetic and electric fields are stored at different times, we need to synchronize
-        /*fields.synchronize_magnetic_fields();
-
 	//fetch monitor points
-	for (_uint j = 0; j < locs.size(); ++j) {
-	    fields.get_point(monitor_locs[j], locs[j]);
-	    fprintf(fp, "%f ", fields.get_field(meep::Ex, locs[j]));
+	for (_uint j = 0; j < monitor_locs.size(); ++j) {
+	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
+	    field_times[j].buf[i].re = val.real();
+	    field_times[j].buf[i].im = val.imag();
 	}
 	fprintf(fp, "\n");
 
-        //restore the fields to the original state to allow for further stepping
-        fields.restore_magnetic_fields();*/
-
         //open an hdf5 file with a reasonable name
         if (i % 4 == 0) {
-        size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
-        meep::h5file* file = fields.open_h5file(h5_fname);
+	    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
+	    meep::h5file* file = fields.open_h5file(h5_fname);
 
-        fields.output_hdf5(meep::Ex, vol.surroundings(), file);
-        fields.step();
+	    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
+	    fields.step();
 
-        //we're done with the file
-        delete file;
-}
+	    //we're done with the file
+	    delete file;
+	}
     }
     fclose(fp);
+}
+
+void bound_geom::save_field_times(const char* fname_prefix) {
+    char out_name[BUF_SIZE];
+    H5::CompType fieldtype(sizeof(complex));
+    fieldtype.insertMember("Re", HOFFSET(complex, re), H5::PredType::NATIVE_FLOAT);
+    fieldtype.insertMember("Im", HOFFSET(complex, im), H5::PredType::NATIVE_FLOAT);
+    //use the space of rank 1 tensors with a dimension of n_t_pts
+    hsize_t t_dim[1];
+    t_dim[0] = {n_t_pts};
+    hsize_t f_dim[1];
+    H5::DataSpace t_space(1, t_dim);
+    //save a seperate file for each point
+    for (_uint j = 0; j < field_times.size(); ++j) {
+	//make sure that 
+	if (field_times[j].size < n_t_pts) {
+	    printf("Error: monitor location %d has insufficient points\n", j);
+	    break;
+	}
+	//take the fourier transform and find its size
+	data_arr four = fft(field_times[j]);
+	f_dim[0] = four.size;
+	H5::DataSpace f_space(1, f_dim);
+
+	//open the file which will store the fields as a function of time
+	snprintf(out_name, BUF_SIZE, "%s/fields_%d.txt", fname_prefix, j);
+	H5::H5File *file = new H5::H5File(out_name, H5F_ACC_TRUNC);
+
+	//write data to the file
+	H5::DataSet *t_dataset = new H5::DataSet(file->createDataSet("time", fieldtype, t_space));
+	H5::DataSet *f_dataset = new H5::DataSet(file->createDataSet("frequency", fieldtype, f_space));
+	t_dataset->write(field_times[j].buf, fieldtype);
+	f_dataset->write(four.buf, fieldtype);
+
+	delete t_dataset;
+	delete f_dataset;
+	delete file;
+    }
 }

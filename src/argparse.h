@@ -20,31 +20,26 @@ typedef unsigned int _uint;
 
 //information for parsing arguments
 typedef struct {
-    int n_dims = 1;
+    //system stuff
     const char* out_dir = "/tmp/em_simuls";
-    double pml_thickness = DEFAULT_PML_THICK;
-    double um_scale = 1.0;
-    double resolution = DEFAULT_RESOLUTION;
-    double courant = 0.5;//0.5 is the meep default
-    long grid_num = -1;
-    double len = DEFAULT_LEN;
-    double ambient_eps = 1.0;
     char* geom_fname_al = NULL;
     char* geom_fname = NULL;
     char* conf_fname = NULL;
-    double eps_2 = 2.0;
-    double amp = 1.0;
-
+    //problem geometry
+    int n_dims = 1;
+    double pml_thickness = DEFAULT_PML_THICK;
+    double len = DEFAULT_LEN;
+    double um_scale = 1.0;
+    long grid_num = -1;
+    double resolution = DEFAULT_RESOLUTION;
+    double courant = 0.5;//0.5 is the meep default
+    //simulation parameters
+    double ambient_eps = 1.0;
     _uint smooth_n = DEFAULT_SMOOTH_N;
     double smooth_rad = DEFAULT_SMOOTH_RAD;
-
-    double source_z = 2.0;
-    double freq = DEFAULT_PULSE_FREQ;
-    double gauss_width = DEFAULT_PULSE_WIDTH;
-    double gauss_start_time = DEFAULT_PULSE_START_T;
-    double gauss_cutoff = 5.0;
     double post_source_t = 10.0;
-    double src_mon_dist = 0.2;
+    //misc
+    char* monitor_locs = NULL;
 } Settings;
 
 /*
@@ -105,50 +100,26 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
 	s->smooth_n = strtod(val, NULL);
     } else if (strcmp(tok, "courant") == 0) {
 	s->courant = strtod(val, NULL);
-    } else if (strcmp(tok, "frequency") == 0) {
-	s->freq = strtod(val, NULL);
-    } else if (strcmp(tok, "post_pulse_runtime") == 0) {
-	s->post_source_t = strtod(val, NULL);
-    } else if (strcmp(tok, "pulse_ramp_start") == 0) {
-	s->gauss_start_time = strtod(val, NULL);
-    } else if (strcmp(tok, "pulse_amplitude") == 0) {
-	s->amp = strtod(val, NULL);
-    } else if (strcmp(tok, "pulse_width") == 0) {
-	s->gauss_width = strtod(val, NULL);
-    } else if (strcmp(tok, "pulse_cutoff") == 0) {
-	s->gauss_cutoff = strtod(val, NULL);
-    } else if (strcmp(tok, "pulse_loc_z") == 0) {
-	s->source_z = strtod(val, NULL);
     } else if (strcmp(tok, "ambient_eps") == 0) {
 	s->ambient_eps = strtod(val, NULL);
     } else if (strcmp(tok, "geom_fname") == 0) {
-    //deallocate memory if necessary
-    if (s->geom_fname_al) free(s->geom_fname_al);
-    //copy only the non whitespace portion
+	//deallocate memory if necessary
+	if (s->geom_fname_al) free(s->geom_fname_al);
+	//copy only the non whitespace portion
 	s->geom_fname_al = strdup(val);
 	s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);
-    } else if (strcmp(tok, "eps_2") == 0) {
-	s->eps_2 = strtod(val, NULL);
-    } else if (strcmp(tok, "near_rad") == 0) {
-	s->src_mon_dist = strtod(val, NULL);
+    } else if (strcmp(tok, "monitor_locations") == 0) {
+	s->monitor_locs = val;
     }
 }
 
 //helper function to automatically adjust parameters if necessary
 inline void correct_defaults(Settings* s) {
-    //correct everything which involves length units to have the proper scale
-    if (s->um_scale != 1.0 && s->um_scale != 0.0) {
-        s->freq /= s->um_scale;
-        /*s->resolution /= s->um_scale;
-        s->len *= s->um_scale;*/
-        //s->len *= s->um_scale;
+    //if a number of grid points was specified, use that
+    if (s->grid_num < 0) {
+	//ensure that we have an odd number of grid points
+	s->grid_num = 2*int( 0.5*(1 + (s->len)*(s->resolution)) ) + 1;
     }
-
-	//if a number of grid points was specified, use that
-	if (s->grid_num < 0) {
-	    //ensure that we have an odd number of grid points
-        s->grid_num = 2*int( 0.5*(1 + (s->len)*(s->resolution)) ) + 1;
-	}
 	
     //simple but hacky way to let users override the params.conf file if needed
     if (s->resolution < 0) {
@@ -283,19 +254,6 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		    }
 		    to_rm = 2;
 		}
-	    } else if (strstr(argv[i], "--freq") == argv[i]) {
-		if (i == n_args-1) {
-		    printf("Usage: meep --freq <frequency of incident light source>");
-		    return 0;
-		} else {
-		    a->freq = strtod(argv[i+1], NULL);
-		    //check for errors
-		    if (errno != 0) {
-			printf("Invalid floating point supplied to --freq");
-			return errno;
-		    }
-		    to_rm = 2;
-		}
 	    } else if (strstr(argv[i], "--eps1") == argv[i]) {
 		if (i == n_args-1) {
 		    printf("Usage: meep --eps1 <epsilon1>");
@@ -305,19 +263,6 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		    //check for errors
 		    if (errno != 0) {
 			printf("Invalid floating point supplied to --eps1");
-			return errno;
-		    }
-		    to_rm = 2;
-		}
-	    } else if (strstr(argv[i], "--eps2") == argv[i]) {
-		if (i == n_args-1) {
-		    printf("Usage: meep --eps2 <epsilon1>");
-		    return 0;
-		} else {
-		    a->eps_2 = strtod(argv[i+1], NULL);
-		    //check for errors
-		    if (errno != 0) {
-			printf("Invalid floating point supplied to --eps2");
 			return errno;
 		    }
 		    to_rm = 2;
@@ -333,8 +278,6 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		--i; //don't skip the next entry after removal
 	    }
 	}
-
-    //correct_defaults(a);
     }
     *argc = n_args;
 

@@ -9,41 +9,51 @@ if(NOT JUNCTION_TYPE)
 endif()
 
 #set names for applications
-set(TEST_EXE test)
+if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
+    set(TEST_EXE test)
+endif()
 set(APP_EXE sim_geom)
 
 #find all the libraries we need for building
 find_library(meep libmeep.a REQUIRED HINTS $ENV{HOME}/install/lib)
+find_package(HDF5 REQUIRED)
+set(_hdf5_libs hdf5 hdf5_cpp)
 link_directories($ENV{HOME}/install/lib)
-#find_library(hdf5 REQUIRED)
-#find_library(ctlgeom REQUIRED)
 
 #Cmake can't find the location of eigen on the cluster so we specify that manually
 set(Eigen3_DIR "/software/eigen/3.3.7/b1/share/eigen3/cmake")
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 
 #add targets for libraries
-add_executable( ${TEST_EXE} src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
-add_executable( ${APP_EXE} src/cgs.cpp src/disp.cpp src/main.cpp )
+add_executable( ${APP_EXE} src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main.cpp )
 
 #linking
-target_link_libraries(${APP_EXE} PRIVATE Eigen3::Eigen meep hdf5 ctlgeom)
-target_include_directories( ${APP_EXE} PRIVATE "~/install/include" )
-target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
-target_link_libraries(${TEST_EXE} PRIVATE Eigen3::Eigen meep)
-target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
-target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
+target_link_libraries(${APP_EXE} PRIVATE Eigen3::Eigen meep ${_hdf5_libs} ctlgeom)
+target_include_directories( ${APP_EXE} PUBLIC ${HDF5_INCLUDE_DIRS})
+target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
 
-#copy files needed for unit testing
-configure_file(tests/test.eps test.eps COPYONLY)
-configure_file(tests/test.conf test.conf COPYONLY)
+#check if we need to build tests
+if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
+    #build and link the unit testing executable
+    add_executable( ${TEST_EXE} src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
+    target_link_libraries(${TEST_EXE} PRIVATE Eigen3::Eigen meep  ${_hdf5_libs})
+    target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
+    target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
+    target_include_directories( ${TEST_EXE} PUBLIC ${HDF5_INCLUDE_DIRS})
+    target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest")
+    #copy files needed for unit testing
+    configure_file(tests/test.geom tests/test.geom COPYONLY)
+    configure_file(tests/test.conf tests/test.conf COPYONLY)
+    configure_file(tests/run.geom tests/run.geom COPYONLY)
+    configure_file(tests/run.conf tests/run.conf COPYONLY)
+endif()
 
 #copy the junction geometry files
 configure_file(junctions/${JUNCTION_TYPE}/junc_template.geom COPYONLY)
 configure_file(junctions/${JUNCTION_TYPE}/params.conf COPYONLY)
 
 #copy utility scripts that are used
-#configure_file(scripts/run.sh COPYONLY)
-configure_file(scripts/utils.py COPYONLY)
-configure_file(scripts/set_dims.py COPYONLY)
-configure_file(scripts/check_enes.py COPYONLY)
+configure_file(scripts/run.sh run.sh COPYONLY)
+configure_file(scripts/utils.py utils.py COPYONLY)
+configure_file(scripts/set_dims.py set_dims.py COPYONLY)
+configure_file(scripts/check_enes.py check_enes.py COPYONLY)

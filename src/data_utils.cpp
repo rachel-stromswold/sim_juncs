@@ -45,11 +45,21 @@ void make_data_arr(data_arr* dat, _ulong size) {
     if (dat) {
 	dat->size = size;
 	dat->buf_size = size;
-	dat->buf = (complex*)realloc(dat->buf, sizeof(complex)*dat->buf_size);
+	dat->buf = (complex*)malloc(sizeof(complex)*dat->buf_size);
 	//check to make sure allocation was successful
 	if (!dat->buf) {
 	    dat->size = 0;
 	    dat->buf_size = 0;
+	}
+    }
+}
+
+void resize(data_arr* dat, _ulong new_size) {
+    if (dat && new_size > dat->buf_size) {
+	complex* tmp = (complex*)realloc(dat->buf, sizeof(complex)*new_size);
+	if (dat->buf) {
+	    dat->buf_size = new_size;
+	    dat->buf = tmp;
 	}
     }
 }
@@ -308,12 +318,12 @@ void part_rfft(dat_helper help, _ulong span, _ulong rem) {
 	//for each k we have a simple 
 	for (_ulong k = 0; k < help.sto.size; ++k) {
 	    //val = dat[rem] + e^{-i*(2*pi/N)*span*k}*dat[span+rem]
-	    complex phase_span = {0, help.tau_by_n*span*k};
+	    complex phase_span = {0, -help.tau_by_n*span*k};
 	    complex val = c_mult(c_exp(phase_span), help.dat.buf[span+rem]);
 	    val.re += help.dat.buf[rem].re;
 	    val.im += help.dat.buf[rem].im;
 	    //sto[k] += e^{-i*(2*pi/N)*rem*k}*val
-	    complex phase_rem = {0, help.tau_by_n*rem*k};
+	    complex phase_rem = {0, -help.tau_by_n*rem*k};
 	    val = c_mult(c_exp(phase_rem), val);
 	    help.sto.buf[k].re += val.re;
 	    help.sto.buf[k].im += val.im;
@@ -332,6 +342,9 @@ void part_rfft(dat_helper help, _ulong span, _ulong rem) {
     }
 }
 
+/**
+ * Compute the discrete fourier transform for the data series specified by dat. This version assumes that all terms in the data series are real. Thus, negative frequency terms correspond to the conjugate of their corresponding positive frequency terms. To reduce redundancy we only store up to the Nyquist frequency
+ */
 data_arr rfft(const data_arr dat) {
     //figure out how many recursive steps are needed.
     _ulong log_2_n = (_ulong)(log(dat.size) / log(2));
@@ -347,5 +360,118 @@ data_arr rfft(const data_arr dat) {
     dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
 
     part_rfft(help, 1, 0);
+    return help.sto;
+}
+
+/**
+ * Compute the inverse discrete fourier transform for the data series specified by dat. This version assumes that all terms in the data series are real. Thus, negative frequency terms correspond to the conjugate of their corresponding positive frequency terms. To reduce redundancy we only store up to the Nyquist frequency
+ */
+data_arr irfft(const data_arr dat) {
+    //figure out how many recursive steps are needed.
+    _ulong log_2_n = (_ulong)(log(dat.size) / log(2));
+    _ulong truncated_size = 1 << log_2_n;
+
+    //allocate space for the final result
+    data_arr final_result;
+    make_data_arr(&final_result, truncated_size/2);
+    complex null_val = {0.0, 0.0};
+    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+
+    //make a helper object that keeps track of information over recursive steps
+    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
+
+    part_rfft(help, 1, 0);
+    return help.sto;
+}
+
+/**
+ * this is a helper function for fft which computes the left and right terms for the fourier transform of the data specified by dat that only takes elements of the form span*n + rem for integer n between 0 and (dat_arr.size/span - 1).
+ * NOTE: this function does not perform NULL safety checks. It is intended to be called by fft() and not end users.
+ * dat_arr: data array
+ * span: the span to take when indexing the array
+ * rem: the remainder to take when indexing the array. For each integer n in the interval [0, dat_arr.size/span), take the nth index to be span*n+rem
+ * left: where to save the left portion of the fft
+ * right: where to save the right portion
+ */
+#ifdef __cplusplus
+void part_fft(const dat_helper& help, _ulong span, _ulong rem) {
+#else
+void part_fft(dat_helper help, _ulong span, _ulong rem) {
+#endif
+    //base case, there are only two elements in the partial array. We multiply by 3 since that's the smallest number greater than 2
+    if (span*2 >= help.truncated_size) {
+	//for each k we have a simple 
+	long half_size = help.sto.size / 2;
+	_ulong sto_k = half_size;
+	for (long k = -half_size; k < half_size; ++k) {
+	    //val = dat[rem] + e^{-i*(2*pi/N)*span*k}*dat[span+rem]
+	    complex phase_span = {0, -help.tau_by_n*span*k};
+	    complex val = c_mult(c_exp(phase_span), help.dat.buf[span+rem]);
+	    val.re += help.dat.buf[rem].re;
+	    val.im += help.dat.buf[rem].im;
+	    //sto[k] += e^{-i*(2*pi/N)*rem*k}*val
+	    complex phase_rem = {0, -help.tau_by_n*rem*k};
+	    val = c_mult(c_exp(phase_rem), val);
+	    help.sto.buf[sto_k].re += val.re;
+	    help.sto.buf[sto_k].im += val.im;
+	    //increment sto_k and check if it needs to be wrapped around
+	    ++sto_k;
+	    if (sto_k == help.sto.size) {
+		sto_k = 0;
+	    }
+	    //sto.buf[k] = help.dat.buf[rem] + c_exp(-I*help.tau_by_n*k)*help.dat.buf[span+rem];
+	}
+    } else {
+	//break the transform into two half transforms, each with twice the span and twice the phase factor
+	_ulong new_span = 2*span;
+
+	//recursively take left and right branches in the remainder
+	part_rfft(help, new_span, rem);
+	part_rfft(help, new_span, rem+span);
+	/*for (_ulong k = 0; k < tmp_sto.size; ++k) {
+	    help.sto.buf[k] += ( sto_left.buf[k] + sto_right.buf[k]*c_exp(-I*phase_fact*span) )*c_exp(-I*phase_fact*span*k);
+	}*/
+    }
+}
+
+/**
+ * Compute the discrete fourier transform for the data series specified by dat. If it is known in advance that all terms in dat are real, calling rfft will be faster. Negative frequency terms are "wrapped around" at the Nyquist frequency. The behavior matches scipy's implementation, for details consult https://docs.scipy.org/doc/scipy/reference/generated/scipy.fft.fft.html
+ */
+data_arr fft(const data_arr dat) {
+    //figure out how many recursive steps are needed.
+    _ulong log_2_n = (_ulong)(log(dat.size) / log(2));
+    _ulong truncated_size = 1 << log_2_n;
+
+    //allocate space for the final result
+    data_arr final_result;
+    make_data_arr(&final_result, truncated_size);
+    complex null_val = {0.0, 0.0};
+    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+
+    //make a helper object that keeps track of information over recursive steps
+    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
+
+    part_fft(help, 1, 0);
+    return help.sto;
+}
+
+/**
+ * Compute the inverse discrete fourier transform for the data series specified by dat. If it is known in advance that all terms in dat are real, calling rfft will be faster. Negative frequency terms are "wrapped around" at the Nyquist frequency. The behavior matches scipy's implementation, for details consult https://docs.scipy.org/doc/scipy/reference/generated/scipy.fft.fft.html
+ */
+data_arr ifft(const data_arr dat) {
+    //figure out how many recursive steps are needed.
+    _ulong log_2_n = (_ulong)(log(dat.size) / log(2));
+    _ulong truncated_size = 1 << log_2_n;
+
+    //allocate space for the final result
+    data_arr final_result;
+    make_data_arr(&final_result, truncated_size);
+    complex null_val = {0.0, 0.0};
+    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+
+    //make a helper object that keeps track of information over recursive steps
+    dat_helper help = {dat, truncated_size, -2*M_PI/dat.size, final_result};
+
+    part_fft(help, 1, 0);
     return help.sto;
 }

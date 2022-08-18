@@ -5,7 +5,7 @@
 #include <vector>
 #include <random>
 #include <math.h>
-#include <hdf5.h>
+#include <H5Cpp.h>
 
 #include "argparse.h"
 #include "data_utils.hpp"
@@ -88,10 +88,13 @@ class bound_geom {
 public:
     bound_geom(const Settings& s, parse_ercode* ercode=NULL);
     ~bound_geom();
+    std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
+    std::vector<data_arr> get_field_times() { return field_times; }
 
     void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
     void add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp = 1.0);
-    void run(const char* fname_prefix, std::vector<meep::vec> locs);
+    void run(const char* fname_prefix);
+    void save_field_times(const char* fname_prefix);
 
     Scene problem;
 
@@ -107,10 +110,11 @@ private:
     meep::structure* strct = NULL;
     meep::fields fields;
 
-    std::vector<meep::monitor_point*> monitor_locs;
+    std::vector<meep::vec> monitor_locs;
+    std::vector<data_arr> field_times;
 
     double ttot = 0;
-    _uint n_t_pts = 0;	
+    _uint n_t_pts = 0;
     double post_source_t = 0.0;
 
     //the arguments supplied will alter the location of the dielectric

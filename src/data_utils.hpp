@@ -69,6 +69,7 @@ typedef struct {
 
 void allocate(data_arr* dat);
 void make_data_arr(data_arr* dat, _ulong size);
+void resize(data_arr* dat, _ulong new_size);
 void cleanup_data_arr(data_arr* dat);
 void add_point(data_arr* dat, complex val);
 void d_add_point(data_arr* dat, double val);
@@ -110,10 +111,15 @@ typedef struct {
  */
 #ifdef __cplusplus
 void part_rfft(const dat_helper& help, _ulong span, _ulong rem);
+void part_fft(const dat_helper& help, _ulong span, _ulong rem);
 #else
 void part_rfft(dat_helper help, _ulong span, _ulong rem);
+void part_fft(dat_helper help, _ulong span, _ulong rem);
 #endif
 //fetch the discrete fourier transform of the data array given by arr
 data_arr rfft(const data_arr dat);
+data_arr irfft(const data_arr dat);
+data_arr fft(const data_arr dat);
+data_arr ifft(const data_arr dat);
 
 #endif //DATA_UTILS_H

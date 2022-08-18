@@ -14,7 +14,7 @@ TEST_CASE("Test Fourier transforms") {
     data_arr fft_dat = rfft(dat);
     CHECK(fft_dat.size == dat.size/2);
     CHECK(fft_dat[2].re == doctest::Approx(0.0));
-    CHECK(fft_dat[2].im == doctest::Approx(8.0));
+    CHECK(fft_dat[2].im == doctest::Approx(-8.0));
 
     //print out the fourier transform for debugging purposes
     printf("Fourier transform of dat[k]=sin(2*pi*2*k/size): \n");
@@ -250,7 +250,7 @@ TEST_CASE("Test Object Trees") {
 
 TEST_CASE("Test File Parsing") {
     parse_ercode er;
-    Scene s("test.eps", &er);
+    Scene s("tests/test.geom", &er);
     CHECK(er == E_SUCCESS);
     //check that metadata works
     std::vector<CompositeObject*> data_vec = s.get_data();
@@ -299,108 +299,140 @@ TEST_CASE("Test File Parsing") {
 
 TEST_CASE("Test Geometric Inclusion") {
     parse_ercode er;
-    Scene s("test.eps", &er);
+    Scene s("tests/test.geom", &er);
     CHECK(er == E_SUCCESS);
     CompositeObject* root = s.get_roots()[0];
 
-    CHECK(root->in(Eigen::Vector3d(0.5,0.5,0.5)) == 1);
-    CHECK(root->in(Eigen::Vector3d(0.5,0.1,2)) == 1);
-    CHECK(root->in(Eigen::Vector3d(2.5,0.5,0.1)) == 1);
-    CHECK(root->in(Eigen::Vector3d(3.1,1.1,1.1)) == 0);
-    CHECK(root->in(Eigen::Vector3d(1.5,0.5,0.5)) == 0);
-    CHECK(root->in(Eigen::Vector3d(1.5,0.1,4.5)) == 0);
+    CHECK(root->in(Eigen::Vector3d(4.5,4.5,4.5)) == 1);
+    CHECK(root->in(Eigen::Vector3d(4.5,4.1,6)) == 1);
+    CHECK(root->in(Eigen::Vector3d(6.5,4.5,4.1)) == 1);
+    CHECK(root->in(Eigen::Vector3d(7.1,5.1,5.1)) == 0);
+    CHECK(root->in(Eigen::Vector3d(5.5,4.5,4.5)) == 0);
+    CHECK(root->in(Eigen::Vector3d(5.5,4.1,8.5)) == 0);
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {
     parse_ercode er;
     //load settings from the configuration file
     Settings args;
-    std::string name = "test.conf";
+    std::string name = "tests/test.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
     free(name_dup);
     CHECK(ret == 0);
 
     //create the geometry object
-    Scene s("test.eps", &er);
+    Scene s("tests/test.geom", &er);
     CHECK(er == E_SUCCESS);
     CompositeObject* root = s.get_roots()[0];
     cgs_material_function mat_func(root);
 
     //check locations
-    meep::vec test_loc_1(0.5,0.5,0.5);
-    meep::vec test_loc_2(0.5,0.1,2);
-    meep::vec test_loc_3(2.5,0.5,0.1);
-    meep::vec test_loc_4(3.1,1.1,1.1);
-    meep::vec test_loc_5(1.5,0.5,0.5);
-    meep::vec test_loc_6(1.5,0.1,4.5);
+    meep::vec test_loc_1(4.5,4.5,4.5);
+    meep::vec test_loc_2(4.5,4.1,6);
+    meep::vec test_loc_3(6.5,4.5,4.1);
+    meep::vec test_loc_4(7.1,5.1,5.1);
+    meep::vec test_loc_5(5.5,4.5,4.5);
+    meep::vec test_loc_6(5.5,4.1,8.5);
     CHECK(mat_func.in_bound(test_loc_1) == 3.5);
     CHECK(mat_func.in_bound(test_loc_2) == 3.5);
     CHECK(mat_func.in_bound(test_loc_3) == 3.5);
     CHECK(mat_func.in_bound(test_loc_4) == 1.0);
     CHECK(mat_func.in_bound(test_loc_5) == 1.0);
     CHECK(mat_func.in_bound(test_loc_6) == 1.0);
+}
+
+TEST_CASE("Test geometry file reading") {
+    parse_ercode er;
+    //load settings from the configuration file
+    Settings args;
+    std::string name = "tests/test.conf";
+    char* name_dup = strdup(name.c_str());
+    int ret = parse_conf_file(&args, name_dup);
+    free(name_dup);
+    CHECK(ret == 0);
 
     //make things a little faster because we don't care
-    args.pml_thickness = 0.0;
-    args.len = 0.0;
+    args.pml_thickness = 1.0;
+    args.len = 2.0;
 
     //check the susceptibilities
     bound_geom geometry(args, &er);
-    char* dat = strdup(root->fetch_metadata("susceptibilities").c_str());
-    std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat, (int*)(&er));
-    free(dat);
-    CHECK(sups.size() == 2);
-    CHECK(sups[0].omega_0 == 1.0);
-    CHECK(sups[0].gamma == 0.48);
-    CHECK(sups[0].sigma == 68.5971845);
-    CHECK(sups[0].use_denom == false);
-    CHECK(sups[1].omega_0 == 8.0);
-    CHECK(sups[1].gamma == 0.816);
-    CHECK(sups[1].sigma == 452848600800781300);
-    CHECK(sups[1].use_denom == false);
 
-    cleanup_settings(&args);
+    SUBCASE("Test reading of susceptibilities") {
+	CHECK(er == E_SUCCESS);
+	CompositeObject* root = geometry.problem.get_roots()[0];
+	char* dat = strdup(root->fetch_metadata("susceptibilities").c_str());
+	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat, (int*)(&er));
+	free(dat);
+	CHECK(sups.size() == 2);
+	CHECK(sups[0].omega_0 == 1.0);
+	CHECK(sups[0].gamma == 0.48);
+	CHECK(sups[0].sigma == 68.5971845);
+	CHECK(sups[0].use_denom == false);
+	CHECK(sups[1].omega_0 == 8.0);
+	CHECK(sups[1].gamma == 0.816);
+	CHECK(sups[1].sigma == 452848600800781300);
+	CHECK(sups[1].use_denom == false);
+
+	cleanup_settings(&args);
+    }
+
+    SUBCASE("Test reading of field sources") {
+#ifdef DEBUG_INFO
+	CHECK(geometry.sources.size() == 2);
+	source_info inf = geometry.sources[0];
+	CHECK(inf.type == SRC_GAUSSIAN);
+	CHECK(inf.component == meep::Ey);
+	CHECK(inf.freq == 1.33);
+	CHECK(inf.width == 3.0);
+	CHECK(inf.start_time == 0.2);
+	CHECK(inf.cutoff == 5.0);
+	CHECK(inf.amplitude == 1.0);
+
+	inf = geometry.sources[1];
+	CHECK(inf.type == SRC_CONTINUOUS);
+	CHECK(inf.component == meep::Hz);
+	CHECK(inf.freq == 1.66);
+	CHECK(inf.start_time == 0.2);
+	CHECK(inf.end_time == 1.2);
+	CHECK(inf.width == 0.1);
+	CHECK(inf.amplitude == 1.0);
+#endif
+
+	cleanup_settings(&args);
+    }
 }
 
-TEST_CASE("Test reading of field sources") {
+TEST_CASE("Test running with a very small system") {
     parse_ercode er;
 
     //load settings from the configuration file
     Settings args;
-    std::string name = "test.conf";
+    std::string name = "tests/run.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
     free(name_dup);
     CHECK(ret == 0);
     
     //make things a little faster because we don't care
-    args.pml_thickness = 0.0;
-    args.len = 0.0;
+    args.pml_thickness = 1.0;
+    args.len = 2.0;
+    args.resolution = 2.0;
 
     //try creating the geometry object
     bound_geom geometry(args, &er);
     CHECK(er == E_SUCCESS);
-#ifdef DEBUG_INFO
-    CHECK(geometry.sources.size() == 2);
-    source_info inf = geometry.sources[0];
-    CHECK(inf.type == SRC_GAUSSIAN);
-    CHECK(inf.component == meep::Ey);
-    CHECK(inf.freq == 0.75);
-    CHECK(inf.width == 1.0);
-    CHECK(inf.start_time == 0.2);
-    CHECK(inf.cutoff == 5.0);
-    CHECK(inf.amplitude == 1.0);
 
-    inf = geometry.sources[1];
-    CHECK(inf.type == SRC_CONTINUOUS);
-    CHECK(inf.component == meep::Hz);
-    CHECK(inf.freq == 0.75);
-    CHECK(inf.start_time == 0.2);
-    CHECK(inf.end_time == 1.2);
-    CHECK(inf.width == 0.1);
-    CHECK(inf.amplitude == 1.0);
-#endif
+    //make sure that monitor locations were added
+    CHECK(geometry.get_monitor_locs().size() > 0);
+    geometry.run("/tmp");
+    //fetch the field times
+    std::vector<data_arr> field_times = geometry.get_field_times();
+    CHECK(field_times.size() > 0);
+
+    //check that writing hdf5 files works
+    geometry.save_field_times("/tmp");
 
     cleanup_settings(&args);
 }

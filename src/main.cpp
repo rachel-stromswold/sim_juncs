@@ -40,26 +40,7 @@ int main(int argc, char **argv) {
     bound_geom geom(args, &ercode);
     if (ercode) return (int)ercode;
 
-    //setup four points for monitoring the Poynting vector as a function of time. Two are near the source to the left and right, the others are near the simulation boundaries. All energy must pass through either the left or right (assuming 1 dimension)
-    std::vector<meep::vec> monitor_locs;
-    if (args.n_dims == 1) {
-        monitor_locs.emplace_back(z_center - epsilon);
-        monitor_locs.emplace_back(z_center + epsilon);
-        monitor_locs.emplace_back(args.pml_thickness);
-        monitor_locs.emplace_back(2*z_center - args.pml_thickness);
-    } else if (args.n_dims == 2) {
-        monitor_locs.emplace_back(y_loc, z_center - epsilon);
-        monitor_locs.emplace_back(y_loc, z_center + epsilon);
-        monitor_locs.emplace_back(y_loc, args.pml_thickness);
-        monitor_locs.emplace_back(y_loc, 2*z_center - args.pml_thickness);
-    } else {
-        monitor_locs.emplace_back(z_center, y_loc, z_center - epsilon);
-        monitor_locs.emplace_back(z_center, y_loc, z_center + epsilon);
-        monitor_locs.emplace_back(z_center, y_loc, args.pml_thickness);
-        monitor_locs.emplace_back(z_center, y_loc, 2*z_center - args.pml_thickness);
-    }
-
-    geom.run(args.out_dir, monitor_locs);
+    geom.run(args.out_dir);
 
     cleanup_settings(&args);
     return 0;
