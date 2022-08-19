@@ -25,6 +25,8 @@ with open(r'junc_template.geom', 'r') as file:
     data = file.read()
     data = data.replace('$LEFT', left)
     data = data.replace('$RGHT', rght)
+    data = data.replace('$DELTA_TOP', delta_top)
+    data = data.replace('$DELTA_BOT', delta_bot)
     data = data.replace('$TOP', top)
     data = data.replace('$BOT', bot)
     data = data.replace('$FIELD_AMP', field_amp_meep)
