@@ -766,8 +766,12 @@ void bound_geom::run(const char* fname_prefix) {
 void bound_geom::save_field_times(const char* fname_prefix) {
     char out_name[BUF_SIZE];
     H5::CompType fieldtype(sizeof(complex));
-    fieldtype.insertMember("Re", HOFFSET(complex, re), H5::PredType::NATIVE_FLOAT);
-    fieldtype.insertMember("Im", HOFFSET(complex, im), H5::PredType::NATIVE_FLOAT);
+    //for some reason linking insertMember breaks on the cluster, we do it manually
+    hid_t float_member_id = H5::PredType::NATIVE_FLOAT.getId();
+    snprintf(out_name, BUF_SIZE, "Re");
+    herr_t ret_val = H5Tinsert(fieldtype.getId(), out_name, HOFFSET(complex, re), float_member_id);
+    snprintf(out_name, BUF_SIZE, "Im");
+    ret_val = H5Tinsert(fieldtype.getId(), out_name, HOFFSET(complex, im), float_member_id);
     //use the space of rank 1 tensors with a dimension of n_t_pts
     hsize_t t_dim[1];
     t_dim[0] = {n_t_pts};
