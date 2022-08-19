@@ -13,8 +13,8 @@ field_range = (-1.0, 1.0)
 sq_er_range = (0.0, 0.002)
 #the field times we are interested in
 #field_times = ["1.", "2.", "3.", "4."]
-field_times = ["16.", "20.", "24.", "28.", "32.", "36."]
-#field_times = ["16.", "17.", "18.", "19.", "20.", "21."]
+#field_times = ["16.", "20.", "24.", "28.", "32.", "36."]
+field_times = ["2.", "4.", "6.", "8.", "10.", "12."]
 N_ROWS = 2
 N_COLS = len(field_times)//N_ROWS
 
