@@ -115,15 +115,15 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
 
 //helper function to automatically adjust parameters if necessary
 inline void correct_defaults(Settings* s) {
+    //simple but hacky way to let users override the params.conf file if needed
+    if (s->resolution < 0) {
+        s->resolution *= -1;
+    }
+
     //if a number of grid points was specified, use that
     if (s->grid_num < 0) {
 	//ensure that we have an odd number of grid points
 	s->grid_num = 2*int( 0.5*(1 + (s->len)*(s->resolution)) ) + 1;
-    }
-	
-    //simple but hacky way to let users override the params.conf file if needed
-    if (s->resolution < 0) {
-        s->resolution *= -1;
     }
 
     double total_len = s->len + 2*s->pml_thickness;
@@ -176,7 +176,7 @@ inline int parse_conf_file(Settings* s, char* fname) {
     }
     fclose(fp);
 
-    //correct_defaults(s);
+    correct_defaults(s);
     return 0;
 }
 
