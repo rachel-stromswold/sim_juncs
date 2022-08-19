@@ -342,6 +342,73 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     CHECK(mat_func.in_bound(test_loc_6) == 1.0);
 }
 
+TEST_CASE("Test reading of configuration files") {
+    std::string name = "tests/test.conf";
+    char* name_dup = strdup(name.c_str());
+
+    SUBCASE("Reading just a config file works") {
+	Settings args;
+	int ret = parse_conf_file(&args, name_dup);
+
+	CHECK(args.n_dims == 3);
+	CHECK(args.pml_thickness == 2.0);
+	CHECK(args.len == 16.0);
+	CHECK(args.um_scale == 1.0);
+	//NOTE that resolutions are rounded up to accomodate the nearest odd integer number of grid points. This value should NOT be the same as that given in the .conf file.
+	CHECK(args.resolution == 1.55);
+	CHECK(args.courant == 0.3);
+	CHECK(args.smooth_n == 1);
+	CHECK(args.smooth_rad == 0.25);
+	CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
+	CHECK(args.post_source_t == 1.0);
+	CHECK(args.ambient_eps == 1.0);
+	CHECK(strcmp(args.geom_fname, "tests/test.geom") == 0);
+    }
+
+    SUBCASE("Command line arguments override defaults") {
+	Settings args;
+	//parse commandline arguments
+	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0" };
+	//gcc doesn't like using string literals as c-strings, ugh
+	int n_args = sizeof(sim_argv_cpp)/sizeof(std::string);
+	char** sim_argv_c = (char**)malloc(sizeof(char*)*n_args);
+	for (_uint i = 0; i < n_args; ++i) sim_argv_c[i] = strdup(sim_argv_cpp[i].c_str());
+
+	//finally we can parse the command line arguments
+	int ret = parse_args(&args, &n_args, sim_argv_c);
+
+	//this is used when calling parse_args, so it should be checked before everything else
+	CHECK(args.conf_fname != NULL);
+	CHECK(strcmp(args.conf_fname, "blah.conf") == 0);
+
+	//read the config file
+	ret = parse_conf_file(&args, name_dup);
+	CHECK(args.geom_fname != NULL);
+	CHECK(strcmp(args.geom_fname, "blah.geom") == 0);
+	CHECK(args.out_dir != NULL);
+	CHECK(strcmp(args.out_dir, "/blah") == 0);
+	CHECK(args.len == 9.0);
+	//NOTE that resolutions are rounded up to accomodate the nearest odd integer number of grid points. This value should NOT be the same as that given in the command line arguments.
+	CHECK(args.resolution == doctest::Approx(3.1538));
+	CHECK(args.ambient_eps == 2.0);
+	CHECK(args.n_dims == 3);
+	CHECK(args.pml_thickness == 2.0);
+	CHECK(args.um_scale == 1.0);
+	//NOTE that resolutions are rounded up to accomodate the nearest odd integer number of grid points. This value should NOT be the same as that given in the .conf file.
+	CHECK(args.courant == 0.3);
+	CHECK(args.smooth_n == 1);
+	CHECK(args.smooth_rad == 0.25);
+	CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
+	CHECK(args.post_source_t == 1.0);
+
+	//deallocate memory
+	for (_uint i = 0; i < n_args; ++i) free(sim_argv_c[i]);
+	free(sim_argv_c);
+    }
+
+    free(name_dup);
+}
+
 TEST_CASE("Test geometry file reading") {
     parse_ercode er;
     //load settings from the configuration file
@@ -404,6 +471,42 @@ TEST_CASE("Test geometry file reading") {
     }
 }
 
+complex* read_h5_array_raw(const H5::H5File& file, const std::string name, size_t* n_entries) {
+    char tname[BUF_SIZE];
+    //We need to create an hdf5 data type for complex values
+    H5::CompType fieldtype(sizeof(complex));
+    //for some reason linking insertMember breaks on the cluster, we do it manually
+    hid_t float_member_id = H5::PredType::NATIVE_FLOAT.getId();
+    snprintf(tname, BUF_SIZE, "Re");
+    herr_t ret_val = H5Tinsert(fieldtype.getId(), tname, HOFFSET(complex, re), float_member_id);
+    snprintf(tname, BUF_SIZE, "Im");
+    ret_val = H5Tinsert(fieldtype.getId(), tname, HOFFSET(complex, im), float_member_id);
+
+    *n_entries = 0;
+    try {
+	//find the dataspace for real values
+	H5::DataSet dataset = file.openDataSet(name);
+	H5::DataType datatype = dataset.getDataType();
+	H5::DataSpace dataspace = dataset.getSpace();
+	size_t n_pts = dataspace.getSimpleExtentNpoints();
+	//allocate memory for storage
+	complex* data = new complex[n_pts];
+	dataset.read(data, fieldtype);
+
+	*n_entries = n_pts;
+	dataspace.close();
+	datatype.close();
+	dataset.close();
+	return data;
+    } catch (H5::FileIException error) {
+	error.printErrorStack();
+	return NULL;
+    } catch (H5::GroupIException error) {
+	error.printErrorStack();
+	return NULL;
+    }
+}
+
 TEST_CASE("Test running with a very small system") {
     parse_ercode er;
 
@@ -433,6 +536,22 @@ TEST_CASE("Test running with a very small system") {
 
     //check that writing hdf5 files works
     geometry.save_field_times("/tmp");
+
+    //read the h5 file
+    //H5::H5std_string fname("/tmp/fields_0.txt");
+    H5::H5File file("/tmp/fields_0.h5", H5F_ACC_RDONLY);
+    //read the data from the file we opened
+    size_t n_f_pts, n_t_pts;
+    complex* f_data = read_h5_array_raw(file, "frequency", &n_f_pts);
+    complex* t_data = read_h5_array_raw(file, "time", &n_t_pts);
+    CHECK(f_data != NULL);
+    CHECK(t_data != NULL);
+    CHECK(n_f_pts > 0);
+    //since the fourier transform should only go to +- the nyquist frequency, it must have fewer elements
+    CHECK(n_t_pts >= n_f_pts);
+    delete[] f_data;
+    delete[] t_data;
+    file.close();
 
     cleanup_settings(&args);
 }

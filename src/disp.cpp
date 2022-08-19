@@ -526,22 +526,22 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     }
     meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
     //read susceptibilities if they are available
-    for (auto it = roots.begin(); it != roots.end(); ++it) {
+    for (size_t i = 0; i < roots.size(); ++i) {
 	std::vector<drude_suscept> cur_sups;
 	int res = 0;
-	if ((*it)->has_metadata("susceptibilities")) {
-	    char* dat = strdup((*it)->fetch_metadata("susceptibilities").c_str());
+	if (roots[i]->has_metadata("susceptibilities")) {
+	    char* dat = strdup(roots[i]->fetch_metadata("susceptibilities").c_str());
 	    cur_sups = parse_susceptibilities(dat, &res);
 	    free(dat);
 	}
 	//add frequency dependent susceptibility
-	for (_uint i = 0; i < cur_sups.size(); ++i) {
+	for (_uint j = 0; j < cur_sups.size(); ++j) {
 	    //create the susceptibility, accounting for the scale factor correction
-	    double omega_0 = cur_sups[i].omega_0 / s.um_scale;
-	    double gamma = cur_sups[i].gamma / s.um_scale;
-	    double sigma = cur_sups[i].sigma / thicknesses[i];
-	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[i].use_denom) );
-	    region_scale_pair tmp_pair = {*it, sigma};
+	    double omega_0 = cur_sups[j].omega_0 / s.um_scale;
+	    double gamma = cur_sups[j].gamma / s.um_scale;
+	    double sigma = cur_sups[j].sigma / thicknesses[i];
+	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[j].use_denom) );
+	    region_scale_pair tmp_pair = {roots[i], sigma};
 	    //add the susceptibility to the appropriate region
 	    cgs_material_function scale_func(tmp_pair, 0.0, s.smooth_n, s.smooth_rad);
 	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
@@ -618,7 +618,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 
 		//set the total timespan based on the added source
 		ttot = fields.last_source_time() + post_source_t;
-		n_t_pts = (_uint)(ttot / fields.dt);
+		n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
 	    } else {
 		printf("Error: only boxes are currently supported for field volumes");
 		if (ercode) *ercode = E_BAD_VALUE;
@@ -701,7 +701,7 @@ void bound_geom::add_point_source(meep::component c, const meep::src_time &src, 
 
     //set the total timespan based on the added source
     ttot = fields.last_source_time() + post_source_t;
-    n_t_pts = (_uint)(ttot / fields.dt);
+    n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
 }
 
 void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp) {
@@ -709,7 +709,7 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
 
     //set the total timespan based on the added source
     ttot = fields.last_source_time() + post_source_t;
-    n_t_pts = (_uint)(ttot / fields.dt);
+    n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
 }
 
 void bound_geom::run(const char* fname_prefix) {
@@ -738,8 +738,7 @@ void bound_geom::run(const char* fname_prefix) {
     strcpy(h5_fname, "ex-");
 
     printf("starting simulations\n");
-    _uint i = 0;
-    for (; fields.time() < ttot; ++i) {
+    for (_uint i = 0; i < n_t_pts; ++i) {
 	//fetch monitor points
 	for (_uint j = 0; j < monitor_locs.size(); ++j) {
 	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
@@ -790,7 +789,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	H5::DataSpace f_space(1, f_dim);
 
 	//open the file which will store the fields as a function of time
-	snprintf(out_name, BUF_SIZE, "%s/fields_%d.txt", fname_prefix, j);
+	snprintf(out_name, BUF_SIZE, "%s/fields_%d.h5", fname_prefix, j);
 	H5::H5File *file = new H5::H5File(out_name, H5F_ACC_TRUNC);
 
 	//write data to the file
