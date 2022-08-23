@@ -602,12 +602,12 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 			double frequency = cur_info.freq/s.um_scale;
 			double width = cur_info.width / frequency;
 			double start_time = cur_info.start_time / frequency;
+            double end_time = cur_info.end_time / frequency;
 			if (cur_info.type == SRC_GAUSSIAN) {
-                printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, cutoff=%f (meep units)\n", frequency, width, start_time, cur_info.cutoff);
-			    meep::gaussian_src_time src(frequency, width, start_time, cur_info.cutoff);
+                printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n", frequency, width, start_time, end_time);
+			    meep::gaussian_src_time src(frequency, width, start_time, end_time);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
-			} else if (cur_info.type == SRC_CONTINUOUS) {
-                double end_time = cur_info.end_time / frequency;
+			} else if (cur_info.type == SRC_CONTINUOUS) { 
                 printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n", frequency, width, start_time, end_time);
 			    meep::continuous_src_time src(frequency, width, start_time, end_time);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
