@@ -600,13 +600,15 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    if (*ercode == E_SUCCESS) {
 			//We specify the width of the pulse in units of the oscillation period
 			double frequency = cur_info.freq/s.um_scale;
-			double width = cur_info.width * frequency;
-			double start_time = cur_info.start_time * frequency;
-			double end_time = cur_info.end_time * frequency;
+			double width = cur_info.width / frequency;
+			double start_time = cur_info.start_time / frequency;
 			if (cur_info.type == SRC_GAUSSIAN) {
-			    meep::gaussian_src_time src(frequency, width, start_time, cur_info.cutoff*width);
+                printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, cutoff=%f (meep units)\n", frequency, width, start_time, cur_info.cutoff);
+			    meep::gaussian_src_time src(frequency, width, start_time, cur_info.cutoff);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			} else if (cur_info.type == SRC_CONTINUOUS) {
+                double end_time = cur_info.end_time / frequency;
+                printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n", frequency, width, start_time, end_time);
 			    meep::continuous_src_time src(frequency, width, start_time, end_time);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			}
@@ -766,11 +768,13 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     char out_name[BUF_SIZE];
     H5::CompType fieldtype(sizeof(complex));
     //for some reason linking insertMember breaks on the cluster, we do it manually
-    hid_t float_member_id = H5::PredType::NATIVE_FLOAT.getId();
+    /*hid_t float_member_id = H5::PredType::NATIVE_FLOAT.getId();
     snprintf(out_name, BUF_SIZE, "Re");
     herr_t ret_val = H5Tinsert(fieldtype.getId(), out_name, HOFFSET(complex, re), float_member_id);
     snprintf(out_name, BUF_SIZE, "Im");
-    ret_val = H5Tinsert(fieldtype.getId(), out_name, HOFFSET(complex, im), float_member_id);
+    ret_val = H5Tinsert(fieldtype.getId(), out_name, HOFFSET(complex, im), float_member_id);*/
+    fieldtype.insertMember("Re", HOFFSET(complex, re), H5::PredType::NATIVE_FLOAT);
+    fieldtype.insertMember("Im", HOFFSET(complex, im), H5::PredType::NATIVE_FLOAT);
     //use the space of rank 1 tensors with a dimension of n_t_pts
     hsize_t t_dim[1];
     t_dim[0] = {n_t_pts};

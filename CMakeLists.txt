@@ -11,8 +11,9 @@ set(APP_EXE sim_geom)
 
 #find all the libraries we need for building
 find_library(meep libmeep.a REQUIRED HINTS $ENV{HOME}/install/lib)
-find_package(HDF5 COMPONENTS CXX HL)
-link_directories($ENV{HOME}/install/lib)
+#we need to install cmake to a custom location
+set(HDF5_DIR "/home/sstromsw/install/cmake")
+find_package(HDF5 REQUIRED COMPONENTS CXX HL)
 
 #Cmake can't find the location of eigen on the cluster so we specify that manually
 set(Eigen3_DIR "/software/eigen/3.3.7/b1/share/eigen3/cmake")
