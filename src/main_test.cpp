@@ -454,7 +454,7 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.freq == 1.33);
 	CHECK(inf.width == 3.0);
 	CHECK(inf.start_time == 0.2);
-	CHECK(inf.cutoff == 5.0);
+	CHECK(inf.end_time == 15.0);
 	CHECK(inf.amplitude == 1.0);
 
 	inf = geometry.sources[1];

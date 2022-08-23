@@ -300,7 +300,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 		    type = SRC_GAUSSIAN;
 		    //set default values for the envelope
 		    start_time = 0;
-		    cutoff = 5;
+		    double cutoff = 5;
 		    if (env_func.n_args < 3) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
@@ -325,6 +325,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 			    amplitude = strtod(env_func.args[5], NULL);
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
+                end_time = start_time + cutoff*width;
 		    }
 		} else if (strcmp(env_func.name, "continuous") == 0) {
 		    type = SRC_CONTINUOUS;

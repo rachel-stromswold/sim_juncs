@@ -78,7 +78,7 @@ public:
     double width;
     double start_time;
     double end_time;
-    double cutoff;
+    //double cutoff;
     double amplitude;
 
     source_info(std::string spec_str, const Scene& problem, parse_ercode* ercode);
