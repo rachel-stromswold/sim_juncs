@@ -3,6 +3,7 @@ import configparser
 import numpy as np
 import argparse
 import h5py
+import scipy.optimize as opt
 from scipy.fft import rfft, rfftfreq
 
 import matplotlib
@@ -12,15 +13,17 @@ import matplotlib.pyplot as plt
 EPSILON = 0.1
 FIELD_LABEL = "ex-"
 
+DAT_ERR_SQ = 0.1
+
 #parse arguments supplied via command line
 parser = argparse.ArgumentParser(description='Query sky-surveys for redshift data corresponding to a gravitational-wave detection.')
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--gap-width', type=float, help='The width of the junction gap', default=-1.0)
 parser.add_argument('--gap-thick', type=float, help='The thickness of the junction', default=-1.0)
-parser.add_argument('--pulse-center', type=float, help='center time of the Gaussian pulse', default=-1.0)
-parser.add_argument('--pulse-width', type=float, help='width the Gaussian pulse', default=-1.0)
-parser.add_argument('--pulse-frequency', type=float, help='frequency the Gaussian pulse', default=-1.0)
-parser.add_argument('--pulse-z', type=float, help='z location of the start of the Gaussian beam', default=-1.0)
+parser.add_argument('--pulse-center', type=float, help='center time of the Gaussian pulse', default=0.0)
+parser.add_argument('--pulse-width', type=float, help='width the Gaussian pulse', default=1.0)
+parser.add_argument('--pulse-frequency', type=float, help='frequency the Gaussian pulse', default=1.0)
+parser.add_argument('--pulse-z', type=float, help='z location of the start of the Gaussian beam', default=1.0)
 args = parser.parse_args()
 
 #read information from the parameters file
@@ -45,6 +48,12 @@ x_inds = []
 n_z_slices = len(z_slices)
 n_x_slices = len(x_slices)
 n_t_pts = len(ex_lst)
+
+#convert args into more convenient shorthands
+w_0 = args.pulse_frequency/geom.um_scale
+sig = args.pulse_width / w_0
+t_0 = args.pulse_center / w_0
+w_0 *= 2*np.pi
 
 #store information about the fields as a function of time
 sample_fields = [[np.zeros(n_t_pts) for i in range(n_x_slices)] for j in range(n_z_slices)]
@@ -99,11 +108,17 @@ for j in range(n_z_slices):
             max_f = tmp_max_f
 angle_scale = max_f/np.pi
 
+#get the negative log likelihood of the params=(amplitude, phase) given the dataset d_comp and the vacuum field components v_comp
+def phase_likelihood(params, d_comp, v_comp):
+    terms = ( np.real(d_comp - params[0]*v_comp*np.exp(1j*params[1])) )**2
+    #return -np.log( np.sum(np.exp(-terms/DAT_ERR_SQ)) )
+    return np.sum(terms/DAT_ERR_SQ)
+
 #make plots
 time_pts = np.linspace(0, geom.meep_time_to_sec(last_time), num=len(sample_fields[0][0]))
 freq_cutoff = time_pts.shape[0]//8
 freq_pts = rfftfreq(time_pts.shape[0])
-for j in range(n_z_slices):
+for j, z in enumerate(z_slices):
     for k in range(n_x_slices):
         four = rfft(sample_fields[j][k])
         axs_td[j][k].plot(time_pts, sample_fields[j][k])
@@ -111,6 +126,19 @@ for j in range(n_z_slices):
         axs_fd[j][k].plot(freq_pts[:freq_cutoff], np.abs(sample_fours[j][k][:freq_cutoff]), color='black')
         axs_fd[j][k].plot(freq_pts[:freq_cutoff], np.angle(sample_fours[j][k][:freq_cutoff])*angle_scale, linestyle=':', color='red')
         axs_fd[j][k].set_ylim((-max_f, max_f))
+
+        #figure out the posterior on the phase shift inside the material
+        s_r = abs(z - args.pulse_z)
+        #the fourier transform of the pulse, note that the amplitude scaling is a nuisance parameter so we only care that this is correct up to a constant scaling
+        pulse_comps = np.exp(-0.5*(sig*(freq_pts-w_0))**2)*np.exp(1j*(w_0*t_0 - freq_pts*(t_0+s_r)))
+        #start with a point with an amplitude 1.0 and no phase shift
+        x0 = np.array([1., 0.])
+        res = opt.minimize(phase_likelihood, x0, args=(sample_fours[j][k], pulse_comps))
+        least_sq = res.x
+        print("j={}, k={}: {}".format(j, k, least_sq))
+        print(res)
+        axs_td[j][k].text(0.01, 0.99, r"$\phi = {}$".format(least_sq[1]))
+        axs_fd[j][k].text(0.01, 0.99, r"$\phi = {}$".format(least_sq[1]))
     #draw the frequency color plots
     fours_mid = np.transpose(np.array([rfft(mid_fields[j, :, i]) for i in range(mid_fields.shape[-1])]))
     #convert into units of seconds and figure out the scale of the frequencies
@@ -119,11 +147,8 @@ for j in range(n_z_slices):
     #use even columns for real, odd for imaginary
     axs_col[2*j].imshow(np.abs(fours_mid[:top_ind//2, :]))
     axs_col[2*j+1].imshow(np.angle(fours_mid[:top_ind//2, :]), cmap='twilight_shifted')
-    #axs_col[j].set_xlim((0, geom.tot_len/geom.um_scale))
-    #axs_col[j].set_ylim((four_freqs[0], four_freqs[-1]))
-    #axs_col[j].axvline((geom.z_center+gap_width/2)/geom.um_scale, 0, 1, color='gray')
-    #axs_col[j].axvline((geom.z_center-gap_width/2)/geom.um_scale, 0, 1, color='gray')
     axs_col[j].set_xlabel(r'$x$ (um)')
+
 axs_col[0].set_ylabel(r'frequency ($1/\lambda$)')
 
 fig_td.set_tight_layout(True)
@@ -135,12 +160,3 @@ fig_td.savefig(args.prefix+"/tdom_plot.pdf")
 plt.xlabel(r"$f$ (2*pi/fs)")
 fig_fd.savefig(args.prefix+"/fdom_plot.pdf")
 fig_col.savefig(args.prefix+"/fdom_plot_2d.pdf")
-
-#figure out the posterior on the phase shift inside the material
-sig = args.pulse_width
-t_0 = args.pulse_center
-w_0 = 2*np.pi*args.pulse_frequency
-for j, z in enumerate(n_z_slices):
-    s_r = abs(z - args.pulse_z)
-    #the fourier transform of the pulse, note that the amplitude scaling is a nuisance parameter so we only care that this is correct up to a constant scaling
-    pulse_comps = pulse_width*np.exp(-0.5*(sig*(freq_pts-w_0))**2)*np.exp( 1j*(w_0*t_0 - freq_pts*(t_0+s_r)) )

@@ -325,7 +325,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 			    amplitude = strtod(env_func.args[5], NULL);
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
-                end_time = start_time + cutoff*width;
+                end_time = start_time + 2*cutoff*width;
 		    }
 		} else if (strcmp(env_func.name, "continuous") == 0) {
 		    type = SRC_CONTINUOUS;
@@ -628,6 +628,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 	    }
 	}
     }
+    printf("total simulation time: %f\n", ttot);
 
     //check if the user wants any locations to be monitored
     if (s.monitor_locs) {
