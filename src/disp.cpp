@@ -300,7 +300,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 		    type = SRC_GAUSSIAN;
 		    //set default values for the envelope
 		    start_time = 0;
-		    cutoff = 5;
+		    double cutoff = 5;
 		    if (env_func.n_args < 3) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
@@ -325,6 +325,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 			    amplitude = strtod(env_func.args[5], NULL);
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
+                end_time = start_time + 2*cutoff*width;
 		    }
 		} else if (strcmp(env_func.name, "continuous") == 0) {
 		    type = SRC_CONTINUOUS;
@@ -526,22 +527,22 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     }
     meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
     //read susceptibilities if they are available
-    for (auto it = roots.begin(); it != roots.end(); ++it) {
+    for (size_t i = 0; i < roots.size(); ++i) {
 	std::vector<drude_suscept> cur_sups;
 	int res = 0;
-	if ((*it)->has_metadata("susceptibilities")) {
-	    char* dat = strdup((*it)->fetch_metadata("susceptibilities").c_str());
+	if (roots[i]->has_metadata("susceptibilities")) {
+	    char* dat = strdup(roots[i]->fetch_metadata("susceptibilities").c_str());
 	    cur_sups = parse_susceptibilities(dat, &res);
 	    free(dat);
 	}
 	//add frequency dependent susceptibility
-	for (_uint i = 0; i < cur_sups.size(); ++i) {
+	for (_uint j = 0; j < cur_sups.size(); ++j) {
 	    //create the susceptibility, accounting for the scale factor correction
-	    double omega_0 = cur_sups[i].omega_0 / s.um_scale;
-	    double gamma = cur_sups[i].gamma / s.um_scale;
-	    double sigma = cur_sups[i].sigma / thicknesses[i];
-	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[i].use_denom) );
-	    region_scale_pair tmp_pair = {*it, sigma};
+	    double omega_0 = cur_sups[j].omega_0 / s.um_scale;
+	    double gamma = cur_sups[j].gamma / s.um_scale;
+	    double sigma = cur_sups[j].sigma / thicknesses[i];
+	    meep::lorentzian_susceptibility suscept( omega_0, gamma, !(cur_sups[j].use_denom) );
+	    region_scale_pair tmp_pair = {roots[i], sigma};
 	    //add the susceptibility to the appropriate region
 	    cgs_material_function scale_func(tmp_pair, 0.0, s.smooth_n, s.smooth_rad);
 	    strct->add_susceptibility(scale_func, meep::E_stuff, suscept);
@@ -600,13 +601,15 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    if (*ercode == E_SUCCESS) {
 			//We specify the width of the pulse in units of the oscillation period
 			double frequency = cur_info.freq/s.um_scale;
-			double width = cur_info.width * frequency;
-			double start_time = cur_info.start_time * frequency;
-			double end_time = cur_info.end_time * frequency;
+			double width = cur_info.width / frequency;
+			double start_time = cur_info.start_time / frequency;
+            double end_time = cur_info.end_time / frequency;
 			if (cur_info.type == SRC_GAUSSIAN) {
-			    meep::gaussian_src_time src(frequency, width, start_time, cur_info.cutoff*width);
+                printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n", frequency, width, start_time, end_time);
+			    meep::gaussian_src_time src(frequency, width, start_time, end_time);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
-			} else if (cur_info.type == SRC_CONTINUOUS) {
+			} else if (cur_info.type == SRC_CONTINUOUS) { 
+                printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n", frequency, width, start_time, end_time);
 			    meep::continuous_src_time src(frequency, width, start_time, end_time);
 			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			}
@@ -618,13 +621,14 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 
 		//set the total timespan based on the added source
 		ttot = fields.last_source_time() + post_source_t;
-		n_t_pts = (_uint)(ttot / fields.dt);
+
 	    } else {
 		printf("Error: only boxes are currently supported for field volumes");
 		if (ercode) *ercode = E_BAD_VALUE;
 	    }
 	}
     }
+    printf("total simulation time: %f\n", ttot);
 
     //check if the user wants any locations to be monitored
     if (s.monitor_locs) {
@@ -701,7 +705,6 @@ void bound_geom::add_point_source(meep::component c, const meep::src_time &src, 
 
     //set the total timespan based on the added source
     ttot = fields.last_source_time() + post_source_t;
-    n_t_pts = (_uint)(ttot / fields.dt);
 }
 
 void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp) {
@@ -709,7 +712,6 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
 
     //set the total timespan based on the added source
     ttot = fields.last_source_time() + post_source_t;
-    n_t_pts = (_uint)(ttot / fields.dt);
 }
 
 void bound_geom::run(const char* fname_prefix) {
@@ -726,6 +728,7 @@ void bound_geom::run(const char* fname_prefix) {
 
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     field_times.resize(monitor_locs.size());
+    n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
     for (_uint j = 0; j < field_times.size(); ++j) {
 	make_data_arr(&(field_times[j]), n_t_pts);
     }
@@ -738,8 +741,7 @@ void bound_geom::run(const char* fname_prefix) {
     strcpy(h5_fname, "ex-");
 
     printf("starting simulations\n");
-    _uint i = 0;
-    for (; fields.time() < ttot; ++i) {
+    for (_uint i = 0; i < n_t_pts; ++i) {
 	//fetch monitor points
 	for (_uint j = 0; j < monitor_locs.size(); ++j) {
 	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
@@ -765,6 +767,7 @@ void bound_geom::run(const char* fname_prefix) {
 
 void bound_geom::save_field_times(const char* fname_prefix) {
     char out_name[BUF_SIZE];
+    //create the field type and specify members
     H5::CompType fieldtype(sizeof(complex));
     fieldtype.insertMember("Re", HOFFSET(complex, re), H5::PredType::NATIVE_FLOAT);
     fieldtype.insertMember("Im", HOFFSET(complex, im), H5::PredType::NATIVE_FLOAT);
@@ -773,7 +776,22 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     t_dim[0] = {n_t_pts};
     hsize_t f_dim[1];
     H5::DataSpace t_space(1, t_dim);
-    //save a seperate file for each point
+
+    //create the location type and specify members
+    H5::CompType loctype(sizeof(sto_vec));
+    loctype.insertMember("x", HOFFSET(sto_vec, x), H5::PredType::NATIVE_FLOAT);
+    loctype.insertMember("y", HOFFSET(sto_vec, y), H5::PredType::NATIVE_FLOAT);
+    loctype.insertMember("z", HOFFSET(sto_vec, z), H5::PredType::NATIVE_FLOAT);
+    //use the space of rank 1 tensors with dimension 1
+    hsize_t l_dim[1];
+    l_dim[0] = {1};
+    H5::DataSpace l_space(1, l_dim);
+
+    //open the file which will store the fields as a function of time
+    snprintf(out_name, BUF_SIZE, "%s/field_samples.h5", fname_prefix);
+    H5::H5File file(out_name, H5F_ACC_TRUNC);
+
+    //iterate over each point
     for (_uint j = 0; j < field_times.size(); ++j) {
 	//make sure that 
 	if (field_times[j].size < n_t_pts) {
@@ -784,19 +802,17 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	data_arr four = fft(field_times[j]);
 	f_dim[0] = four.size;
 	H5::DataSpace f_space(1, f_dim);
-
-	//open the file which will store the fields as a function of time
-	snprintf(out_name, BUF_SIZE, "%s/fields_%d.txt", fname_prefix, j);
-	H5::H5File *file = new H5::H5File(out_name, H5F_ACC_TRUNC);
-
-	//write data to the file
-	H5::DataSet *t_dataset = new H5::DataSet(file->createDataSet("time", fieldtype, t_space));
-	H5::DataSet *f_dataset = new H5::DataSet(file->createDataSet("frequency", fieldtype, f_space));
-	t_dataset->write(field_times[j].buf, fieldtype);
-	f_dataset->write(four.buf, fieldtype);
-
-	delete t_dataset;
-	delete f_dataset;
-	delete file;
+	//create a group to hold the current data point
+	snprintf(out_name, BUF_SIZE, "point %d", j);
+	H5::Group cur_group = file.createGroup(out_name);
+	//write the location
+	H5::DataSet l_dataset(cur_group.createDataSet("location", loctype, l_space));
+	sto_vec tmp_vec(monitor_locs[j].x(), monitor_locs[j].y(), monitor_locs[j].z());
+	l_dataset.write(&tmp_vec, loctype);
+	//write the time and frequency domain data to the file
+	H5::DataSet t_dataset(cur_group.createDataSet("time", fieldtype, t_space));
+	H5::DataSet f_dataset(cur_group.createDataSet("frequency", fieldtype, f_space));
+	t_dataset.write(field_times[j].buf, fieldtype);
+	f_dataset.write(four.buf, fieldtype);
     }
 }

@@ -41,11 +41,8 @@ echo "working directory name: $pname, output name: $oname, run local? $run_local
 rm -f $oname/errors.txt
 mkdir $oname/figures
 
-#the widths used for each job in the array. These are similar to those used in Boolakee et al. For a graphene junction.
-#widths=("0.5" "1.0" "2.0" "5.0")
-#thickness="0.3"
 #the widths used for each job in the array. These are similar to those used in Schiffrin et al. For a SiO2 junction.
-widths=("0.02" "0.03" "0.04" "0.05" "0.06" "0.07" "0.08" "0.09")
+widths=("0.02" "0.02" "0.03" "0.05" "0.1" "0.2" "0.3" "0.5")
 thickness="0.2"
 resolution="12.0"
 h5dir="$pname/test_$SLURM_ARRAY_TASK_ID"
@@ -77,6 +74,7 @@ fi
 python time_space.py --prefix $h5dir --gap-width ${widths[$((SLURM_ARRAY_TASK_ID-1))]} --gap-thick $thickness
 
 #move the plots into a folder where we can view them
+cp "$h5dir"/eps.pdf "$oname"/figures/eps_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/space_plot.pdf "$oname"/figures/space_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/cross_plot.pdf "$oname"/figures/cross_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/tdom_plot.pdf "$oname"/figures/tdom_plot_test_"$SLURM_ARRAY_TASK_ID".pdf

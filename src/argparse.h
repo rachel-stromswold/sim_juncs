@@ -3,6 +3,7 @@
 
 #include <cstring>
 #include <errno.h>
+#include <math.h>
 
 #define DEFAULT_PML_THICK	0.3 //0.3 um
 #define DEFAULT_LEN	8.0 //8 um
@@ -26,20 +27,20 @@ typedef struct {
     char* geom_fname = NULL;
     char* conf_fname = NULL;
     //problem geometry
-    int n_dims = 1;
-    double pml_thickness = DEFAULT_PML_THICK;
-    double len = DEFAULT_LEN;
+    int n_dims = -3;
+    double pml_thickness = -DEFAULT_PML_THICK;
+    double len = -DEFAULT_LEN;
     double um_scale = 1.0;
     long grid_num = -1;
-    double resolution = DEFAULT_RESOLUTION;
+    double resolution = -DEFAULT_RESOLUTION;
     double courant = 0.5;//0.5 is the meep default
     //simulation parameters
-    double ambient_eps = 1.0;
-    _uint smooth_n = DEFAULT_SMOOTH_N;
+    double ambient_eps = -1.0;
+    _uint smooth_n = 0;
     double smooth_rad = DEFAULT_SMOOTH_RAD;
-    double post_source_t = 10.0;
     //misc
     char* monitor_locs = NULL;
+    double post_source_t = 10.0;
 } Settings;
 
 /*
@@ -51,6 +52,7 @@ inline void set_ercode(int* sto, int er) {
 
 inline void cleanup_settings(Settings* s) {
     if (s->geom_fname) free(s->geom_fname_al);
+    if (s->monitor_locs) free(s->monitor_locs);
 }
 
 /**
@@ -84,49 +86,54 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
 
     //reset errors
     errno = 0;
-    if (strcmp(tok, "pml_thickness") == 0) {
+    if (strcmp(tok, "pml_thickness") == 0 && s->pml_thickness < 0) {
 	s->pml_thickness = strtod(val, NULL);
-    } else if (strcmp(tok, "resolution") == 0) {
+    } else if (strcmp(tok, "resolution") == 0 && s->resolution < 0) {
 	s->resolution = strtod(val, NULL);
-    } else if (strcmp(tok, "dimensions") == 0) {
+    } else if (strcmp(tok, "dimensions") == 0 && s->n_dims < 0) {
 	s->n_dims = strtol(val, NULL, 10);
     } else if (strcmp(tok, "um_scale") == 0) {
 	s->um_scale = strtod(val, NULL);
-    } else if (strcmp(tok, "length") == 0) {
+    } else if (strcmp(tok, "length") == 0 && s->len < 0) {
 	s->len = strtod(val, NULL);
     } else if (strcmp(tok, "smooth_rad") == 0) {
 	s->smooth_rad = strtod(val, NULL);
     } else if (strcmp(tok, "smooth_n") == 0) {
-	s->smooth_n = strtod(val, NULL);
+	s->smooth_n = strtol(val, NULL, 10);
     } else if (strcmp(tok, "courant") == 0) {
 	s->courant = strtod(val, NULL);
-    } else if (strcmp(tok, "ambient_eps") == 0) {
+    } else if (strcmp(tok, "ambient_eps") == 0 && s->ambient_eps < 0) {
 	s->ambient_eps = strtod(val, NULL);
-    } else if (strcmp(tok, "geom_fname") == 0) {
-	//deallocate memory if necessary
-	if (s->geom_fname_al) free(s->geom_fname_al);
+    } else if (strcmp(tok, "geom_fname") == 0 && !s->geom_fname_al) {
 	//copy only the non whitespace portion
 	s->geom_fname_al = strdup(val);
 	s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);
-    } else if (strcmp(tok, "monitor_locations") == 0) {
-	s->monitor_locs = val;
+    } else if (strcmp(tok, "monitor_locations") == 0 && !s->monitor_locs) {
+	s->monitor_locs = strdup(val);
+    } else if (strcmp(tok, "post_source_t") == 0) {
+	s->post_source_t = strtod(val, NULL);
     }
 }
 
 //helper function to automatically adjust parameters if necessary
 inline void correct_defaults(Settings* s) {
+    double total_len = s->len + 2*s->pml_thickness;
+
     //if a number of grid points was specified, use that
     if (s->grid_num < 0) {
 	//ensure that we have an odd number of grid points
-	s->grid_num = 2*int( 0.5*(1 + (s->len)*(s->resolution)) ) + 1;
+	s->grid_num = 2*int( 0.5*(1 + (total_len)*(s->resolution)) ) + 1;
     }
 	
     //simple but hacky way to let users override the params.conf file if needed
-    if (s->resolution < 0) {
-        s->resolution *= -1;
-    }
+    s->n_dims = abs(s->n_dims);
+    s->pml_thickness = fabs(s->pml_thickness);
+    s->len = fabs(s->len);
+    s->resolution = fabs(s->resolution);
+    //simulation parameters
+    s->ambient_eps = fabs(s->ambient_eps);
 
-    double total_len = s->len + 2*s->pml_thickness;
+    //adjust the resolution if we are to use a grid number for specification
     s->resolution = (double)(s->grid_num) / total_len;
 }
 
@@ -176,7 +183,7 @@ inline int parse_conf_file(Settings* s, char* fname) {
     }
     fclose(fp);
 
-    //correct_defaults(s);
+    correct_defaults(s);
     return 0;
 }
 
@@ -200,11 +207,11 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		    printf("Usage: meep --out-dir <prefix to output hdf5 files to>");
 		    return 0;
 		} else {
-            //deallocate memory if necessary
-            if (a->geom_fname_al) free(a->geom_fname_al);
-            //copy only the non whitespace portion
-            a->geom_fname_al = strdup(argv[i+1]);
-            a->geom_fname = trim_whitespace(a->geom_fname_al, NULL);
+		    //deallocate memory if necessary
+		    if (a->geom_fname_al) free(a->geom_fname_al);
+		    //copy only the non whitespace portion
+		    a->geom_fname_al = strdup(argv[i+1]);
+		    a->geom_fname = trim_whitespace(a->geom_fname_al, NULL);
 		    to_rm = 2; //we need to remove both this and the next argument from the list
 		}
 	    } else if (strstr(argv[i], "--out-dir") == argv[i]) {
@@ -220,7 +227,7 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		    printf("Usage: meep --grid-res <grid points per unit length>");
 		    return 0;
 		} else {
-		    a->resolution = -strtod(argv[i+1], NULL);
+		    a->resolution = strtod(argv[i+1], NULL);
 		    //check for errors
 		    if (errno != 0) {
 			printf("Invalid floating point supplied to --grid-res");

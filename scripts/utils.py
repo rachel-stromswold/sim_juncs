@@ -181,10 +181,10 @@ class Geometry:
     def um_to_meep_len(self, l):
         return l * self.um_scale
 
-    #convert seconds into the time units used by meep
-    def sec_to_meep_time(self, t):
+    #convert femtoseconds into the time units used by meep
+    def fs_to_meep_time(self, t):
         #speed of light in um/sec = 299792458000000
-        return 299792458000000*t / self.um_scale
+        return .299792458*t / self.um_scale
 
     #convert electron-volts into the energy units used by meep
     def ev_to_meep_energy(self, ene):
@@ -205,10 +205,10 @@ class Geometry:
     def meep_len_to_um(self, l):
         return l / self.um_scale
 
-    #convert the time units used by meep into seconds
-    def meep_time_to_sec(self, t):
+    #convert the time units used by meep into femtoseconds
+    def meep_time_to_fs(self, t):
         #speed of light in um/sec = 299792458000000
-        return self.um_scale*t / 299792458000000
+        return self.um_scale*t / .299792458
 
     #convert electron-volts into the energy units used by meep
     def meep_energy_to_ev(self, ene):
