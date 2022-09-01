@@ -41,6 +41,7 @@ int main(int argc, char **argv) {
     if (ercode) return (int)ercode;
 
     geom.run(args.out_dir);
+    geom.save_field_times("/tmp/field_samples.h5");
 
     cleanup_settings(&args);
     return 0;

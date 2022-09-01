@@ -465,6 +465,9 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, i
 
 double dummy_eps(const meep::vec& r) { return 1.0; }
 
+/**
+ * This is a helper function for the bound_geom constructor. Meep doesn't implement copy or move constructors so we have to initialize the structure immediately so that the fields can be initialized in turn.
+ */
 meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode) {
     pml_thickness = s.pml_thickness;
     len = s.len;
@@ -551,6 +554,11 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     return strct;
 }
 
+/**
+ * Constructor for the bound_geom file. Settings are read from s.
+ * s: Settings object to read.
+ * ercode: if an error occurs while parsing the .geom file and ercode is not NULL, a code for the error is saved there
+ */
 bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     problem(s.geom_fname, ercode),
     strct(structure_from_settings(s, problem, ercode)),
@@ -575,131 +583,144 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     //add fields specified in the problem
     std::vector<CompositeObject*> data = problem.get_data();
     for (size_t i = 0; i < data.size(); ++i) {
-	if (data[i]->has_metadata("type") && data[i]->fetch_metadata("type") == "field_source") {
-	    //figure out the volume for the field source
-	    const Object* l_child = data[i]->get_child_l();
-	    const Object* r_child = data[i]->get_child_r();
-	    object_type l_type = data[i]->get_child_type_l();
-	    //WLOG fix the left child to be the one we care about
-	    if (r_child && !l_child) {
-		l_child = r_child;
-		l_type = data[i]->get_child_type_r();
-	    }
-	    //make sure that the object is a box so that we can figure out the corner and the offset
-	    if (l_type == CGS_BOX) {
-		evec3 center = ((Box*)l_child)->get_center();
-		evec3 offset = ((Box*)l_child)->get_offset();
-		double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();
-		double y_0 = center.y() - offset.y();double y_1 = center.y() + offset.y();
-		double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
-		meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
-
-		//only continue if a shape for the pulse was specified
-		if (data[i]->has_metadata("envelope")) {
-		    source_info cur_info(data[i]->fetch_metadata("envelope"), problem, ercode);
-		    //create the EM-wave source at the specified location only if everything was read successfully
-		    if (*ercode == E_SUCCESS) {
-			//We specify the width of the pulse in units of the oscillation period
-			double frequency = cur_info.freq/s.um_scale;
-			double width = cur_info.width / frequency;
-			double start_time = cur_info.start_time / frequency;
-            double end_time = cur_info.end_time / frequency;
-			if (cur_info.type == SRC_GAUSSIAN) {
-                printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n", frequency, width, start_time, end_time);
-			    meep::gaussian_src_time src(frequency, width, start_time, end_time);
-			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
-			} else if (cur_info.type == SRC_CONTINUOUS) { 
-                printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n", frequency, width, start_time, end_time);
-			    meep::continuous_src_time src(frequency, width, start_time, end_time);
-			    fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
-			}
-#ifdef DEBUG_INFO
-			sources.push_back(cur_info);
-#endif
-		    }
+	if (data[i]->has_metadata("type")) {
+	    if (data[i]->fetch_metadata("type") == "field_source") {
+		//figure out the volume for the field source
+		const Object* l_child = data[i]->get_child_l();
+		const Object* r_child = data[i]->get_child_r();
+		object_type l_type = data[i]->get_child_type_l();
+		//WLOG fix the left child to be the one we care about
+		if (r_child && !l_child) {
+		    l_child = r_child;
+		    l_type = data[i]->get_child_type_r();
 		}
+		//make sure that the object is a box so that we can figure out the corner and the offset
+		if (l_type == CGS_BOX) {
+		    evec3 center = ((Box*)l_child)->get_center();
+		    evec3 offset = ((Box*)l_child)->get_offset();
+		    double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();
+		    double y_0 = center.y() - offset.y();double y_1 = center.y() + offset.y();
+		    double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
+		    meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
 
-		//set the total timespan based on the added source
-		ttot = fields.last_source_time() + post_source_t;
+		    //only continue if a shape for the pulse was specified
+		    if (data[i]->has_metadata("envelope")) {
+			source_info cur_info(data[i]->fetch_metadata("envelope"), problem, ercode);
+			//create the EM-wave source at the specified location only if everything was read successfully
+			if (*ercode == E_SUCCESS) {
+			    //We specify the width of the pulse in units of the oscillation period
+			    double frequency = cur_info.freq/s.um_scale;
+			    double width = cur_info.width / frequency;
+			    double start_time = cur_info.start_time / frequency;
+			    double end_time = cur_info.end_time / frequency;
+			    if (cur_info.type == SRC_GAUSSIAN) {
+				printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
+					frequency, width, start_time, end_time);
+				meep::gaussian_src_time src(frequency, width, start_time, end_time);
+				fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+			    } else if (cur_info.type == SRC_CONTINUOUS) { 
+				printf("Adding continuous wave: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
+					frequency, width, start_time, end_time);
+				meep::continuous_src_time src(frequency, width, start_time, end_time);
+				fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+			    }
+#ifdef DEBUG_INFO
+			    sources.push_back(cur_info);
+#endif
+			}
+		    }
 
-	    } else {
-		printf("Error: only boxes are currently supported for field volumes");
-		if (ercode) *ercode = E_BAD_VALUE;
+		    //set the total timespan based on the added source
+		    ttot = fields.last_source_time() + post_source_t;
+
+		} else {
+		    printf("Error: only boxes are currently supported for field volumes");
+		    if (ercode) *ercode = E_BAD_VALUE;
+		}
+	    } else if (data[i]->fetch_metadata("type") == "monitor") {
+		//only continue if the user specified locations
+		if (data[i]->has_metadata("locations")) {
+		    char* loc_str = strdup(data[i]->fetch_metadata("locations").c_str());
+		    //break up the string by end parens
+		    char* save_str;
+		    char* tok = NULL;
+		    //find the first entry
+		    char* cur_entry = strchr(loc_str, '(');
+		    char* end = strchr(loc_str, ')');
+
+		    double x = 0.0; double y = 0.0; double z = 0.0;
+		    //only proceed if we have pointers to the start and end of the current entry
+		    while (cur_entry && end) {
+			x = 0.0;
+			y = 0.0;
+			z = 0.0;
+			//the open paren must occur before the end paren
+			if (cur_entry > end) {
+			    std::cout << "Error: Invalid locations string" << data[i]->fetch_metadata("locations") << std::endl;
+			    break;
+			}
+
+			//null terminate the parenthesis and tokenize by commas
+			end[0] = 0;
+			//read the x value
+			tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
+			x = strtod(tok, NULL);
+			if (errno) {
+			    printf("Error: Invalid token: %s", tok);
+			    errno = 0;
+			    break;
+			}
+			//read the y value
+			tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+			if (!tok) {
+			    std::cout << "Error: Invalid locations string" << data[i]->fetch_metadata("locations") << std::endl;
+			    break;
+			}
+			y = strtod(tok, NULL);
+			if (errno) {
+			    printf("Error: Invalid token: %s", tok);
+			    break;
+			}
+			//read the z value
+			tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+			if (!tok) {
+			    std::cout << "Error: Invalid locations string" << data[i]->fetch_metadata("locations") << std::endl;
+			    break;
+			}
+			z = strtod(tok, NULL);
+			if (errno) {
+			    printf("Error: Invalid token: %s", tok);
+			    break;
+			}
+
+			//save the information
+			monitor_locs.push_back( meep::vec(x, y, z) );
+
+			//advance to the next entry
+			if (end[1] == 0) break;
+			cur_entry = strchr(end+1, '(');
+			if (!cur_entry) break;
+			end = strchr(cur_entry, ')');
+		    }
+		    free(loc_str);
+		}
 	    }
 	}
     }
     printf("total simulation time: %f\n", ttot);
-
-    //check if the user wants any locations to be monitored
-    if (s.monitor_locs) {
-	//break up the string by end parens
-	char* save_str;
-	char* tok = NULL;
-	//find the first entry
-	char* cur_entry = strchr(s.monitor_locs, '(');
-	char* end = strchr(s.monitor_locs, ')');
-
-	double x = 0.0; double y = 0.0; double z = 0.0;
-	//only proceed if we have pointers to the start and end of the current entry
-	while (cur_entry && end) {
-	    x = 0.0;
-	    y = 0.0;
-	    z = 0.0;
-	    //the open paren must occur before the end paren
-	    if (cur_entry > end) {
-		printf("Error: Invalid monitor locations string: %s", s.monitor_locs);
-		break;
-	    }
-
-	    //null terminate the parenthesis and tokenize by commas
-	    end[0] = 0;
-	    //read the x value
-	    tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
-	    x = strtod(tok, NULL);
-	    if (errno) {
-		printf("Error: Invalid token: %s", tok);
-		errno = 0;
-		break;
-	    }
-	    //read the y value
-	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	    if (!tok) {
-		printf("Error: Invalid monitor locations string: %s", s.monitor_locs);
-		break;
-	    }
-	    y = strtod(tok, NULL);
-	    if (errno) {
-		printf("Error: Invalid token: %s", tok);
-		break;
-	    }
-	    //read the z value
-	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	    if (!tok) {
-		printf("Error: Invalid monitor locations string: %s", s.monitor_locs);
-		break;
-	    }
-	    z = strtod(tok, NULL);
-	    if (errno) {
-		printf("Error: Invalid token: %s", tok);
-		break;
-	    }
-
-	    //save the information
-	    monitor_locs.push_back( meep::vec(x, y, z) );
-
-	    //advance to the next entry
-	    if (end[1] == 0) break;
-	    cur_entry = strchr(end+1, '(');
-	    if (!cur_entry) break;
-	    end = strchr(cur_entry, ')');
-	}
-    }
 }
 
 bound_geom::~bound_geom() {
     if (strct) delete strct;
 }
 
+/**
+ * Add a point source specified by src at the location source_loc.
+ * c: the component of the source (e.g. Ex, Hz, etc.)
+ * src: the source, see meep's documentation
+ * source_loc: the location of the source
+ * amp: the amplitude of the source
+ */
 void bound_geom::add_point_source(meep::component c, const meep::src_time &src, const meep::vec& source_loc, std::complex<double> amp) {
     fields.add_point_source(c, src, source_loc, amp);
 
@@ -707,24 +728,37 @@ void bound_geom::add_point_source(meep::component c, const meep::src_time &src, 
     ttot = fields.last_source_time() + post_source_t;
 }
 
-void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp) {
+/**
+ * Add a volume source specified by src in source_vol.
+ * c: the component of the source (e.g. Ex, Hz, etc.)
+ * src: the source, see meep's documentation
+ * vol: the region for the source
+ * amp: the amplitude of the source
+ */
+void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const Box& vol, std::complex<double> amp) {
+    evec3 center = vol.get_center();
+    evec3 offset = vol.get_offset();
+    double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();
+    double y_0 = center.y() - offset.y();double y_1 = center.y() + offset.y();
+    double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
+    meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
+
     fields.add_volume_source(c, src, source_vol, amp);
 
     //set the total timespan based on the added source
     ttot = fields.last_source_time() + post_source_t;
 }
 
+/**
+ * Run the simulation
+ * fname_prefix: all files are saved to fname_prefix if specified
+ */
 void bound_geom::run(const char* fname_prefix) {
     fields.set_output_directory(fname_prefix);
 
     //save the dielectric used
     printf("Set output directory to %s\n", fname_prefix);
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
-
-    //open the file which will store poynting vector fluxes
-    char flux_name[BUF_SIZE];
-    snprintf(flux_name, BUF_SIZE, "%s/Poynting_fluxes.txt", fname_prefix);
-    FILE* fp = fopen(flux_name, "w");
 
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     field_times.resize(monitor_locs.size());
@@ -748,7 +782,6 @@ void bound_geom::run(const char* fname_prefix) {
 	    field_times[j].buf[i].re = val.real();
 	    field_times[j].buf[i].im = val.imag();
 	}
-	fprintf(fp, "\n");
 
         //open an hdf5 file with a reasonable name
         if (i % 4 == 0) {
@@ -762,10 +795,15 @@ void bound_geom::run(const char* fname_prefix) {
 	    delete file;
 	}
     }
-    fclose(fp);
 }
 
-void bound_geom::save_field_times(const char* fname_prefix) {
+/**
+ * Save time and frequency domain data for each monitor_loc
+ * fname: filename to use for saving information
+ * save_pts: an array of indices of points that the user wants to save. If NULL (default), then all points are saved.
+ * n_save_pts: the size of the array pointed to by save_pts
+ */
+void bound_geom::save_field_times(const char* fname, size_t* save_pts, size_t n_save_pts) {
     char out_name[BUF_SIZE];
     //create the field type and specify members
     H5::CompType fieldtype(sizeof(complex));
@@ -788,12 +826,17 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     H5::DataSpace l_space(1, l_dim);
 
     //open the file which will store the fields as a function of time
-    snprintf(out_name, BUF_SIZE, "%s/field_samples.h5", fname_prefix);
-    H5::H5File file(out_name, H5F_ACC_TRUNC);
+    H5::H5File file(fname, H5F_ACC_TRUNC);
 
-    //iterate over each point
-    for (_uint j = 0; j < field_times.size(); ++j) {
-	//make sure that 
+    if (!save_pts) {
+	n_save_pts = field_times.size();
+    }
+    //iterate over each desired point
+    for (_uint i = 0; i < n_save_pts; ++i) {
+	_uint j = i;
+	//if the user specified points they want to save, then use those points instead
+	if (save_pts) j = save_pts[i];
+	//make sure that there's enough space
 	if (field_times[j].size < n_t_pts) {
 	    printf("Error: monitor location %d has insufficient points\n", j);
 	    break;

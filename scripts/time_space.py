@@ -160,3 +160,12 @@ fig_td.savefig(args.prefix+"/tdom_plot.pdf")
 plt.xlabel(r"$f$ (2*pi/fs)")
 fig_fd.savefig(args.prefix+"/fdom_plot.pdf")
 fig_col.savefig(args.prefix+"/fdom_plot_2d.pdf")
+
+#figure out the posterior on the phase shift inside the material
+sig = args.pulse_width
+t_0 = args.pulse_center
+w_0 = 2*np.pi*args.pulse_frequency
+for j, z in enumerate(n_z_slices):
+    s_r = abs(z - args.pulse_z)
+    #the fourier transform of the pulse, note that the amplitude scaling is a nuisance parameter so we only care that this is correct up to a constant scaling
+    pulse_comps = pulse_width*np.exp(-0.5*(sig*(freq_pts-w_0))**2)*np.exp( 1j*(w_0*t_0 - freq_pts*(t_0+s_r)) )

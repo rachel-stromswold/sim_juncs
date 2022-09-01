@@ -391,6 +391,8 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     CHECK(mat_func.in_bound(test_loc_4) == 1.0);
     CHECK(mat_func.in_bound(test_loc_5) == 1.0);
     CHECK(mat_func.in_bound(test_loc_6) == 1.0);
+
+    cleanup_settings(&args);
 }
 
 TEST_CASE("Test reading of configuration files") {
@@ -410,10 +412,12 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.courant == 0.3);
 	CHECK(args.smooth_n == 1);
 	CHECK(args.smooth_rad == 0.25);
-	CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
+	//CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
 	CHECK(args.post_source_t == 1.0);
 	CHECK(args.ambient_eps == 1.0);
 	CHECK(strcmp(args.geom_fname, "tests/test.geom") == 0);
+
+	cleanup_settings(&args);
     }
 
     SUBCASE("Command line arguments override defaults") {
@@ -449,12 +453,13 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.courant == 0.3);
 	CHECK(args.smooth_n == 1);
 	CHECK(args.smooth_rad == 0.25);
-	CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
+	//CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
 	CHECK(args.post_source_t == 1.0);
 
 	//deallocate memory
 	for (_uint i = 0; i < n_args; ++i) free(sim_argv_c[i]);
 	free(sim_argv_c);
+	cleanup_settings(&args);
     }
 
     free(name_dup);
@@ -577,8 +582,7 @@ TEST_CASE("Test running with a very small system") {
     CHECK(field_times.size() > 0);
 
     //check that writing hdf5 files works
-    geometry.save_field_times("/tmp");
-
+    geometry.save_field_times("/tmp/field_samples.h5");
     
     //We need to create an hdf5 data type for complex values
     H5::CompType fieldtype(sizeof(complex));

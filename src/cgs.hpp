@@ -86,8 +86,8 @@ public:
     Sphere(evec3& p_center, evec3& p_rad, int p_invert=0);
     int in(const evec3& r);
 
-    evec3 get_center() { return center; }
-    double get_rad() { return rad; }
+    evec3 get_center() const { return center; }
+    double get_rad() const { return rad; }
 };
 
 class Box : public Object {
@@ -100,8 +100,8 @@ public:
     Box(evec3& p_corner_1, evec3& p_corner_2, Eigen::Quaterniond p_orientation, int p_invert=0);
     int in(const evec3& r);
 
-    evec3 get_center() { return center; }
-    evec3 get_offset() { return offset; }
+    evec3 get_center() const { return center; }
+    evec3 get_offset() const { return offset; }
 };
 
 class Cylinder : public Object {
@@ -116,10 +116,10 @@ public:
     Cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, int p_invert=0);
     int in(const evec3& r);
 
-    evec3 get_center() { return center; }
-    double get_height() { return height; }
-    double get_r1() { return sqrt(r1_sq); }
-    double get_r2() { return sqrt(r2_sq); }
+    evec3 get_center() const { return center; }
+    double get_height() const { return height; }
+    double get_r1() const { return sqrt(r1_sq); }
+    double get_r2() const { return sqrt(r2_sq); }
 };
 
 class Scene;
@@ -156,10 +156,10 @@ public:
     int in(const evec3& r);
     const Object* get_child_l() { return children[0]; }
     const Object* get_child_r() { return children[1]; }
-    object_type get_child_type_l() { return child_types[0]; }
-    object_type get_child_type_r() { return child_types[1]; }
-    combine_type get_combine_type() { return cmb; }
-    int has_metadata(std::string key) { return metadata.count(key); }
+    object_type get_child_type_l() const { return child_types[0]; }
+    object_type get_child_type_r() const { return child_types[1]; }
+    combine_type get_combine_type() const { return cmb; }
+    int has_metadata(std::string key) const { return metadata.count(key); }
     std::string fetch_metadata(std::string key) { return metadata[key]; }
 };
 
