@@ -6,6 +6,7 @@
 #include <random>
 #include <math.h>
 #include <H5Cpp.h>
+#include <iostream>
 
 #include "argparse.h"
 #include "data_utils.hpp"
@@ -99,9 +100,9 @@ public:
     std::vector<data_arr> get_field_times() { return field_times; }
 
     void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
-    void add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp = 1.0);
+    void add_volume_source(meep::component c, const meep::src_time &src, const Box& vol, std::complex<double> amp = 1.0);
     void run(const char* fname_prefix);
-    void save_field_times(const char* fname_prefix);
+    void save_field_times(const char* fname_prefix, size_t* save_pts=NULL, size_t n_save_pts=0);
 
     Scene problem;
 
