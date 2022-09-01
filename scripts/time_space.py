@@ -115,7 +115,8 @@ def phase_likelihood(params, d_comp, v_comp):
     return np.sum(terms/DAT_ERR_SQ)
 
 #make plots
-time_pts = np.linspace(0, geom.meep_time_to_fs(last_time), num=len(sample_fields[0][0]))
+print("last_time = %f, %f" % (last_time, geom.meep_time_to_sec(last_time)))
+time_pts = np.linspace(0, geom.meep_time_to_sec(last_time), num=len(sample_fields[0][0]))
 freq_cutoff = time_pts.shape[0]//8
 freq_pts = rfftfreq(time_pts.shape[0])
 for j, z in enumerate(z_slices):
@@ -137,8 +138,10 @@ for j, z in enumerate(z_slices):
         least_sq = res.x
         print("j={}, k={}: {}".format(j, k, least_sq))
         print(res)
-        axs_td[j][k].text(0.01, 0.99, r"$\phi = {}$".format(least_sq[1]))
-        axs_fd[j][k].text(0.01, 0.99, r"$\phi = {}$".format(least_sq[1]))
+        #axs_td[j][k].text(0.01, 0.99, r"$\phi = {0:.2g}$".format(least_sq[1]))
+        #axs_fd[j][k].text(0.01, 0.99, r"$\phi = {0:.2g}$".format(least_sq[1]))
+        axs_td[j][k].annotate(r"$\phi = {0:.2g}$".format(least_sq[1]), (0.07, 0.9), xycoords='axes fraction')
+        axs_fd[j][k].annotate(r"$\phi = {0:.2g}$".format(least_sq[1]), (0.07, 0.9), xycoords='axes fraction')
     #draw the frequency color plots
     fours_mid = np.transpose(np.array([rfft(mid_fields[j, :, i]) for i in range(mid_fields.shape[-1])]))
     #convert into units of seconds and figure out the scale of the frequencies
@@ -160,12 +163,3 @@ fig_td.savefig(args.prefix+"/tdom_plot.pdf")
 plt.xlabel(r"$f$ (2*pi/fs)")
 fig_fd.savefig(args.prefix+"/fdom_plot.pdf")
 fig_col.savefig(args.prefix+"/fdom_plot_2d.pdf")
-
-#figure out the posterior on the phase shift inside the material
-sig = args.pulse_width
-t_0 = args.pulse_center
-w_0 = 2*np.pi*args.pulse_frequency
-for j, z in enumerate(n_z_slices):
-    s_r = abs(z - args.pulse_z)
-    #the fourier transform of the pulse, note that the amplitude scaling is a nuisance parameter so we only care that this is correct up to a constant scaling
-    pulse_comps = pulse_width*np.exp(-0.5*(sig*(freq_pts-w_0))**2)*np.exp( 1j*(w_0*t_0 - freq_pts*(t_0+s_r)) )
