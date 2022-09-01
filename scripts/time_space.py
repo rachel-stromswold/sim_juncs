@@ -17,6 +17,10 @@ parser = argparse.ArgumentParser(description='Query sky-surveys for redshift dat
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--gap-width', type=float, help='The width of the junction gap', default=-1.0)
 parser.add_argument('--gap-thick', type=float, help='The thickness of the junction', default=-1.0)
+parser.add_argument('--pulse-center', type=float, help='center time of the Gaussian pulse', default=-1.0)
+parser.add_argument('--pulse-width', type=float, help='width the Gaussian pulse', default=-1.0)
+parser.add_argument('--pulse-frequency', type=float, help='frequency the Gaussian pulse', default=-1.0)
+parser.add_argument('--pulse-z', type=float, help='z location of the start of the Gaussian beam', default=-1.0)
 args = parser.parse_args()
 
 #read information from the parameters file
@@ -66,19 +70,47 @@ fig_fd, axs_fd = plt.subplots(n_z_slices, n_x_slices)
 fig_col, axs_col = plt.subplots(1, 2*n_z_slices)
 
 #set labels for the plots
-for j in range(n_z_slices):
-    axs_td[j][0].set_ylabel(r"$z={} \mu m$".format(z_slices[j]))
-    axs_fd[j][0].set_ylabel(r"$z={} \mu m$".format(z_slices[j]))
-for k in range(n_x_slices):
-    axs_td[0][k].set_xlabel(r"$x={} \mu m$".format(x_slices[k]))
-    axs_fd[0][k].set_xlabel(r"$x={} \mu m$".format(x_slices[k]))
+for i in range(n_z_slices):
+    axs_td[i][0].set_ylabel(r"$z={0:.2g} \mu m$".format(z_slices[i]))
+    axs_fd[i][0].set_ylabel(r"$z={0:.2g} \mu m$".format(z_slices[i]))
+    for j in range(1, n_x_slices):
+        axs_td[i][j].get_yaxis().set_visible(False)
+        axs_fd[i][j].get_yaxis().set_visible(False)
+for i in range(n_x_slices):
+    axs_td[-1][i].set_xlabel(r"$x={0:.2g} \mu m$".format(x_slices[i]))
+    axs_fd[-1][i].set_xlabel(r"$x={0:.2g} \mu m$".format(x_slices[i]))
+    for j in range(n_x_slices-1):
+        axs_td[j][i].get_xaxis().set_visible(False)
+        axs_fd[j][i].get_xaxis().set_visible(False)
 
+#take the fourier transforms for each point we consider
+sample_fours = [[rfft(sample_fields[j][k]) for k in range(n_x_slices)] for j in range(n_z_slices)]
+
+#find the maximum values for each point we consider
+max_t = 0.0
+max_f = 0.0
+for j in range(n_z_slices):
+    for k in range(n_x_slices):
+        tmp_max_t = max(np.abs(sample_fields[j][k]))
+        tmp_max_f = max(np.abs(sample_fours[j][k]))
+        if tmp_max_t > max_t:
+            max_t = tmp_max_t
+        if tmp_max_f > max_f:
+            max_f = tmp_max_f
+angle_scale = max_f/np.pi
+
+#make plots
+time_pts = np.linspace(0, geom.meep_time_to_sec(last_time), num=len(sample_fields[0][0]))
+freq_cutoff = time_pts.shape[0]//8
+freq_pts = rfftfreq(time_pts.shape[0])
 for j in range(n_z_slices):
     for k in range(n_x_slices):
         four = rfft(sample_fields[j][k])
-        axs_td[j][k].plot(sample_fields[j][k])
-        axs_fd[j][k].plot(rfftfreq(sample_fields[j][k].shape[0]), np.abs(four), color='black')
-        axs_fd[j][k].plot(rfftfreq(sample_fields[j][k].shape[0]), np.angle(four), linestyle=':', color='red')
+        axs_td[j][k].plot(time_pts, sample_fields[j][k])
+        axs_td[j][k].set_ylim((-max_t, max_t))
+        axs_fd[j][k].plot(freq_pts[:freq_cutoff], np.abs(sample_fours[j][k][:freq_cutoff]), color='black')
+        axs_fd[j][k].plot(freq_pts[:freq_cutoff], np.angle(sample_fours[j][k][:freq_cutoff])*angle_scale, linestyle=':', color='red')
+        axs_fd[j][k].set_ylim((-max_f, max_f))
     #draw the frequency color plots
     fours_mid = np.transpose(np.array([rfft(mid_fields[j, :, i]) for i in range(mid_fields.shape[-1])]))
     #convert into units of seconds and figure out the scale of the frequencies
@@ -94,6 +126,21 @@ for j in range(n_z_slices):
     axs_col[j].set_xlabel(r'$x$ (um)')
 axs_col[0].set_ylabel(r'frequency ($1/\lambda$)')
 
+fig_td.set_tight_layout(True)
+fig_fd.set_tight_layout(True)
+fig_col.set_tight_layout(True)
+plt.ylabel(r"$E_x$ (meep units)")
+plt.xlabel(r"$t$ (fs)")
 fig_td.savefig(args.prefix+"/tdom_plot.pdf")
+plt.xlabel(r"$f$ (2*pi/fs)")
 fig_fd.savefig(args.prefix+"/fdom_plot.pdf")
 fig_col.savefig(args.prefix+"/fdom_plot_2d.pdf")
+
+#figure out the posterior on the phase shift inside the material
+sig = args.pulse_width
+t_0 = args.pulse_center
+w_0 = 2*np.pi*args.pulse_frequency
+for j, z in enumerate(n_z_slices):
+    s_r = abs(z - args.pulse_z)
+    #the fourier transform of the pulse, note that the amplitude scaling is a nuisance parameter so we only care that this is correct up to a constant scaling
+    pulse_comps = pulse_width*np.exp(-0.5*(sig*(freq_pts-w_0))**2)*np.exp( 1j*(w_0*t_0 - freq_pts*(t_0+s_r)) )
