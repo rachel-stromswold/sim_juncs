@@ -1,8 +1,8 @@
 data(name = foo, entry = "bar,(arr),[blah]")
-data(type = field_source, envelope = "Gaussian(Ey, 1.33, 3.0, 0.2, 5.0, 1.0)") {
+data(type = field_source, envelope = "Gaussian(Ey, 1.33, 3.0, 0.2, 5.0, 7.0)") {
     Box([0,0,2], [4,4,2]);
 }
-data(type = field_source, envelope = "continuous(Hz, 1.66, 0.2, 1.2, 0.1, 1.0)") {
+data(type = field_source, envelope = "continuous(Hz, 1.66, 0.2, 1.2, 0.1, 8.0)") {
     Box([0,0,2], [4,4,2]);
 }
 

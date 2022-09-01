@@ -767,13 +767,8 @@ void bound_geom::run(const char* fname_prefix) {
 
 void bound_geom::save_field_times(const char* fname_prefix) {
     char out_name[BUF_SIZE];
+    //create the field type and specify members
     H5::CompType fieldtype(sizeof(complex));
-    //for some reason linking insertMember breaks on the cluster, we do it manually
-    /*hid_t float_member_id = H5::PredType::NATIVE_FLOAT.getId();
-    snprintf(out_name, BUF_SIZE, "Re");
-    herr_t ret_val = H5Tinsert(fieldtype.getId(), out_name, HOFFSET(complex, re), float_member_id);
-    snprintf(out_name, BUF_SIZE, "Im");
-    ret_val = H5Tinsert(fieldtype.getId(), out_name, HOFFSET(complex, im), float_member_id);*/
     fieldtype.insertMember("Re", HOFFSET(complex, re), H5::PredType::NATIVE_FLOAT);
     fieldtype.insertMember("Im", HOFFSET(complex, im), H5::PredType::NATIVE_FLOAT);
     //use the space of rank 1 tensors with a dimension of n_t_pts
@@ -781,7 +776,22 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     t_dim[0] = {n_t_pts};
     hsize_t f_dim[1];
     H5::DataSpace t_space(1, t_dim);
-    //save a seperate file for each point
+
+    //create the location type and specify members
+    H5::CompType loctype(sizeof(sto_vec));
+    loctype.insertMember("x", HOFFSET(sto_vec, x), H5::PredType::NATIVE_FLOAT);
+    loctype.insertMember("y", HOFFSET(sto_vec, y), H5::PredType::NATIVE_FLOAT);
+    loctype.insertMember("z", HOFFSET(sto_vec, z), H5::PredType::NATIVE_FLOAT);
+    //use the space of rank 1 tensors with dimension 1
+    hsize_t l_dim[1];
+    l_dim[0] = {1};
+    H5::DataSpace l_space(1, l_dim);
+
+    //open the file which will store the fields as a function of time
+    snprintf(out_name, BUF_SIZE, "%s/field_samples.h5", fname_prefix);
+    H5::H5File file(out_name, H5F_ACC_TRUNC);
+
+    //iterate over each point
     for (_uint j = 0; j < field_times.size(); ++j) {
 	//make sure that 
 	if (field_times[j].size < n_t_pts) {
@@ -792,19 +802,17 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	data_arr four = fft(field_times[j]);
 	f_dim[0] = four.size;
 	H5::DataSpace f_space(1, f_dim);
-
-	//open the file which will store the fields as a function of time
-	snprintf(out_name, BUF_SIZE, "%s/fields_%d.h5", fname_prefix, j);
-	H5::H5File *file = new H5::H5File(out_name, H5F_ACC_TRUNC);
-
-	//write data to the file
-	H5::DataSet *t_dataset = new H5::DataSet(file->createDataSet("time", fieldtype, t_space));
-	H5::DataSet *f_dataset = new H5::DataSet(file->createDataSet("frequency", fieldtype, f_space));
-	t_dataset->write(field_times[j].buf, fieldtype);
-	f_dataset->write(four.buf, fieldtype);
-
-	delete t_dataset;
-	delete f_dataset;
-	delete file;
+	//create a group to hold the current data point
+	snprintf(out_name, BUF_SIZE, "point %d", j);
+	H5::Group cur_group = file.createGroup(out_name);
+	//write the location
+	H5::DataSet l_dataset(cur_group.createDataSet("location", loctype, l_space));
+	sto_vec tmp_vec(monitor_locs[j].x(), monitor_locs[j].y(), monitor_locs[j].z());
+	l_dataset.write(&tmp_vec, loctype);
+	//write the time and frequency domain data to the file
+	H5::DataSet t_dataset(cur_group.createDataSet("time", fieldtype, t_space));
+	H5::DataSet f_dataset(cur_group.createDataSet("frequency", fieldtype, f_space));
+	t_dataset.write(field_times[j].buf, fieldtype);
+	f_dataset.write(four.buf, fieldtype);
     }
 }

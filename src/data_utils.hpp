@@ -26,6 +26,8 @@ struct complex {
     complex operator-(complex o) { return { re-o.re, im-o.im }; }
     complex operator*(complex o) { return { re*o.re - im*o.im, re*o.im + im*o.re }; }
     complex operator*(double b) { return { re*b, im*b }; }
+    complex operator/(complex o) { double norm2 = o.re*o.re + o.im*o.im;return { (re*o.re + im*o.im)/norm2, (im*o.re - re*o.im)/norm2 }; }
+    complex operator/(double b) { return { re/b, im/b }; }
 };
 #else
 typedef struct {
