@@ -75,6 +75,7 @@ python time_space.py --prefix $h5dir --gap-width ${widths[$((SLURM_ARRAY_TASK_ID
 
 #move the plots into a folder where we can view them
 cp "$h5dir"/eps.pdf "$oname"/figures/eps_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/field_samples.h5 "$oname"/figures/field_samples_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/space_plot.pdf "$oname"/figures/space_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/cross_plot.pdf "$oname"/figures/cross_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/tdom_plot.pdf "$oname"/figures/tdom_plot_test_"$SLURM_ARRAY_TASK_ID".pdf

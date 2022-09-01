@@ -1,5 +1,8 @@
-data(type = field_source, envelope = "Gaussian(Ex, 1.33, 3.5, 0.0, 10.0, $FIELD_AMP)") {
+data(type = field_source, envelope = "Gaussian(Ex, 0.75, 1.5, 0.0, 3.0, 1.0)") {
     Box([0,0,1], [18,18,1]);
+}
+
+data(type = monitor, locations = "(2.0, 9.0, 2.0),($LEFT-0.1, 9.0, 2.0),($LEFT+0.1, 9.0, 2.0),(9.0, 9.0, 2.0),(2.0, 9.0, $TOP-0.1),($LEFT-0.1, 9.0, $TOP-0.1),($LEFT+0.1, 9.0, 2.0),(9.0, 9.0, $TOP-0.1),(2.0, 9.0, 2.0),($LEFT-0.1, 9.0, 9.0),($LEFT+0.1, 9.0, 9.0),(9.0, 9.0, 9.0)") {
 }
 
 //Au

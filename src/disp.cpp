@@ -304,7 +304,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 		    if (env_func.n_args < 3) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
-			width = strtod(env_func.args[2], NULL);
+			width = strtod(env_func.args[2], NULL) / freq;
 			if (errno) tmp_er = E_BAD_TOKEN;
 			//set default values
 			amplitude = 1;
