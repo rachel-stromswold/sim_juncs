@@ -115,7 +115,7 @@ def phase_likelihood(params, d_comp, v_comp):
     return np.sum(terms/DAT_ERR_SQ)
 
 #make plots
-time_pts = np.linspace(0, geom.meep_time_to_sec(last_time), num=len(sample_fields[0][0]))
+time_pts = np.linspace(0, geom.meep_time_to_fs(last_time), num=len(sample_fields[0][0]))
 freq_cutoff = time_pts.shape[0]//8
 freq_pts = rfftfreq(time_pts.shape[0])
 for j, z in enumerate(z_slices):

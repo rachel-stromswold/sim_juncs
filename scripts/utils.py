@@ -206,7 +206,7 @@ class Geometry:
         return l / self.um_scale
 
     #convert the time units used by meep into femtoseconds
-    def meep_time_to_sec(self, t):
+    def meep_time_to_fs(self, t):
         #speed of light in um/sec = 299792458000000
         return self.um_scale*t / .299792458
 

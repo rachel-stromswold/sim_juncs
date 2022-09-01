@@ -621,7 +621,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 
 		//set the total timespan based on the added source
 		ttot = fields.last_source_time() + post_source_t;
-		n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
+
 	    } else {
 		printf("Error: only boxes are currently supported for field volumes");
 		if (ercode) *ercode = E_BAD_VALUE;
@@ -705,7 +705,6 @@ void bound_geom::add_point_source(meep::component c, const meep::src_time &src, 
 
     //set the total timespan based on the added source
     ttot = fields.last_source_time() + post_source_t;
-    n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
 }
 
 void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const meep::volume &source_vol, std::complex<double> amp) {
@@ -713,7 +712,6 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
 
     //set the total timespan based on the added source
     ttot = fields.last_source_time() + post_source_t;
-    n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
 }
 
 void bound_geom::run(const char* fname_prefix) {
@@ -730,6 +728,7 @@ void bound_geom::run(const char* fname_prefix) {
 
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     field_times.resize(monitor_locs.size());
+    n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
     for (_uint j = 0; j < field_times.size(); ++j) {
 	make_data_arr(&(field_times[j]), n_t_pts);
     }
