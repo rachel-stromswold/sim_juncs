@@ -5,69 +5,120 @@
 TEST_CASE("Test Fourier transforms") {
     data_arr dat;
     make_data_arr(&dat, 1 << POW_N);
-    for (size_t k = 0; k < dat.size; ++k) {
-	dat.buf[k].re = sin(4*M_PI*k / dat.size);
-	dat.buf[k].im = 0.0; 
+
+    SUBCASE("Test a very simple sine wave") {
+	for (size_t k = 0; k < dat.size; ++k) {
+	    dat.buf[k].re = sin(4*M_PI*k / dat.size);
+	    dat.buf[k].im = 0.0; 
+	}
+
+	//fourier transform the data
+	data_arr fft_dat = rfft(dat);
+	CHECK(fft_dat.size == dat.size/2);
+	CHECK(fft_dat[2].re == doctest::Approx(0.0));
+	CHECK(fft_dat[2].im == doctest::Approx(-8.0));
+
+	//print out the fourier transform for debugging purposes
+	printf("Fourier transform of dat[k]=sin(2*pi*2*k/size): \n");
+	for (size_t k = 0; k < fft_dat.size; ++k) printf("%f+%fi ", fft_dat[k].re, fft_dat[k].im);
+	printf("\n");
+
+	//Only the magnitude is of interest to us for testing
+	pw_abs(fft_dat);
+
+	//since we initialize the raw data with dat[k]=sin(2*pi*2*k/size), we expect the second Fourier component to be very large compared to everything else.
+	CHECK(fft_dat.buf[2] > fft_dat.buf[0]);
+	CHECK(fft_dat.buf[2] > fft_dat.buf[1]);
+	for (size_t k = 3; k < fft_dat.size; ++k) {
+	    CHECK(fft_dat.buf[2] > fft_dat.buf[k]);
+	}
+
+	//perform initial cleanup
+	cleanup_data_arr(&fft_dat);
     }
 
-    //fourier transform the data
-    data_arr fft_dat = rfft(dat);
-    CHECK(fft_dat.size == dat.size/2);
-    CHECK(fft_dat[2].re == doctest::Approx(0.0));
-    CHECK(fft_dat[2].im == doctest::Approx(-8.0));
+    SUBCASE("the fourier transform of a gaussian is a gaussian") {
+	const double gauss_sigma_sq = 2;
+	const int k_0 = 8;//use ints to make k-k_0 and k_0-k both valid. Totally not sketch :p
+	for (int k = 0; k < dat.size; ++k) {
+	    //fill up each index with a pseudo random number between 0 and 1
+	    dat.buf[k].re = exp( (k-k_0)*(k_0-k)/(2*gauss_sigma_sq) );
+	    dat.buf[k].im = 0.0; 
+	}
+	//print out the result
+	printf("Input Gaussian: \n");
+	for (size_t k = 0; k < dat.size; ++k) printf("%f+%fi ", dat[k].re, dat[k].im);
+	printf("\n");
 
-    //print out the fourier transform for debugging purposes
-    printf("Fourier transform of dat[k]=sin(2*pi*2*k/size): \n");
-    for (size_t k = 0; k < fft_dat.size; ++k) printf("%f+%fi ", fft_dat[k].re, fft_dat[k].im);
-    printf("\n");
+	//take the fourier transform and multiply by a normalization
+	data_arr fft_dat = rfft(dat);
+	complex scale = {1/sqrt(2*M_PI*gauss_sigma_sq), 0};
+	pw_mult_scale(fft_dat, scale);
+	//print out the result
+	printf("Fourier transform Gaussian: \n");
+	for (size_t k = 0; k < fft_dat.size; ++k) printf("%f+%fi ", fft_dat[k].re, fft_dat[k].im);
+	printf("\n");
 
-    //Only the magnitude is of interest to us for testing
-    pw_abs(fft_dat);
-
-    //since we initialize the raw data with dat[k]=sin(2*pi*2*k/size), we expect the second Fourier component to be very large compared to everything else.
-    CHECK(fft_dat.buf[2] > fft_dat.buf[0]);
-    CHECK(fft_dat.buf[2] > fft_dat.buf[1]);
-    for (size_t k = 3; k < fft_dat.size; ++k) {
-	CHECK(fft_dat.buf[2] > fft_dat.buf[k]);
+	//check that the inverse fft of the fft is approximately the original
+	double omega_scale = 2*M_PI/dat.size;
+	double k_0_by_sigma = k_0/sqrt(gauss_sigma_sq);
+	for (size_t k = 0; k < fft_dat.size; ++k) {
+	    double omega = omega_scale*k;
+	    //the phase should be -\frac{\sigma^2\omega^2}{2} - i\omega k_0
+	    complex expected_phase = {-omega*omega*gauss_sigma_sq/2, -omega*k_0};
+	    complex expected = c_exp(expected_phase);
+	    CHECK(fft_dat[k].re == doctest::Approx(expected.re));
+	    CHECK(fft_dat[k].im == doctest::Approx(expected.im));
+	}
+	cleanup_data_arr(&fft_dat);
     }
 
-    //perform initial cleanup
-    cleanup_data_arr(&fft_dat);
+    SUBCASE("the inverse fourier transform of a fourier transform is itself") {
+	//initialize the lcg
+	_uint rand = 314159265;
+	complex phi = {0.0, 0.0};
+	complex x = {0.0, 0.0};
+	double N = (double)dat.size;
+	//generate a pseudo-random walk
+	for (int k = 0; k < dat.size; ++k) {
+	    //fill up each index with a pseudo random number between 0 and 1
+	    dat.buf[k].re = x.re;
+	    dat.buf[k].im = x.im;
+	    rand = lcg(rand);
+	    phi.im = 2*M_PI*(double)rand / (double)LCG_MOD;
+	    x += c_exp(phi);
+	}
+	//subtract off constant part and print out the result
+	printf("Input walk: \n");
+	for (size_t k = 0; k < dat.size; ++k) {
+	    printf("%f+%fi ", dat[k].re, dat[k].im);
+	}
+	printf("\n");
 
-    //check that the fourier transform of a gaussian is a gaussian
-    const double gauss_sigma_sq = 2;
-    const int k_0 = 8;//use ints to make k-k_0 and k_0-k both valid. Totally not sketch :p
-    for (int k = 0; k < dat.size; ++k) {
-	//fill up each index with a pseudo random number between 0 and 1
-	dat.buf[k].re = exp( (k-k_0)*(k_0-k)/(2*gauss_sigma_sq) );
-	dat.buf[k].im = 0.0; 
+	//take the fourier transform
+	data_arr fft_dat = fft(dat);
+	//print out the result
+	printf("Fourier transform of walk: \n");
+	for (size_t k = 0; k < fft_dat.size; ++k) printf("%f+%fi ", fft_dat[k].re, fft_dat[k].im);
+	printf("\n");
+	//take the inverse fourier transform and scale down by a factor of N-1 (note that ifft(fft(dat)) picks up a factor N-1)
+	data_arr new_dat = ifft(fft_dat);
+	complex scale = {1/N, 0};
+	pw_mult_scale(new_dat, scale);
+	//print out the result
+	printf("inverse Fourier transform of walk: \n");
+	for (size_t k = 0; k < fft_dat.size; ++k) printf("%f+%fi ", new_dat[k].re, new_dat[k].im);
+	printf("\n");
+
+	//make sure the sizes are the same and compare elements
+	CHECK(dat.size == new_dat.size);
+	for (size_t k = 0; k < fft_dat.size; ++k) {
+	    CHECK(dat[k].re == doctest::Approx(new_dat[k].re));
+	    CHECK(dat[k].im == doctest::Approx(new_dat[k].im));
+	}
+	cleanup_data_arr(&fft_dat);
+	cleanup_data_arr(&new_dat);
     }
-    //print out the result
-    printf("Input Gaussian: \n");
-    for (size_t k = 0; k < dat.size; ++k) printf("%f+%fi ", dat[k].re, dat[k].im);
-    printf("\n");
-
-    //take the fourier transform and multiply by a normalization
-    fft_dat = rfft(dat);
-    complex scale = {1/sqrt(2*M_PI*gauss_sigma_sq), 0};
-    pw_mult_scale(fft_dat, scale);
-    //print out the result
-    printf("Fourier transform Gaussian: \n");
-    for (size_t k = 0; k < fft_dat.size; ++k) printf("%f+%fi ", fft_dat[k].re, fft_dat[k].im);
-    printf("\n");
-
-    //check that the inverse fft of the fft is approximately the original
-    double omega_scale = 2*M_PI/dat.size;
-    double k_0_by_sigma = k_0/sqrt(gauss_sigma_sq);
-    for (size_t k = 0; k < fft_dat.size; ++k) {
-	double omega = omega_scale*k;
-	//the phase should be -\frac{\sigma^2\omega^2}{2} - i\omega k_0
-	complex expected_phase = {-omega*omega*gauss_sigma_sq/2, -omega*k_0};
-	complex expected = c_exp(expected_phase);
-	CHECK(fft_dat[k].re == doctest::Approx(expected.re));
-	CHECK(fft_dat[k].im == doctest::Approx(expected.im));
-    }
-
     cleanup_data_arr(&dat);
 }
 
@@ -454,8 +505,8 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.freq == 1.33);
 	CHECK(inf.width == 3.0);
 	CHECK(inf.start_time == 0.2);
-	CHECK(inf.end_time == 15.0);
-	CHECK(inf.amplitude == 1.0);
+	CHECK(inf.end_time == 30.2);
+	CHECK(inf.amplitude == 7.0);
 
 	inf = geometry.sources[1];
 	CHECK(inf.type == SRC_CONTINUOUS);
@@ -464,34 +515,24 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.start_time == 0.2);
 	CHECK(inf.end_time == 1.2);
 	CHECK(inf.width == 0.1);
-	CHECK(inf.amplitude == 1.0);
+	CHECK(inf.amplitude == 8.0);
 #endif
 
 	cleanup_settings(&args);
     }
 }
 
-complex* read_h5_array_raw(const H5::H5File& file, const std::string name, size_t* n_entries) {
-    char tname[BUF_SIZE];
-    //We need to create an hdf5 data type for complex values
-    H5::CompType fieldtype(sizeof(complex));
-    //for some reason linking insertMember breaks on the cluster, we do it manually
-    hid_t float_member_id = H5::PredType::NATIVE_FLOAT.getId();
-    snprintf(tname, BUF_SIZE, "Re");
-    herr_t ret_val = H5Tinsert(fieldtype.getId(), tname, HOFFSET(complex, re), float_member_id);
-    snprintf(tname, BUF_SIZE, "Im");
-    ret_val = H5Tinsert(fieldtype.getId(), tname, HOFFSET(complex, im), float_member_id);
-
+void* read_h5_array_raw(const H5::Group& grp, H5::CompType& ctype, size_t el_size, const std::string name, size_t* n_entries) {
     *n_entries = 0;
     try {
 	//find the dataspace for real values
-	H5::DataSet dataset = file.openDataSet(name);
+	H5::DataSet dataset = grp.openDataSet(name);
 	H5::DataType datatype = dataset.getDataType();
 	H5::DataSpace dataspace = dataset.getSpace();
 	size_t n_pts = dataspace.getSimpleExtentNpoints();
 	//allocate memory for storage
-	complex* data = new complex[n_pts];
-	dataset.read(data, fieldtype);
+	void* data = malloc(el_size*n_pts);
+	dataset.read(data, ctype);
 
 	*n_entries = n_pts;
 	dataspace.close();
@@ -509,6 +550,7 @@ complex* read_h5_array_raw(const H5::H5File& file, const std::string name, size_
 
 TEST_CASE("Test running with a very small system") {
     parse_ercode er;
+    char name_buf[BUF_SIZE];
 
     //load settings from the configuration file
     Settings args;
@@ -537,20 +579,54 @@ TEST_CASE("Test running with a very small system") {
     //check that writing hdf5 files works
     geometry.save_field_times("/tmp");
 
+    
+    //We need to create an hdf5 data type for complex values
+    H5::CompType fieldtype(sizeof(complex));
+    //for some reason linking insertMember breaks on the cluster, we do it manually
+    hid_t float_member_id = H5::PredType::NATIVE_FLOAT.getId();
+    snprintf(name_buf, BUF_SIZE, "Re");
+    herr_t ret_val = H5Tinsert(fieldtype.getId(), name_buf, HOFFSET(complex, re), float_member_id);
+    CHECK(ret_val == 0);
+    snprintf(name_buf, BUF_SIZE, "Im");
+    ret_val = H5Tinsert(fieldtype.getId(), name_buf, HOFFSET(complex, im), float_member_id);
+    CHECK(ret_val == 0);
+    //do the same for location types
+    H5::CompType loctype(sizeof(sto_vec));
+    //for some reason linking insertMember breaks on the cluster, we do it manually
+    snprintf(name_buf, BUF_SIZE, "x");
+    ret_val = H5Tinsert(loctype.getId(), name_buf, HOFFSET(sto_vec, x), float_member_id);
+    CHECK(ret_val == 0);
+    snprintf(name_buf, BUF_SIZE, "y");
+    ret_val = H5Tinsert(loctype.getId(), name_buf, HOFFSET(sto_vec, y), float_member_id);
+    CHECK(ret_val == 0);
+    snprintf(name_buf, BUF_SIZE, "z");
+    ret_val = H5Tinsert(loctype.getId(), name_buf, HOFFSET(sto_vec, z), float_member_id);
+    CHECK(ret_val == 0);
+
     //read the h5 file
-    //H5::H5std_string fname("/tmp/fields_0.txt");
-    H5::H5File file("/tmp/fields_0.h5", H5F_ACC_RDONLY);
+    H5::H5File file("/tmp/field_samples.h5", H5F_ACC_RDONLY);
+    H5::Group grp = file.openGroup("point 0");
+
+    //check that the location is correct
+    size_t n_l_pts;
+    sto_vec* l_data = (sto_vec*)read_h5_array_raw(grp, loctype, sizeof(sto_vec), "location", &n_l_pts);
+    CHECK(n_l_pts == 1);
+    CHECK(l_data != NULL);
+    CHECK(l_data[0].x == 1.0);
+    CHECK(l_data[0].y == 1.0);
+    CHECK(l_data[0].z == 1.0);
     //read the data from the file we opened
     size_t n_f_pts, n_t_pts;
-    complex* f_data = read_h5_array_raw(file, "frequency", &n_f_pts);
-    complex* t_data = read_h5_array_raw(file, "time", &n_t_pts);
+    complex* f_data = (complex*)read_h5_array_raw(grp, fieldtype, sizeof(complex), "frequency", &n_f_pts);
+    complex* t_data = (complex*)read_h5_array_raw(grp, fieldtype, sizeof(complex), "time", &n_t_pts);
     CHECK(f_data != NULL);
     CHECK(t_data != NULL);
     CHECK(n_f_pts > 0);
     //since the fourier transform should only go to +- the nyquist frequency, it must have fewer elements
     CHECK(n_t_pts >= n_f_pts);
-    delete[] f_data;
-    delete[] t_data;
+    free(f_data);
+    free(t_data);
+    free(l_data);
     file.close();
 
     cleanup_settings(&args);

@@ -84,6 +84,13 @@ public:
     source_info(std::string spec_str, const Scene& problem, parse_ercode* ercode);
 };
 
+struct sto_vec {
+    double x;
+    double y;
+    double z;
+    sto_vec(double xx, double yy, double zz) { x = xx;y = yy;z = zz; }
+};
+
 class bound_geom {
 public:
     bound_geom(const Settings& s, parse_ercode* ercode=NULL);

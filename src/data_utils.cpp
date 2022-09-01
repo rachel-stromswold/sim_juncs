@@ -343,48 +343,6 @@ void part_rfft(dat_helper help, _ulong span, _ulong rem) {
 }
 
 /**
- * Compute the discrete fourier transform for the data series specified by dat. This version assumes that all terms in the data series are real. Thus, negative frequency terms correspond to the conjugate of their corresponding positive frequency terms. To reduce redundancy we only store up to the Nyquist frequency
- */
-data_arr rfft(const data_arr dat) {
-    //figure out how many recursive steps are needed.
-    _ulong log_2_n = (_ulong)(log(dat.size) / log(2));
-    _ulong truncated_size = 1 << log_2_n;
-
-    //allocate space for the final result
-    data_arr final_result;
-    make_data_arr(&final_result, truncated_size/2);
-    complex null_val = {0.0, 0.0};
-    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
-
-    //make a helper object that keeps track of information over recursive steps
-    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
-
-    part_rfft(help, 1, 0);
-    return help.sto;
-}
-
-/**
- * Compute the inverse discrete fourier transform for the data series specified by dat. This version assumes that all terms in the data series are real. Thus, negative frequency terms correspond to the conjugate of their corresponding positive frequency terms. To reduce redundancy we only store up to the Nyquist frequency
- */
-data_arr irfft(const data_arr dat) {
-    //figure out how many recursive steps are needed.
-    _ulong log_2_n = (_ulong)(log(dat.size) / log(2));
-    _ulong truncated_size = 1 << log_2_n;
-
-    //allocate space for the final result
-    data_arr final_result;
-    make_data_arr(&final_result, truncated_size/2);
-    complex null_val = {0.0, 0.0};
-    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
-
-    //make a helper object that keeps track of information over recursive steps
-    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
-
-    part_rfft(help, 1, 0);
-    return help.sto;
-}
-
-/**
  * this is a helper function for fft which computes the left and right terms for the fourier transform of the data specified by dat that only takes elements of the form span*n + rem for integer n between 0 and (dat_arr.size/span - 1).
  * NOTE: this function does not perform NULL safety checks. It is intended to be called by fft() and not end users.
  * dat_arr: data array
@@ -473,5 +431,47 @@ data_arr ifft(const data_arr dat) {
     dat_helper help = {dat, truncated_size, -2*M_PI/dat.size, final_result};
 
     part_fft(help, 1, 0);
+    return help.sto;
+}
+
+/**
+ * Compute the discrete fourier transform for the data series specified by dat. This version assumes that all terms in the data series are real. Thus, negative frequency terms correspond to the conjugate of their corresponding positive frequency terms. To reduce redundancy we only store up to the Nyquist frequency
+ */
+data_arr rfft(const data_arr dat) {
+    //figure out how many recursive steps are needed.
+    _ulong log_2_n = (_ulong)(log(dat.size) / log(2));
+    _ulong truncated_size = 1 << log_2_n;
+
+    //allocate space for the final result
+    data_arr final_result;
+    make_data_arr(&final_result, truncated_size/2);
+    complex null_val = {0.0, 0.0};
+    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+
+    //make a helper object that keeps track of information over recursive steps
+    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
+
+    part_rfft(help, 1, 0);
+    return help.sto;
+}
+
+/**
+ * Compute the inverse discrete fourier transform for the data series specified by dat. This version assumes that all terms in the data series are real. Thus, negative frequency terms correspond to the conjugate of their corresponding positive frequency terms. To reduce redundancy we only store up to the Nyquist frequency
+ */
+data_arr irfft(const data_arr dat) {
+    //figure out how many recursive steps are needed.
+    _ulong log_2_n = (_ulong)(log(dat.size) / log(2));
+    _ulong truncated_size = 1 << log_2_n;
+
+    //allocate space for the final result
+    data_arr final_result;
+    make_data_arr(&final_result, truncated_size/2);
+    complex null_val = {0.0, 0.0};
+    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+
+    //make a helper object that keeps track of information over recursive steps
+    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
+
+    part_rfft(help, 1, 0);
     return help.sto;
 }
