@@ -414,6 +414,7 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.smooth_rad == 0.25);
 	//CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
 	CHECK(args.post_source_t == 1.0);
+	CHECK(args.field_dump_span == 171);
 	CHECK(args.ambient_eps == 1.0);
 	CHECK(strcmp(args.geom_fname, "tests/test.geom") == 0);
 
@@ -507,10 +508,10 @@ TEST_CASE("Test geometry file reading") {
 	source_info inf = geometry.sources[0];
 	CHECK(inf.type == SRC_GAUSSIAN);
 	CHECK(inf.component == meep::Ey);
-	CHECK(inf.freq == 1.33);
-	CHECK(inf.width == 3.0);
+	CHECK(inf.freq == 1.333333);
+	CHECK(inf.width == doctest::Approx(2.25));
 	CHECK(inf.start_time == 0.2);
-	CHECK(inf.end_time == 30.2);
+	CHECK(inf.end_time == doctest::Approx(22.7));
 	CHECK(inf.amplitude == 7.0);
 
 	inf = geometry.sources[1];

@@ -115,7 +115,7 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
     } else if (strcmp(tok, "post_source_t") == 0) {
 	s->post_source_t = strtod(val, NULL);
     } else if (strcmp(tok, "field_dump_span") == 0) {
-	s->field_dump_span = strtod(val, NULL);
+	s->field_dump_span = strtol(val, NULL, 10);
     }
 }
 
