@@ -16,6 +16,7 @@
 #define DEFAULT_SMOOTH_RAD	0.05
 
 #define BUF_SIZE 1024
+#define SMALL_BUF_SIZE 256
 
 typedef unsigned int _uint;
 
@@ -41,6 +42,7 @@ typedef struct {
     //misc
     char* monitor_locs = NULL;
     double post_source_t = 10.0;
+    _uint field_dump_span = 20;
 } Settings;
 
 /*
@@ -112,6 +114,8 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
 	s->monitor_locs = strdup(val);
     } else if (strcmp(tok, "post_source_t") == 0) {
 	s->post_source_t = strtod(val, NULL);
+    } else if (strcmp(tok, "field_dump_span") == 0) {
+	s->field_dump_span = strtod(val, NULL);
     }
 }
 

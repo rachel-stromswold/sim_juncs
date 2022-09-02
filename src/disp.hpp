@@ -130,6 +130,7 @@ private:
     double len;
     double z_center;
     double eps_scale;
+    int dump_span = 20;
 };
 
 #endif //DISP_H

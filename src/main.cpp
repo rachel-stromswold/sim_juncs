@@ -41,7 +41,10 @@ int main(int argc, char **argv) {
     if (ercode) return (int)ercode;
 
     geom.run(args.out_dir);
-    geom.save_field_times("/tmp/field_samples.h5");
+    //save the time series for fields
+    char tseries_name[BUF_SIZE];
+    snprintf(tseries_name, BUF_SIZE, "%s/field_samples.h5", args.out_dir);
+    geom.save_field_times(tseries_name);
 
     cleanup_settings(&args);
     return 0;

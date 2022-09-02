@@ -708,6 +708,8 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 	}
     }
     printf("total simulation time: %f\n", ttot);
+
+    dump_span = s.field_dump_span;
 }
 
 bound_geom::~bound_geom() {
@@ -774,6 +776,9 @@ void bound_geom::run(const char* fname_prefix) {
     char h5_fname[BUF_SIZE];
     strcpy(h5_fname, "ex-");
 
+    //ensure that no field dumps are saved
+    if (dump_span < 0) dump_span = n_t_pts+1;
+    //run the simulation
     printf("starting simulations\n");
     for (_uint i = 0; i < n_t_pts; ++i) {
 	//fetch monitor points
@@ -804,7 +809,7 @@ void bound_geom::run(const char* fname_prefix) {
  * n_save_pts: the size of the array pointed to by save_pts
  */
 void bound_geom::save_field_times(const char* fname, size_t* save_pts, size_t n_save_pts) {
-    char out_name[BUF_SIZE];
+    char out_name[SMALL_BUF_SIZE];
     //create the field type and specify members
     H5::CompType fieldtype(sizeof(complex));
     fieldtype.insertMember("Re", HOFFSET(complex, re), H5::PredType::NATIVE_FLOAT);
@@ -846,7 +851,7 @@ void bound_geom::save_field_times(const char* fname, size_t* save_pts, size_t n_
 	f_dim[0] = four.size;
 	H5::DataSpace f_space(1, f_dim);
 	//create a group to hold the current data point
-	snprintf(out_name, BUF_SIZE, "point %d", j);
+	snprintf(out_name, SMALL_BUF_SIZE, "point %d", j);
 	H5::Group cur_group = file.createGroup(out_name);
 	//write the location
 	H5::DataSet l_dataset(cur_group.createDataSet("location", loctype, l_space));
