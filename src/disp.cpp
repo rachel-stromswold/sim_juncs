@@ -609,10 +609,10 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 			//create the EM-wave source at the specified location only if everything was read successfully
 			if (*ercode == E_SUCCESS) {
 			    //We specify the width of the pulse in units of the oscillation period
-			    double frequency = cur_info.freq/s.um_scale;
-			    double width = cur_info.width / frequency;
-			    double start_time = cur_info.start_time / frequency;
-			    double end_time = cur_info.end_time / frequency;
+			    double frequency = cur_info.freq / s.um_scale;
+			    double width = cur_info.width*0.299792458*s.um_scale;
+			    double start_time = cur_info.start_time*0.299792458*s.um_scale;
+			    double end_time = cur_info.end_time*0.299792458*s.um_scale;
 			    if (cur_info.type == SRC_GAUSSIAN) {
 				printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
 					frequency, width, start_time, end_time);
@@ -631,7 +631,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    }
 
 		    //set the total timespan based on the added source
-		    ttot = fields.last_source_time() + post_source_t;
+		    ttot = fields.last_source_time() + post_source_t*0.299792458*s.um_scale;
 
 		} else {
 		    printf("Error: only boxes are currently supported for field volumes");
@@ -762,6 +762,11 @@ void bound_geom::run(const char* fname_prefix) {
     printf("Set output directory to %s\n", fname_prefix);
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
 
+    //open the file which will store poynting vector fluxes
+    char flux_name[BUF_SIZE];
+    snprintf(flux_name, BUF_SIZE, "%s/fields.txt", fname_prefix);
+    FILE* fp = fopen(flux_name, "w");
+
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     field_times.resize(monitor_locs.size());
     n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
@@ -786,7 +791,9 @@ void bound_geom::run(const char* fname_prefix) {
 	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
 	    field_times[j].buf[i].re = val.real();
 	    field_times[j].buf[i].im = val.imag();
+        fprintf(fp, "%f+%fj,", val.real(), val.imag());
 	}
+    fprintf(fp, "\n");
 
         //open an hdf5 file with a reasonable name
         if (i % 4 == 0) {
@@ -834,7 +841,7 @@ void bound_geom::save_field_times(const char* fname, size_t* save_pts, size_t n_
     H5::H5File file(fname, H5F_ACC_TRUNC);
 
     if (!save_pts) {
-	n_save_pts = field_times.size();
+	n_save_pts = monitor_locs.size();
     }
     //iterate over each desired point
     for (_uint i = 0; i < n_save_pts; ++i) {
