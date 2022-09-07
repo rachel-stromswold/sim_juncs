@@ -12,7 +12,7 @@ set(APP_EXE sim_geom)
 #find all the libraries we need for building
 find_library(meep libmeep.a REQUIRED HINTS $ENV{HOME}/install/lib)
 #we need to install cmake to a custom location
-set(HDF5_DIR "/home/sstromsw/install/cmake")
+#set(HDF5_DIR "/home/sstromsw/install/cmake")
 find_package(HDF5 REQUIRED COMPONENTS CXX HL)
 
 #Cmake can't find the location of eigen on the cluster so we specify that manually
@@ -34,7 +34,7 @@ if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     target_link_libraries(${TEST_EXE} PRIVATE Eigen3::Eigen meep ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
     target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
-    target_include_directories( ${TEST_EXE} PRIVATE ${HDF5_INCLUDE_DIRS})
+    target_include_directories( ${TEST_EXE} PRIVATE ${HDF5_INCLUDE_DIRS} )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest")
     #copy files needed for unit testing
     configure_file(tests/test.geom tests/test.geom COPYONLY)

@@ -707,7 +707,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 	    }
 	}
     }
-    printf("total simulation time: %f\n", ttot);
+    printf("source end time: %f, total simulation time: %f\n", fields.last_source_time(), ttot);
 
     dump_span = s.field_dump_span;
 }
@@ -762,16 +762,16 @@ void bound_geom::run(const char* fname_prefix) {
     printf("Set output directory to %s\n", fname_prefix);
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
 
-    //open the file which will store poynting vector fluxes
-    char flux_name[BUF_SIZE];
-    snprintf(flux_name, BUF_SIZE, "%s/fields.txt", fname_prefix);
-    FILE* fp = fopen(flux_name, "w");
-
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
-    field_times.resize(monitor_locs.size());
+    n_locs = monitor_locs.size();
+    field_times.resize(n_locs);
+    sto_locs = (sto_vec*)realloc(sto_locs, sizeof(sto_vec)*n_locs);
     n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
-    for (_uint j = 0; j < field_times.size(); ++j) {
+    for (_uint j = 0; j < n_locs; ++j) {
 	make_data_arr(&(field_times[j]), n_t_pts);
+    sto_locs[j].x = monitor_locs[j].x();
+    sto_locs[j].y = monitor_locs[j].y();
+    sto_locs[j].z = monitor_locs[j].z();
     }
 
     //figure out the number of digits before the decimal and after
@@ -782,7 +782,7 @@ void bound_geom::run(const char* fname_prefix) {
     strcpy(h5_fname, "ex-");
 
     //ensure that no field dumps are saved
-    if (dump_span < 0) dump_span = n_t_pts+1;
+    if (dump_span == 0) dump_span = n_t_pts+1;
     //run the simulation
     printf("starting simulations\n");
     for (_uint i = 0; i < n_t_pts; ++i) {
@@ -791,17 +791,16 @@ void bound_geom::run(const char* fname_prefix) {
 	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
 	    field_times[j].buf[i].re = val.real();
 	    field_times[j].buf[i].im = val.imag();
-        fprintf(fp, "%f+%fj,", val.real(), val.imag());
 	}
-    fprintf(fp, "\n");
 
         //open an hdf5 file with a reasonable name
-        if (i % 4 == 0) {
+        if (i % dump_span == 0) {
 	    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
 	    meep::h5file* file = fields.open_h5file(h5_fname);
 
 	    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
 	    fields.step();
+        printf("    %f%% complete\n", (float)i/n_t_pts);
 
 	    //we're done with the file
 	    delete file;
@@ -814,8 +813,9 @@ void bound_geom::run(const char* fname_prefix) {
  * fname: filename to use for saving information
  * save_pts: an array of indices of points that the user wants to save. If NULL (default), then all points are saved.
  * n_save_pts: the size of the array pointed to by save_pts
+ * returns -1 on error, 0 otherwise
  */
-void bound_geom::save_field_times(const char* fname, size_t* save_pts, size_t n_save_pts) {
+void bound_geom::save_field_times(const char* fname_prefix, size_t* save_pts, size_t n_save_pts) {
     char out_name[SMALL_BUF_SIZE];
     //create the field type and specify members
     H5::CompType fieldtype(sizeof(complex));
@@ -837,12 +837,21 @@ void bound_geom::save_field_times(const char* fname, size_t* save_pts, size_t n_
     l_dim[0] = {1};
     H5::DataSpace l_space(1, l_dim);
 
+    //take the fourier transform for each point
+    std::vector<data_arr> fours(monitor_locs.size());
+    for (_uint j = 0; j < monitor_locs.size(); ++j) {
+        fours[j] = fft(field_times[j]);
+        f_dim[0] = fours[j].size;
+    }
+
     //open the file which will store the fields as a function of time
-    H5::H5File file(fname, H5F_ACC_TRUNC);
+    snprintf(out_name, BUF_SIZE, "%s/field_samples.h5", fname_prefix);
+    H5::H5File file(out_name, H5F_ACC_TRUNC);
 
     if (!save_pts) {
-	n_save_pts = monitor_locs.size();
+	n_save_pts = n_locs;
     }
+    printf("found %d monitor locations\n", n_save_pts);
     //iterate over each desired point
     for (_uint i = 0; i < n_save_pts; ++i) {
 	_uint j = i;
@@ -854,20 +863,34 @@ void bound_geom::save_field_times(const char* fname, size_t* save_pts, size_t n_
 	    break;
 	}
 	//take the fourier transform and find its size
-	data_arr four = fft(field_times[j]);
-	f_dim[0] = four.size;
+	data_arr four = fft(field_times[j]);	
 	H5::DataSpace f_space(1, f_dim);
 	//create a group to hold the current data point
-	snprintf(out_name, SMALL_BUF_SIZE, "point %d", j);
+	snprintf(out_name, SMALL_BUF_SIZE, "/point_%d", j);
+    printf("saving point %d to group %s\n", j, out_name);
 	H5::Group cur_group = file.createGroup(out_name);
 	//write the location
 	H5::DataSet l_dataset(cur_group.createDataSet("location", loctype, l_space));
-	sto_vec tmp_vec(monitor_locs[j].x(), monitor_locs[j].y(), monitor_locs[j].z());
-	l_dataset.write(&tmp_vec, loctype);
+	l_dataset.write(sto_locs+j, loctype);
 	//write the time and frequency domain data to the file
 	H5::DataSet t_dataset(cur_group.createDataSet("time", fieldtype, t_space));
 	H5::DataSet f_dataset(cur_group.createDataSet("frequency", fieldtype, f_space));
 	t_dataset.write(field_times[j].buf, fieldtype);
-	f_dataset.write(four.buf, fieldtype);
+	f_dataset.write(fours[j].buf, fieldtype);
     }
+
+    //open the file which will store poynting vector fluxes
+    snprintf(out_name, BUF_SIZE, "%s/field_time.txt", fname_prefix);
+    FILE* fp = fopen(out_name, "w");
+    printf("blah");
+
+    for (_uint i = 0; i < field_times[0].size; ++i) {
+        for (_uint j = 0; j < field_times.size(); ++j) {
+            printf("%f+%fj,", field_times[j].buf[i].re, field_times[j].buf[i].im);
+            fprintf(fp, "%f+%fj,", field_times[j].buf[i].re, field_times[j].buf[i].im);
+        }
+        printf("\n");
+        fprintf(fp, "\n");
+    }
+    fclose(fp);
 }

@@ -118,7 +118,9 @@ private:
     meep::structure* strct = NULL;
     meep::fields fields;
 
+    size_t n_locs;
     std::vector<meep::vec> monitor_locs;
+    sto_vec* sto_locs = NULL;
     std::vector<data_arr> field_times;
 
     double ttot = 0;
@@ -130,7 +132,7 @@ private:
     double len;
     double z_center;
     double eps_scale;
-    int dump_span = 20;
+    _uint dump_span = 20;
 };
 
 #endif //DISP_H

@@ -576,14 +576,14 @@ TEST_CASE("Test running with a very small system") {
     CHECK(er == E_SUCCESS);
 
     //make sure that monitor locations were added
-    CHECK(geometry.get_monitor_locs().size() > 0);
-    geometry.run("/tmp");
+    geometry.run(args.out_dir);
     //fetch the field times
     std::vector<data_arr> field_times = geometry.get_field_times();
     CHECK(field_times.size() > 0);
 
     //check that writing hdf5 files works
-    geometry.save_field_times("/tmp/field_samples.h5");
+    CHECK(geometry.get_monitor_locs().size() > 0);
+    geometry.save_field_times(args.out_dir);
     
     //We need to create an hdf5 data type for complex values
     H5::CompType fieldtype(sizeof(complex));
@@ -609,8 +609,9 @@ TEST_CASE("Test running with a very small system") {
     CHECK(ret_val == 0);
 
     //read the h5 file
-    H5::H5File file("/tmp/field_samples.h5", H5F_ACC_RDONLY);
-    H5::Group grp = file.openGroup("point 0");
+    snprintf(name_buf, BUF_SIZE, "%s/field_samples.h5", args.out_dir);
+    H5::H5File file(name_buf, H5F_ACC_RDONLY);
+    H5::Group grp = file.openGroup("/point_0");
 
     //check that the location is correct
     size_t n_l_pts;

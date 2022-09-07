@@ -23,7 +23,7 @@ typedef unsigned int _uint;
 //information for parsing arguments
 typedef struct {
     //system stuff
-    const char* out_dir = "/tmp/em_simuls";
+    const char* out_dir = "/tmp";
     char* geom_fname_al = NULL;
     char* geom_fname = NULL;
     char* conf_fname = NULL;
