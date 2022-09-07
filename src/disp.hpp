@@ -113,15 +113,15 @@ public:
     meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
 
 private:
-    //meep objects
-    meep::grid_volume vol;
-    meep::structure* strct = NULL;
-    meep::fields fields;
-
     //TODO: this is rather sketchy, but for some reason using an std vector randomly changed sizes. I assumed this was a memory error but valgrind made no complaints.
     size_t n_locs = 0;
     meep::vec* monitor_locs = NULL;
     std::vector<data_arr> field_times;
+
+    //meep objects
+    meep::grid_volume vol;
+    meep::structure* strct = NULL;
+    meep::fields* fields = NULL;
 
     double ttot = 0;
     _uint n_t_pts = 0;

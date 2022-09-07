@@ -561,9 +561,9 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
  */
 bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     problem(s.geom_fname, ercode),
-    strct(structure_from_settings(s, problem, ercode)),
-    fields(strct)
+    strct(structure_from_settings(s, problem, ercode))
 {
+    fields = new meep::fields(strct);
     if (ercode) *ercode = E_SUCCESS;
 
     //we have to kludge it to get around the very f** annoying fact that meep doesn't have default constructors for fields, just read the structure_from_settings comment
@@ -617,12 +617,12 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 				printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
 					frequency, width, start_time, end_time);
 				meep::gaussian_src_time src(frequency, width, start_time, end_time);
-				fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+				fields->add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			    } else if (cur_info.type == SRC_CONTINUOUS) { 
 				printf("Adding continuous wave: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
 					frequency, width, start_time, end_time);
 				meep::continuous_src_time src(frequency, width, start_time, end_time);
-				fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+				fields->add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			    }
 #ifdef DEBUG_INFO
 			    sources.push_back(cur_info);
@@ -631,7 +631,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    }
 
 		    //set the total timespan based on the added source
-		    ttot = fields.last_source_time() + post_source_t*0.299792458*s.um_scale;
+		    ttot = fields->last_source_time() + post_source_t*0.299792458*s.um_scale;
 
 		} else {
 		    printf("Error: only boxes are currently supported for field volumes");
@@ -735,7 +735,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 	    }
 	}
     }
-    printf("source end time: %f, total simulation time: %f\n", fields.last_source_time(), ttot);
+    printf("source end time: %f, total simulation time: %f\n", fields->last_source_time(), ttot);
 
     dump_span = s.field_dump_span;
 }
@@ -747,6 +747,7 @@ bound_geom::~bound_geom() {
 	//for (size_t i = 0; i < n_locs; ++i) delete (monitor_locs+n_locs);
 	free(monitor_locs);
     }
+    if (fields) delete fields;
 }
 
 std::vector<meep::vec> bound_geom::get_monitor_locs() {
@@ -763,10 +764,10 @@ std::vector<meep::vec> bound_geom::get_monitor_locs() {
  * amp: the amplitude of the source
  */
 void bound_geom::add_point_source(meep::component c, const meep::src_time &src, const meep::vec& source_loc, std::complex<double> amp) {
-    fields.add_point_source(c, src, source_loc, amp);
+    fields->add_point_source(c, src, source_loc, amp);
 
     //set the total timespan based on the added source
-    ttot = fields.last_source_time() + post_source_t;
+    ttot = fields->last_source_time() + post_source_t;
 }
 
 /**
@@ -784,10 +785,10 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
     double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
     meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
 
-    fields.add_volume_source(c, src, source_vol, amp);
+    fields->add_volume_source(c, src, source_vol, amp);
 
     //set the total timespan based on the added source
-    ttot = fields.last_source_time() + post_source_t;
+    ttot = fields->last_source_time() + post_source_t;
 }
 
 /**
@@ -795,22 +796,22 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
  * fname_prefix: all files are saved to fname_prefix if specified
  */
 void bound_geom::run(const char* fname_prefix) {
-    fields.set_output_directory(fname_prefix);
+    fields->set_output_directory(fname_prefix);
 
     //save the dielectric used
     printf("Set output directory to %s\n", fname_prefix);
-    fields.output_hdf5(meep::Dielectric, fields.total_volume());
+    fields->output_hdf5(meep::Dielectric, fields->total_volume());
 
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     field_times.resize(n_locs);
-    n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
+    n_t_pts = (_uint)( (ttot+fields->dt/2) / fields->dt );
     for (_uint j = 0; j < n_locs; ++j) {
 	make_data_arr(&(field_times[j]), n_t_pts);
     }
 
     //figure out the number of digits before the decimal and after
     int n_digits_a = (int)(ceil(log(ttot)/log(10)));
-    double rat = -log((double)(fields.dt))/log(10.0);
+    double rat = -log((double)(fields->dt))/log(10.0);
     int n_digits_b = (int)ceil(rat)+1;
     char h5_fname[BUF_SIZE];
     strcpy(h5_fname, "ex-");
@@ -822,18 +823,18 @@ void bound_geom::run(const char* fname_prefix) {
     for (_uint i = 0; i < n_t_pts; ++i) {
 	//fetch monitor points
 	for (_uint j = 0; j < n_locs; ++j) {
-	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
+	    std::complex<double> val = fields->get_field(meep::Ex, monitor_locs[j]);
 	    field_times[j].buf[i].re = val.real();
 	    field_times[j].buf[i].im = val.imag();
 	}
 
         //open an hdf5 file with a reasonable name
         if (i % dump_span == 0) {
-	    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
-	    meep::h5file* file = fields.open_h5file(h5_fname);
+	    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields->time(), n_digits_a, n_digits_b);
+	    meep::h5file* file = fields->open_h5file(h5_fname);
 
-	    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
-	    fields.step();
+	    fields->output_hdf5(meep::Ex, vol.surroundings(), file);
+	    fields->step();
 	    printf("    %f%% complete\n", (float)i/n_t_pts);
 
 	    //we're done with the file
