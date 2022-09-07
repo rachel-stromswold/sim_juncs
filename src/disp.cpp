@@ -649,6 +649,16 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    char* end = strchr(loc_str, ')');
 
 		    double x = 0.0; double y = 0.0; double z = 0.0;
+
+		    //initialize the array of monitor locs and deallocate memory if necessary
+		    size_t cur_size = 2*SMALL_BUF_SIZE;
+		    if (monitor_locs) free(monitor_locs);
+		    monitor_locs = NULL;
+		    while (!monitor_locs) {
+			cur_size /= 2;
+			monitor_locs = (meep::vec*)malloc(sizeof(monitor_locs)*cur_size);
+		    }
+		    n_locs = 0;
 		    //only proceed if we have pointers to the start and end of the current entry
 		    while (cur_entry && end) {
 			x = 0.0;
@@ -693,8 +703,25 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 			    break;
 			}
 
-			//save the information
-			monitor_locs.push_back( meep::vec(x, y, z) );
+			//resize the buffer if necessary
+			if (n_locs == cur_size) {
+			    cur_size *= 2;
+			    meep::vec* tmp = NULL;
+			    while (!tmp) {
+				cur_size *= 3;
+				cur_size /= 4;
+				tmp = (meep::vec*)realloc(monitor_locs, sizeof(meep::vec)*cur_size);
+			    }
+			    //check to make sure that memory allocation was successful
+			    if (cur_size <= n_locs) {
+				if (ercode) *ercode = E_NOMEM;
+				break;
+			    }
+			    monitor_locs = tmp;
+			}
+			//construct the meep vector in place inside the buffer
+			meep::vec* ptr = new (monitor_locs + n_locs) meep::vec(x, y, z);
+			++n_locs;
 
 			//advance to the next entry
 			if (end[1] == 0) break;
@@ -702,6 +729,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 			if (!cur_entry) break;
 			end = strchr(cur_entry, ')');
 		    }
+		    monitor_locs = (meep::vec*)realloc(monitor_locs, sizeof(meep::vec)*n_locs);
 		    free(loc_str);
 		}
 	    }
@@ -714,6 +742,17 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 
 bound_geom::~bound_geom() {
     if (strct) delete strct;
+    //deallocate memory for the monitor locs
+    if (monitor_locs) {
+	//for (size_t i = 0; i < n_locs; ++i) delete (monitor_locs+n_locs);
+	free(monitor_locs);
+    }
+}
+
+std::vector<meep::vec> bound_geom::get_monitor_locs() {
+    std::vector<meep::vec> ret(n_locs);
+    for(size_t i = 0; i < n_locs; ++i) ret[i] = monitor_locs[i];
+    return ret;
 }
 
 /**
@@ -763,15 +802,10 @@ void bound_geom::run(const char* fname_prefix) {
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
 
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
-    n_locs = monitor_locs.size();
     field_times.resize(n_locs);
-    sto_locs = (sto_vec*)realloc(sto_locs, sizeof(sto_vec)*n_locs);
     n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
     for (_uint j = 0; j < n_locs; ++j) {
 	make_data_arr(&(field_times[j]), n_t_pts);
-    sto_locs[j].x = monitor_locs[j].x();
-    sto_locs[j].y = monitor_locs[j].y();
-    sto_locs[j].z = monitor_locs[j].z();
     }
 
     //figure out the number of digits before the decimal and after
@@ -787,7 +821,7 @@ void bound_geom::run(const char* fname_prefix) {
     printf("starting simulations\n");
     for (_uint i = 0; i < n_t_pts; ++i) {
 	//fetch monitor points
-	for (_uint j = 0; j < monitor_locs.size(); ++j) {
+	for (_uint j = 0; j < n_locs; ++j) {
 	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
 	    field_times[j].buf[i].re = val.real();
 	    field_times[j].buf[i].im = val.imag();
@@ -800,7 +834,7 @@ void bound_geom::run(const char* fname_prefix) {
 
 	    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
 	    fields.step();
-        printf("    %f%% complete\n", (float)i/n_t_pts);
+	    printf("    %f%% complete\n", (float)i/n_t_pts);
 
 	    //we're done with the file
 	    delete file;
@@ -838,8 +872,8 @@ void bound_geom::save_field_times(const char* fname_prefix, size_t* save_pts, si
     H5::DataSpace l_space(1, l_dim);
 
     //take the fourier transform for each point
-    std::vector<data_arr> fours(monitor_locs.size());
-    for (_uint j = 0; j < monitor_locs.size(); ++j) {
+    std::vector<data_arr> fours(n_locs);
+    for (_uint j = 0; j < n_locs; ++j) {
         fours[j] = fft(field_times[j]);
         f_dim[0] = fours[j].size;
     }
@@ -867,11 +901,12 @@ void bound_geom::save_field_times(const char* fname_prefix, size_t* save_pts, si
 	H5::DataSpace f_space(1, f_dim);
 	//create a group to hold the current data point
 	snprintf(out_name, SMALL_BUF_SIZE, "/point_%d", j);
-    printf("saving point %d to group %s\n", j, out_name);
+	printf("saving point %d to group %s\n", j, out_name);
 	H5::Group cur_group = file.createGroup(out_name);
 	//write the location
 	H5::DataSet l_dataset(cur_group.createDataSet("location", loctype, l_space));
-	l_dataset.write(sto_locs+j, loctype);
+	sto_vec tmp_vec(monitor_locs[i].x(), monitor_locs[i].y(), monitor_locs[i].z());
+	l_dataset.write(&(tmp_vec), loctype);
 	//write the time and frequency domain data to the file
 	H5::DataSet t_dataset(cur_group.createDataSet("time", fieldtype, t_space));
 	H5::DataSet f_dataset(cur_group.createDataSet("frequency", fieldtype, f_space));
