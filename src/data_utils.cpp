@@ -9,11 +9,11 @@ complex conj(complex z) {
 
 complex c_exp(complex z) {
     if (z.re == 0) {
-	complex ret = {cos(z.im), sin(z.im)};
+	complex ret = {(_ftype)cos(z.im), (_ftype)sin(z.im)};
 	return ret;
     } else {
-	double mult = exp(z.re);
-	complex ret = {mult*cos(z.im), mult*sin(z.im)};
+	_ftype mult = exp(z.re);
+	complex ret = {mult*(_ftype)cos(z.im), mult*(_ftype)sin(z.im)};
 	return ret;
     }
 }
@@ -23,16 +23,16 @@ complex c_mult(complex z, complex w) {
     return ret;
 }
 
-complex c_multd(complex z, double w) {
+complex c_multd(complex z, _ftype w) {
     complex ret = { z.re*w, z.im*w };
     return ret;
 }
 
-double abs_sq(complex z) {
+_ftype abs_sq(complex z) {
     return z.re*z.re + z.im*z.im;
 }
 
-double abs(complex z) {
+_ftype abs(complex z) {
     return sqrt(abs_sq(z));
 }
 
@@ -188,7 +188,7 @@ void add_point(data_arr* dat, complex val) {
     dat->buf[(dat->size)++] = val;
 }
 
-void d_add_point(data_arr* dat, double val) {
+void d_add_point(data_arr* dat, _ftype val) {
     complex pt = {0, val};
     add_point(dat, pt);
 }
@@ -217,8 +217,8 @@ int pw_mult(data_arr& a, const data_arr b) {
 int pw_mult(data_arr a, const data_arr b) {
 #endif
     if (b.size != a.size) return -1;
-    double tmp_re = 0;
-    double tmp_im = 0;
+    _ftype tmp_re = 0;
+    _ftype tmp_im = 0;
     for (_ulong k = 0; k < a.size; ++k) {
 	tmp_re = a.buf[k].re*b.buf[k].re - a.buf[k].im*b.buf[k].im;
 	tmp_im = a.buf[k].re*b.buf[k].im + a.buf[k].im*b.buf[k].re;
@@ -407,7 +407,7 @@ data_arr fft(const data_arr dat) {
     for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
 
     //make a helper object that keeps track of information over recursive steps
-    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
+    dat_helper help = {dat, truncated_size, 2*(_ftype)M_PI/dat.size, final_result};
 
     part_fft(help, 1, 0);
     return help.sto;
@@ -428,7 +428,7 @@ data_arr ifft(const data_arr dat) {
     for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
 
     //make a helper object that keeps track of information over recursive steps
-    dat_helper help = {dat, truncated_size, -2*M_PI/dat.size, final_result};
+    dat_helper help = {dat, truncated_size, -2*(_ftype)M_PI/dat.size, final_result};
 
     part_fft(help, 1, 0);
     return help.sto;
@@ -449,7 +449,7 @@ data_arr rfft(const data_arr dat) {
     for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
 
     //make a helper object that keeps track of information over recursive steps
-    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
+    dat_helper help = {dat, truncated_size, 2*(_ftype)M_PI/dat.size, final_result};
 
     part_rfft(help, 1, 0);
     return help.sto;
@@ -470,7 +470,7 @@ data_arr irfft(const data_arr dat) {
     for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
 
     //make a helper object that keeps track of information over recursive steps
-    dat_helper help = {dat, truncated_size, 2*M_PI/dat.size, final_result};
+    dat_helper help = {dat, truncated_size, 2*(_ftype)M_PI/dat.size, final_result};
 
     part_rfft(help, 1, 0);
     return help.sto;

@@ -13,6 +13,9 @@
 #include "cgs.hpp"
 #define PREFIX_LEN 3
 
+//meep seems to be confused about how large fields are. On the cluster I consistently saw writes past the official meep bounds. This constant is here to help prevent data clobbering
+#define FIELDS_PAD_SIZE 10
+
 #define DEFAULT_WIDTH_N 5
 #define THICK_SCALE 1.0
 
@@ -21,6 +24,12 @@ const double sharpness = 5;
 const double DEF_SEED = 0xd9a28bf3;
 /*double z_center;
 double eps_scale;*/
+
+#ifdef STO_PREC_64
+const H5::DataType H5_float_type = H5::PredType::NATIVE_DOUBLE;
+#else
+const H5::DataType H5_float_type = H5::PredType::NATIVE_FLOAT;
+#endif
 
 typedef struct {
     CompositeObject* c;
@@ -86,10 +95,10 @@ public:
 };
 
 struct sto_vec {
-    double x;
-    double y;
-    double z;
-    sto_vec(double xx, double yy, double zz) { x = xx;y = yy;z = zz; }
+    _ftype x;
+    _ftype y;
+    _ftype z;
+    sto_vec(_ftype xx, _ftype yy, _ftype zz) { x = xx;y = yy;z = zz; }
 };
 
 class bound_geom {
@@ -103,6 +112,9 @@ public:
     void add_volume_source(meep::component c, const meep::src_time &src, const Box& vol, std::complex<double> amp = 1.0);
     void run(const char* fname_prefix);
     void save_field_times(const char* fname_prefix, size_t* save_pts=NULL, size_t n_save_pts=0);
+
+    double fs_to_meep_time(double t) { return t*0.299792458*um_scale; }
+    double meep_time_to_fs(double t) { return t/(0.299792458*um_scale); }
 
     Scene problem;
 
@@ -121,8 +133,12 @@ private:
     //meep objects
     meep::grid_volume vol;
     meep::structure* strct = NULL;
-    meep::fields* fields = NULL;
+    meep::fields fields;
 
+    //meep:fields seems to be confused about how long it is, so we add a whole bunch of dummy variables so that it doesn't clobber other variables
+    char dummy_vals[FIELDS_PAD_SIZE];
+
+    double um_scale;
     double ttot = 0;
     _uint n_t_pts = 0;
     double post_source_t = 0.0;
