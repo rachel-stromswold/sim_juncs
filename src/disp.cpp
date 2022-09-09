@@ -463,6 +463,111 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, i
     return ret;
 }
 
+/**
+ * Read a CompositeObject specifying monitor locations into a list of monitor locations
+ */
+void bound_geom::parse_monitors(CompositeObject* comp) {
+    //only continue if the user specified locations
+    if (comp->has_metadata("locations")) {
+	char* loc_str = strdup(comp->fetch_metadata("locations").c_str());
+	//break up the string by end parens
+	char* save_str;
+	char* tok = NULL;
+	//find the first entry
+	char* cur_entry = strchr(loc_str, '(');
+	char* end = strchr(loc_str, ')');
+
+	double x = 0.0; double y = 0.0; double z = 0.0;
+
+	//initialize the array of monitor locs and deallocate memory if necessary
+	size_t cur_size = 2*SMALL_BUF_SIZE;
+	if (monitor_locs) free(monitor_locs);
+	monitor_locs = NULL;
+	while (!monitor_locs) {
+	    cur_size /= 2;
+	    monitor_locs = (meep::vec*)malloc(sizeof(monitor_locs)*cur_size);
+	}
+	n_locs = 0;
+	//only proceed if we have pointers to the start and end of the current entry
+	while (cur_entry && end) {
+	    x = 0.0;
+	    y = 0.0;
+	    z = 0.0;
+	    //the open paren must occur before the end paren
+	    if (cur_entry > end) {
+		std::cout << "Error: Invalid locations string" << comp->fetch_metadata("locations") << std::endl;
+		break;
+	    }
+
+	    //null terminate the parenthesis and tokenize by commas
+	    end[0] = 0;
+	    //read the x value
+	    tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
+	    x = strtod(tok, NULL);
+	    if (errno) {
+		printf("Error: Invalid token: %s", tok);
+		errno = 0;
+		break;
+	    }
+	    //read the y value
+	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+	    if (!tok) {
+		std::cout << "Error: Invalid locations string" << comp->fetch_metadata("locations") << std::endl;
+		break;
+	    }
+	    y = strtod(tok, NULL);
+	    if (errno) {
+		printf("Error: Invalid token: %s", tok);
+		break;
+	    }
+	    //read the z value
+	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
+	    if (!tok) {
+		std::cout << "Error: Invalid locations string" << comp->fetch_metadata("locations") << std::endl;
+		break;
+	    }
+	    z = strtod(tok, NULL);
+	    if (errno) {
+		printf("Error: Invalid token: %s", tok);
+		break;
+	    }
+
+	    //construct the meep vector in place inside the buffer
+	    monitor_locs.push_back(meep::vec(x, y, z));
+
+	    //advance to the next entry
+	    if (end[1] == 0) break;
+	    cur_entry = strchr(end+1, '(');
+	    if (!cur_entry) break;
+	    end = strchr(cur_entry, ')');
+	}
+	free(loc_str);
+    } else if (comp->has_metadata("spacing")) {
+	double spacing = std::stod(comp->fetch_metadata("spacing"));
+	//users may also specify monitor locations by providing a Box object and a spacing between each grid point
+	const Object* l_child = comp->get_child_l();
+	if (l_child && comp->get_child_type_l() == CGS_BOX) {
+	    evec3 center = ((Box*)l_child)->get_center();
+	    evec3 offset = ((Box*)l_child)->get_offset();
+	    //fix the box such that each offset is positive
+	    if (offset.x < 0) offset.x *= -1;
+	    if (offset.y < 0) offset.y *= -1;
+	    if (offset.z < 0) offset.z *= -1;
+	    //find the two corners of the box
+	    evec3 min = center - offset;
+	    evec3 max = center + offset;
+	    //iterate over the volume with step size=spacing
+	    for (double x = min.x; x <= max.x; x += spacing) {
+		for (double y = min.y; y <= max.y; y += spacing) {
+		    for (double z = min.y; z <= max.z; z += spacing) {
+			monitor_locs.push_back(meep::vec(x, y, z));
+		    }
+		}
+	    }
+	} 
+    }
+}
+
 double dummy_eps(const meep::vec& r) { return 1.0; }
 
 /**
@@ -638,100 +743,8 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    if (ercode) *ercode = E_BAD_VALUE;
 		}
 	    } else if (data[i]->fetch_metadata("type") == "monitor") {
-		//only continue if the user specified locations
-		if (data[i]->has_metadata("locations")) {
-		    char* loc_str = strdup(data[i]->fetch_metadata("locations").c_str());
-		    //break up the string by end parens
-		    char* save_str;
-		    char* tok = NULL;
-		    //find the first entry
-		    char* cur_entry = strchr(loc_str, '(');
-		    char* end = strchr(loc_str, ')');
-
-		    double x = 0.0; double y = 0.0; double z = 0.0;
-
-		    //initialize the array of monitor locs and deallocate memory if necessary
-		    size_t cur_size = 2*SMALL_BUF_SIZE;
-		    if (monitor_locs) free(monitor_locs);
-		    monitor_locs = NULL;
-		    while (!monitor_locs) {
-			cur_size /= 2;
-			monitor_locs = (meep::vec*)malloc(sizeof(monitor_locs)*cur_size);
-		    }
-		    n_locs = 0;
-		    //only proceed if we have pointers to the start and end of the current entry
-		    while (cur_entry && end) {
-			x = 0.0;
-			y = 0.0;
-			z = 0.0;
-			//the open paren must occur before the end paren
-			if (cur_entry > end) {
-			    std::cout << "Error: Invalid locations string" << data[i]->fetch_metadata("locations") << std::endl;
-			    break;
-			}
-
-			//null terminate the parenthesis and tokenize by commas
-			end[0] = 0;
-			//read the x value
-			tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
-			x = strtod(tok, NULL);
-			if (errno) {
-			    printf("Error: Invalid token: %s", tok);
-			    errno = 0;
-			    break;
-			}
-			//read the y value
-			tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-			if (!tok) {
-			    std::cout << "Error: Invalid locations string" << data[i]->fetch_metadata("locations") << std::endl;
-			    break;
-			}
-			y = strtod(tok, NULL);
-			if (errno) {
-			    printf("Error: Invalid token: %s", tok);
-			    break;
-			}
-			//read the z value
-			tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-			if (!tok) {
-			    std::cout << "Error: Invalid locations string" << data[i]->fetch_metadata("locations") << std::endl;
-			    break;
-			}
-			z = strtod(tok, NULL);
-			if (errno) {
-			    printf("Error: Invalid token: %s", tok);
-			    break;
-			}
-
-			//resize the buffer if necessary
-			if (n_locs == cur_size) {
-			    cur_size *= 2;
-			    meep::vec* tmp = NULL;
-			    while (!tmp) {
-				cur_size *= 3;
-				cur_size /= 4;
-				tmp = (meep::vec*)realloc(monitor_locs, sizeof(meep::vec)*cur_size);
-			    }
-			    //check to make sure that memory allocation was successful
-			    if (cur_size <= n_locs) {
-				if (ercode) *ercode = E_NOMEM;
-				break;
-			    }
-			    monitor_locs = tmp;
-			}
-			//construct the meep vector in place inside the buffer
-			meep::vec* ptr = new (monitor_locs + n_locs) meep::vec(x, y, z);
-			++n_locs;
-
-			//advance to the next entry
-			if (end[1] == 0) break;
-			cur_entry = strchr(end+1, '(');
-			if (!cur_entry) break;
-			end = strchr(cur_entry, ')');
-		    }
-		    monitor_locs = (meep::vec*)realloc(monitor_locs, sizeof(meep::vec)*n_locs);
-		    free(loc_str);
-		}
+		parse_monitors(data[i]);
+		monitor_groups.push_back(monitor_locs.size());
 	    }
 	}
     }
@@ -742,19 +755,14 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 
 bound_geom::~bound_geom() {
     if (strct) delete strct;
-    //deallocate memory for the monitor locs
-    if (monitor_locs) {
-	//for (size_t i = 0; i < n_locs; ++i) delete (monitor_locs+n_locs);
-	free(monitor_locs);
-    }
     if (fields) delete fields;
 }
 
-std::vector<meep::vec> bound_geom::get_monitor_locs() {
+/*std::vector<meep::vec> bound_geom::get_monitor_locs() {
     std::vector<meep::vec> ret(n_locs);
     for(size_t i = 0; i < n_locs; ++i) ret[i] = monitor_locs[i];
     return ret;
-}
+}*/
 
 /**
  * Add a point source specified by src at the location source_loc.
@@ -835,7 +843,7 @@ void bound_geom::run(const char* fname_prefix) {
 
 	    fields->output_hdf5(meep::Ex, vol.surroundings(), file);
 	    fields->step();
-	    printf("    %f%% complete\n", (float)i/n_t_pts);
+	    printf("    %d%% complete\n", 100*i/n_t_pts);
 
 	    //we're done with the file
 	    delete file;
@@ -852,6 +860,8 @@ void bound_geom::run(const char* fname_prefix) {
  */
 void bound_geom::save_field_times(const char* fname_prefix, size_t* save_pts, size_t n_save_pts) {
     char out_name[SMALL_BUF_SIZE];
+
+    size_t n_locs = monitor_locs.size();
     //create the field type and specify members
     H5::CompType fieldtype(sizeof(complex));
     fieldtype.insertMember("Re", HOFFSET(complex, re), H5::PredType::NATIVE_FLOAT);

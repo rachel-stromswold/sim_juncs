@@ -96,7 +96,7 @@ class bound_geom {
 public:
     bound_geom(const Settings& s, parse_ercode* ercode=NULL);
     ~bound_geom();
-    std::vector<meep::vec> get_monitor_locs();
+    std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
     std::vector<data_arr> get_field_times() { return field_times; }
 
     void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
@@ -113,9 +113,8 @@ public:
     meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
 
 private:
-    //TODO: this is rather sketchy, but for some reason using an std vector randomly changed sizes. I assumed this was a memory error but valgrind made no complaints.
-    size_t n_locs = 0;
-    meep::vec* monitor_locs = NULL;
+    std::vector<meep::vec> monitor_locs;
+    std::vector<size_t> monitor_groups;
     std::vector<data_arr> field_times;
 
     //meep objects
