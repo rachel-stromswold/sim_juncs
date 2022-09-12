@@ -304,7 +304,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 		    if (env_func.n_args < 3) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
-			width = strtod(env_func.args[2], NULL) / freq;
+			width = strtod(env_func.args[2], NULL);
 			if (errno) tmp_er = E_BAD_TOKEN;
 			//set default values
 			amplitude = 1;
@@ -709,10 +709,14 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 			if (*ercode == E_SUCCESS) {
                 double c_by_a = 0.299792458*s.um_scale;
 			    //We specify the width of the pulse in units of the oscillation period
-			    double frequency = cur_info.freq*c_by_a;
-			    double width = cur_info.width/c_by_a;
-			    double start_time = cur_info.start_time/c_by_a;
-			    double end_time = cur_info.end_time/c_by_a;
+                double frequency = 1 / (cur_info.freq*s.um_scale);//TODO:rename to wavelength
+                double width = cur_info.width*c_by_a;
+                double start_time = cur_info.start_time*c_by_a;
+                double end_time = cur_info.end_time*c_by_a;
+			    /*double frequency = cur_info.freq/s.um_scale;
+			    double width = cur_info.width*c_by_a;
+			    double start_time = cur_info.start_time*c_by_a;
+			    double end_time = cur_info.end_time*c_by_a;*/
 			    if (cur_info.type == SRC_GAUSSIAN) {
 				printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
 					frequency, width, start_time, end_time);

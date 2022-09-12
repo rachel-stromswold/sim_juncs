@@ -544,9 +544,9 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.type == SRC_GAUSSIAN);
 	CHECK(inf.component == meep::Ey);
 	CHECK(inf.freq == 1.333333);
-	CHECK(inf.width == doctest::Approx(2.25));
+	CHECK(inf.width == doctest::Approx(3.0));
 	CHECK(inf.start_time == 0.2);
-	CHECK(inf.end_time == doctest::Approx(22.7));
+	CHECK(inf.end_time == doctest::Approx(30.2));
 	CHECK(inf.amplitude == 7.0);
 
 	inf = geometry.sources[1];

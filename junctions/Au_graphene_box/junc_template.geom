@@ -1,4 +1,4 @@
-data(type = field_source, envelope = "Gaussian(Ex, 0.75, 1.5, 0.0, 3.0, 1.0)") {
+data(type = field_source, envelope = "Gaussian(Ex, 0.75, 1.5, 0.0, 3.5, 1.0)") {
     Box([0,0,1], [18,18,1]);
 }
 
