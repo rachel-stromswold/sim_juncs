@@ -25,10 +25,10 @@ const double DEF_SEED = 0xd9a28bf3;
 /*double z_center;
 double eps_scale;*/
 
-#ifdef STO_PREC_64
-const H5::DataType H5_float_type = H5::PredType::NATIVE_DOUBLE;
-#else
+#ifdef STO_PREC_32
 const H5::DataType H5_float_type = H5::PredType::NATIVE_FLOAT;
+#else
+const H5::DataType H5_float_type = H5::PredType::NATIVE_DOUBLE;
 #endif
 
 typedef struct {

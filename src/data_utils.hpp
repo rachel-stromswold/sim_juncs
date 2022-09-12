@@ -8,10 +8,10 @@
 #include <stdlib.h>
 #include <math.h>
 
-#ifdef STO_PREC_64
-typedef double _ftype;
-#else
+#ifdef STO_PREC_32
 typedef float _ftype;
+#else
+typedef double _ftype;
 #endif
 
 typedef unsigned long long _ulong;

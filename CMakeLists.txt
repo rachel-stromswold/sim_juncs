@@ -19,6 +19,9 @@ find_package(HDF5 REQUIRED COMPONENTS CXX HL)
 set(Eigen3_DIR "/software/eigen/3.3.7/b1/share/eigen3/cmake")
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 
+if (${STO_PREC_32} MATCHES "^[Tt]rue")
+    add_compile_definitions(STO_PREC_32=1)
+endif()
 #add targets for libraries
 add_executable( ${APP_EXE} src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main.cpp )
 
