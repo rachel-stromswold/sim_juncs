@@ -38,7 +38,7 @@ TEST_CASE("Test Fourier transforms") {
     }
 
     SUBCASE("the fourier transform of a gaussian is a gaussian") {
-	const double gauss_sigma_sq = 2;
+	const _ftype gauss_sigma_sq = 2;
 	const int k_0 = 8;//use ints to make k-k_0 and k_0-k both valid. Totally not sketch :p
 	for (int k = 0; k < dat.size; ++k) {
 	    //fill up each index with a pseudo random number between 0 and 1
@@ -52,7 +52,7 @@ TEST_CASE("Test Fourier transforms") {
 
 	//take the fourier transform and multiply by a normalization
 	data_arr fft_dat = rfft(dat);
-	complex scale = {1/sqrt(2*M_PI*gauss_sigma_sq), 0};
+	complex scale = {1/(_ftype)sqrt(2*M_PI*gauss_sigma_sq), 0};
 	pw_mult_scale(fft_dat, scale);
 	//print out the result
 	printf("Fourier transform Gaussian: \n");
@@ -60,10 +60,10 @@ TEST_CASE("Test Fourier transforms") {
 	printf("\n");
 
 	//check that the inverse fft of the fft is approximately the original
-	double omega_scale = 2*M_PI/dat.size;
-	double k_0_by_sigma = k_0/sqrt(gauss_sigma_sq);
+	_ftype omega_scale = 2*M_PI/dat.size;
+	_ftype k_0_by_sigma = k_0/sqrt(gauss_sigma_sq);
 	for (size_t k = 0; k < fft_dat.size; ++k) {
-	    double omega = omega_scale*k;
+	    _ftype omega = omega_scale*k;
 	    //the phase should be -\frac{\sigma^2\omega^2}{2} - i\omega k_0
 	    complex expected_phase = {-omega*omega*gauss_sigma_sq/2, -omega*k_0};
 	    complex expected = c_exp(expected_phase);
@@ -78,7 +78,7 @@ TEST_CASE("Test Fourier transforms") {
 	_uint rand = 314159265;
 	complex phi = {0.0, 0.0};
 	complex x = {0.0, 0.0};
-	double N = (double)dat.size;
+	_ftype N = (_ftype)dat.size;
 	//generate a pseudo-random walk
 	for (int k = 0; k < dat.size; ++k) {
 	    //fill up each index with a pseudo random number between 0 and 1
@@ -120,6 +120,41 @@ TEST_CASE("Test Fourier transforms") {
 	cleanup_data_arr(&new_dat);
     }
     cleanup_data_arr(&dat);
+}
+
+TEST_CASE("Check that numbers are written correctly") {
+    char buf[BUF_SIZE];
+    //simple numbers
+    int res = write_number(buf, BUF_SIZE, 1, 1);
+    CHECK(res == 0);
+    CHECK(strcmp(buf, "1") == 0);
+    res = write_number(buf, BUF_SIZE, 23, 2);
+    CHECK(res == 0);
+    CHECK(strcmp(buf, "23") == 0);
+    res = write_number(buf, BUF_SIZE, 4, 2);
+    CHECK(res == 0);
+    CHECK(strcmp(buf, "04") == 0);
+    res = write_number(buf, BUF_SIZE, 5, 3);
+    CHECK(res == 0);
+    CHECK(strcmp(buf, "005") == 0);
+    //negative numbers
+    res = write_number(buf, BUF_SIZE, -6, 2);
+    CHECK(res == 0);
+    CHECK(strcmp(buf, "-6") == 0);
+    res = write_number(buf, BUF_SIZE, -78, 3);
+    CHECK(res == 0);
+    CHECK(strcmp(buf, "-78") == 0);
+
+    //check invalid conditions
+    res = write_number(buf, BUF_SIZE, -1, 1);
+    CHECK(res < 0);
+    CHECK(strlen(buf) == 1);
+    res = write_number(buf, BUF_SIZE, 23, 1);
+    CHECK(res < 0);
+    CHECK(strlen(buf) == 1);
+    res = write_number(buf, BUF_SIZE, 456, 2);
+    CHECK(res < 0);
+    CHECK(strlen(buf) == 2);
 }
 
 TEST_CASE("Test function parsing") {
@@ -528,7 +563,7 @@ TEST_CASE("Test geometry file reading") {
     }
 }
 
-void* read_h5_array_raw(const H5::Group& grp, H5::CompType& ctype, size_t el_size, const std::string name, size_t* n_entries) {
+void* read_h5_array_raw(const H5::Group& grp, const H5::DataType& ctype, size_t el_size, const std::string name, size_t* n_entries) {
     *n_entries = 0;
     try {
 	//find the dataspace for real values
@@ -569,7 +604,7 @@ TEST_CASE("Test running with a very small system") {
     //make things a little faster because we don't care
     args.pml_thickness = 1.0;
     args.len = 2.0;
-    args.resolution = 2.0;
+    args.resolution = 5.0;
 
     //try creating the geometry object
     bound_geom geometry(args, &er);
@@ -582,13 +617,15 @@ TEST_CASE("Test running with a very small system") {
     CHECK(field_times.size() > 0);
 
     //check that writing hdf5 files works
-    CHECK(geometry.get_monitor_locs().size() > 0);
+    std::vector<meep::vec> mon_locs = geometry.get_monitor_locs();
+    CHECK(mon_locs.size() > 0);
+    CHECK(mon_locs.size() == field_times.size());
     geometry.save_field_times(args.out_dir);
     
     //We need to create an hdf5 data type for complex values
     H5::CompType fieldtype(sizeof(complex));
     //for some reason linking insertMember breaks on the cluster, we do it manually
-    hid_t float_member_id = H5::PredType::NATIVE_FLOAT.getId();
+    hid_t float_member_id = H5_float_type.getId();
     snprintf(name_buf, BUF_SIZE, "Re");
     herr_t ret_val = H5Tinsert(fieldtype.getId(), name_buf, HOFFSET(complex, re), float_member_id);
     CHECK(ret_val == 0);
@@ -611,28 +648,67 @@ TEST_CASE("Test running with a very small system") {
     //read the h5 file
     snprintf(name_buf, BUF_SIZE, "%s/field_samples.h5", args.out_dir);
     H5::H5File file(name_buf, H5F_ACC_RDONLY);
-    H5::Group grp = file.openGroup("/point_0");
+    //check that the info group is correct
+    H5::Group grp = file.openGroup("info");
+    size_t n_c_pts, n_l_pts, n_f_pts, n_t_pts;
+    _ftype* t_bounds = (_ftype*)read_h5_array_raw(grp, H5_float_type, sizeof(_ftype), "time_bounds", &n_t_pts);
+    CHECK(n_t_pts == 2);
+    CHECK(t_bounds[0] == 0.0);
+    CHECK(t_bounds[1] > 0.0);
+    free(t_bounds);
+    //read the cluster data
+    hsize_t* clust_data = (hsize_t*)read_h5_array_raw(grp, H5::PredType::NATIVE_HSIZE, sizeof(hsize_t), "n_clusters", &n_c_pts);
+    CHECK(n_c_pts == 1);
+    size_t n_clusts = *clust_data;
+    free(clust_data);
+    CHECK(n_clusts == geometry.get_n_monitor_clusters());
 
-    //check that the location is correct
-    size_t n_l_pts;
-    sto_vec* l_data = (sto_vec*)read_h5_array_raw(grp, loctype, sizeof(sto_vec), "location", &n_l_pts);
-    CHECK(n_l_pts == 1);
-    CHECK(l_data != NULL);
-    CHECK(l_data[0].x == 1.0);
-    CHECK(l_data[0].y == 1.0);
-    CHECK(l_data[0].z == 1.0);
-    //read the data from the file we opened
-    size_t n_f_pts, n_t_pts;
-    complex* f_data = (complex*)read_h5_array_raw(grp, fieldtype, sizeof(complex), "frequency", &n_f_pts);
-    complex* t_data = (complex*)read_h5_array_raw(grp, fieldtype, sizeof(complex), "time", &n_t_pts);
-    CHECK(f_data != NULL);
-    CHECK(t_data != NULL);
-    CHECK(n_f_pts > 0);
-    //since the fourier transform should only go to +- the nyquist frequency, it must have fewer elements
-    CHECK(n_t_pts >= n_f_pts);
-    free(f_data);
-    free(t_data);
-    free(l_data);
+    //iterate through each of the specified clusters
+    size_t n_group_digits = (size_t)(n_clusts / log(10)) + 1;
+    for (size_t i = 0; i < n_clusts; ++i) {
+	strncpy(name_buf, CLUSTER_NAME, BUF_SIZE);
+	write_number(name_buf + strlen(CLUSTER_NAME), BUF_SIZE-strlen(CLUSTER_NAME), i, n_group_digits);
+	printf("Now reading cluster %d\n", i);
+	grp = file.openGroup(name_buf);
+	//check that the location data is correct
+	sto_vec* l_data = (sto_vec*)read_h5_array_raw(grp, loctype, sizeof(sto_vec), "locations", &n_l_pts);
+	CHECK(n_l_pts == mon_locs.size());
+	for (_uint i = 0; i < mon_locs.size(); ++i) {
+	    CHECK(l_data != NULL);
+	    CHECK(l_data[i].x == doctest::Approx(mon_locs[i].x()));
+	    CHECK(l_data[i].y == doctest::Approx(mon_locs[i].y()));
+	    CHECK(l_data[i].z == doctest::Approx(mon_locs[i].z()));
+	}
+	free(l_data);
+	//iterate through each point and read time series
+	size_t n_pt_digits = (size_t)(log(n_l_pts) / log(10)) + 1;
+	strncpy(name_buf, POINT_NAME, BUF_SIZE);
+	//check that the time series and fourier transforms are correct
+	for (_uint j = 0; j < n_l_pts; ++j) {
+	    //open the appropriate group
+	    write_number(name_buf + strlen(POINT_NAME), BUF_SIZE-strlen(POINT_NAME), j, n_pt_digits);
+	    printf("\tNow reading point %d\n", j);
+	    H5::Group point_grp = grp.openGroup(name_buf);
+      
+	    //read the data from the file we opened
+	    complex* f_data = (complex*)read_h5_array_raw(point_grp, fieldtype, sizeof(complex), "frequency", &n_f_pts);
+	    complex* t_data = (complex*)read_h5_array_raw(point_grp, fieldtype, sizeof(complex), "time", &n_t_pts);
+	    CHECK(f_data != NULL);
+	    CHECK(t_data != NULL);
+	    CHECK(n_f_pts > 0);
+	    //since the fourier transform should only go to +- the nyquist frequency, it must have fewer elements
+	    CHECK(n_t_pts >= n_f_pts);
+
+	    //check that the stored times match the data in the geometry object
+	    CHECK(n_t_pts == field_times[j].size);
+	    for (_uint k = 0; k < n_t_pts; ++k) {
+		CHECK(t_data[k].re == field_times[j].buf[k].re);
+		CHECK(t_data[k].im == field_times[j].buf[k].im);
+	    }
+	    free(f_data);
+	    free(t_data);
+	}
+    }
     file.close();
 
     cleanup_settings(&args);

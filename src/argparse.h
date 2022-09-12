@@ -45,6 +45,38 @@ typedef struct {
     _uint field_dump_span = 20;
 } Settings;
 
+/**
+ * Saves a string with the desired numbers with zeros appended to the front such that the total length of the string is n_digits
+ * str: c string to write to
+ * buf_size: at most buf_size-1 bytes will be written to str, the string is gauranteed to be NULL terminated
+ * num: the number to write
+ * n_digits: the number of digits to format the string to
+ * returns 0: on success, -1 on failure
+ */
+inline int write_number(char* str, size_t buf_size, int num, size_t n_digits) {
+    if (buf_size < n_digits + 1) return -1;
+    //null terminate
+    str[n_digits] = 0;
+    if (n_digits == 0) return 0;
+    //handle negative numbers
+    if (num < 0) {
+	str[0] = '-';
+	num *= -1;
+	str += 1;
+	buf_size -= 1;
+	n_digits -= 1;
+    }
+    int k = n_digits-1;
+    do {
+	//this means that there weren't enough digits to write the whole string
+	if (k < 0) return -1;
+	str[k--] = (num % 10) + '0';
+	num /= 10;
+    } while (num > 0);
+    for (; k >= 0; --k) str[k] = '0';
+    return 0;
+}
+
 /*
  * handy utility function which checks if the pointer is valid and saves to it if it is.
  */

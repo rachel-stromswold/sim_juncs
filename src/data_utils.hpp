@@ -8,6 +8,12 @@
 #include <stdlib.h>
 #include <math.h>
 
+#ifdef STO_PREC_32
+typedef float _ftype;
+#else
+typedef double _ftype;
+#endif
+
 typedef unsigned long long _ulong;
 
 // ================================ complex struct ================================
@@ -15,24 +21,24 @@ typedef unsigned long long _ulong;
 
 #ifdef __cplusplus
 struct complex {
-    double re;
-    double im;
+    _ftype re;
+    _ftype im;
 
     complex& operator=(complex o) { re = o.re;im = o.im;return *this; }
-    complex& operator=(double o) { re = o;return *this; }
+    complex& operator=(_ftype o) { re = o;return *this; }
     complex operator+=(complex o) { re += o.re; im += o.im;return *this; }
-    operator double() const { return re; }
+    operator _ftype() const { return re; }
     complex operator+(complex o) { return { re+o.re, im+o.im }; }
     complex operator-(complex o) { return { re-o.re, im-o.im }; }
     complex operator*(complex o) { return { re*o.re - im*o.im, re*o.im + im*o.re }; }
-    complex operator*(double b) { return { re*b, im*b }; }
-    complex operator/(complex o) { double norm2 = o.re*o.re + o.im*o.im;return { (re*o.re + im*o.im)/norm2, (im*o.re - re*o.im)/norm2 }; }
-    complex operator/(double b) { return { re/b, im/b }; }
+    complex operator*(_ftype b) { return { re*b, im*b }; }
+    complex operator/(complex o) { _ftype norm2 = o.re*o.re + o.im*o.im;return { (re*o.re + im*o.im)/norm2, (im*o.re - re*o.im)/norm2 }; }
+    complex operator/(_ftype b) { return { re/b, im/b }; }
 };
 #else
 typedef struct {
-    double re;
-    double im;
+    _ftype re;
+    _ftype im;
 } complex;
 #endif
 
@@ -40,9 +46,9 @@ typedef struct {
 complex conj(complex z);
 complex c_exp(complex z);
 complex c_mult(complex z, complex w);
-complex c_multd(complex z, double w);
-double abs_sq(complex z);
-double abs(complex z);
+complex c_multd(complex z, _ftype w);
+_ftype abs_sq(complex z);
+_ftype abs(complex z);
 
 // ================================ data struct ================================
 #ifdef __cplusplus
@@ -74,7 +80,7 @@ void make_data_arr(data_arr* dat, _ulong size);
 void resize(data_arr* dat, _ulong new_size);
 void cleanup_data_arr(data_arr* dat);
 void add_point(data_arr* dat, complex val);
-void d_add_point(data_arr* dat, double val);
+void d_add_point(data_arr* dat, _ftype val);
 
 //piecewise arithmetic operations on data_arrs
 #ifdef __cplusplus
@@ -104,7 +110,7 @@ void pw_abs(data_arr a);
 typedef struct {
     const data_arr dat;
     const _ulong truncated_size;
-    const double tau_by_n;
+    const _ftype tau_by_n;
     data_arr sto;
 } dat_helper;
 

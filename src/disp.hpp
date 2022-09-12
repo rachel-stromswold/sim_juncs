@@ -13,14 +13,26 @@
 #include "cgs.hpp"
 #define PREFIX_LEN 3
 
+//meep seems to be confused about how large fields are. On the cluster I consistently saw writes past the official meep bounds. This constant is here to help prevent data clobbering
+#define FIELDS_PAD_SIZE 10
+
 #define DEFAULT_WIDTH_N 5
 #define THICK_SCALE 1.0
+
+#define CLUSTER_NAME "cluster_"
+#define POINT_NAME "point_"
 
 //simulation parameters
 const double sharpness = 5;
 const double DEF_SEED = 0xd9a28bf3;
 /*double z_center;
 double eps_scale;*/
+
+#ifdef STO_PREC_32
+const H5::DataType H5_float_type = H5::PredType::NATIVE_FLOAT;
+#else
+const H5::DataType H5_float_type = H5::PredType::NATIVE_DOUBLE;
+#endif
 
 typedef struct {
     CompositeObject* c;
@@ -86,10 +98,10 @@ public:
 };
 
 struct sto_vec {
-    double x;
-    double y;
-    double z;
-    sto_vec(double xx, double yy, double zz) { x = xx;y = yy;z = zz; }
+    _ftype x;
+    _ftype y;
+    _ftype z;
+    sto_vec(_ftype xx, _ftype yy, _ftype zz) { x = xx;y = yy;z = zz; }
 };
 
 class bound_geom {
@@ -98,30 +110,39 @@ public:
     ~bound_geom();
     std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
     std::vector<data_arr> get_field_times() { return field_times; }
+    size_t get_n_monitor_clusters() const { return monitor_clusters.size(); }
 
     void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
     void add_volume_source(meep::component c, const meep::src_time &src, const Box& vol, std::complex<double> amp = 1.0);
     void run(const char* fname_prefix);
-    void save_field_times(const char* fname_prefix, size_t* save_pts=NULL, size_t n_save_pts=0);
+    void save_field_times(const char* fname_prefix);
+
+    double fs_to_meep_time(double t) const { return t*0.299792458*um_scale; }
+    double meep_time_to_fs(double t) const { return t/(0.299792458*um_scale); }
 
     Scene problem;
 
 #ifdef DEBUG_INFO
     std::vector<source_info> sources;
-#endif
     std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
     meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
+    void parse_monitors(CompositeObject* comp);
+#endif
 
 private:
     std::vector<meep::vec> monitor_locs;
-    std::vector<size_t> monitor_groups;
+    std::vector<size_t> monitor_clusters;
     std::vector<data_arr> field_times;
 
     //meep objects
     meep::grid_volume vol;
     meep::structure* strct = NULL;
-    meep::fields* fields = NULL;
+    meep::fields fields;
 
+    //meep:fields seems to be confused about how long it is, so we add a whole bunch of dummy variables so that it doesn't clobber other variables
+    char dummy_vals[FIELDS_PAD_SIZE];
+
+    double um_scale;
     double ttot = 0;
     _uint n_t_pts = 0;
     double post_source_t = 0.0;
@@ -132,6 +153,12 @@ private:
     double z_center;
     double eps_scale;
     _uint dump_span = 20;
+
+#ifndef DEBUG_INFO
+    std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
+    meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
+    void parse_monitors(CompositeObject* comp);
+#endif
 };
 
 #endif //DISP_H
