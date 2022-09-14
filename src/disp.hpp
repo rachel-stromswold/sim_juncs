@@ -87,7 +87,7 @@ class source_info {
 public:
     src_type type;
     meep::component component;
-    double freq;
+    double wavelen;
     double width;
     double start_time;
     double end_time;
@@ -110,6 +110,7 @@ public:
     ~bound_geom();
     std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
     std::vector<data_arr> get_field_times() { return field_times; }
+    std::vector<source_info> get_sources() { return sources; }
     size_t get_n_monitor_clusters() const { return monitor_clusters.size(); }
 
     void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
@@ -123,13 +124,13 @@ public:
     Scene problem;
 
 #ifdef DEBUG_INFO
-    std::vector<source_info> sources;
     std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
     meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
     void parse_monitors(CompositeObject* comp);
 #endif
 
 private:
+    std::vector<source_info> sources;
     std::vector<meep::vec> monitor_locs;
     std::vector<size_t> monitor_clusters;
     std::vector<data_arr> field_times;
