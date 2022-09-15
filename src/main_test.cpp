@@ -539,20 +539,21 @@ TEST_CASE("Test geometry file reading") {
 
     SUBCASE("Test reading of field sources") {
 #ifdef DEBUG_INFO
-	CHECK(geometry.sources.size() == 2);
-	source_info inf = geometry.sources[0];
+    std::vector<source_info> sources = geometry.get_sources();
+	CHECK(sources.size() == 2);
+	source_info inf = sources[0];
 	CHECK(inf.type == SRC_GAUSSIAN);
 	CHECK(inf.component == meep::Ey);
-	CHECK(inf.freq == 1.333333);
+	CHECK(inf.wavelen == 1.333333);
 	CHECK(inf.width == doctest::Approx(3.0));
 	CHECK(inf.start_time == 0.2);
 	CHECK(inf.end_time == doctest::Approx(30.2));
 	CHECK(inf.amplitude == 7.0);
 
-	inf = geometry.sources[1];
+	inf = sources[1];
 	CHECK(inf.type == SRC_CONTINUOUS);
 	CHECK(inf.component == meep::Hz);
-	CHECK(inf.freq == 1.66);
+	CHECK(inf.wavelen == 1.66);
 	CHECK(inf.start_time == 0.2);
 	CHECK(inf.end_time == 1.2);
 	CHECK(inf.width == 0.1);

@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH -p femto --time=02:00:00 --mem=244G
+#SBATCH -p femto --time=05:00:00 --mem=244G
 #SBATCH -a 1-4
 
 run_local="f"
 run_simuls="t"
-make_movie="t"
+make_movie="f"
 SCALE=8.0
 
 #set the output directory name
@@ -25,7 +25,7 @@ done
 if [ $run_local == "f" ]; then
     pname="/local_scratch/$SLURM_JOB_ID"
     #pname="/scratch/sstromsw/junc_simuls"
-    oname="/scratch/sstromsw/junc_simuls"
+    oname="/scratch/$(whoami)/junc_simuls"
 
     module load python3/3.8.8
     module load meep/b3

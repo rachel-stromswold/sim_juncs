@@ -293,7 +293,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 	    }
 
 	    if (tmp_er == E_SUCCESS) {
-		freq = strtod(env_func.args[1], NULL);
+		wavelen = strtod(env_func.args[1], NULL);
 		if (errno) tmp_er = E_BAD_TOKEN;
 		//figure out what to do depending on what type of pulse envelope this is
 		if (strcmp(env_func.name, "gaussian") == 0 || strcmp(env_func.name, "Gaussian") == 0) {
@@ -709,14 +709,10 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 			if (*ercode == E_SUCCESS) {
                 double c_by_a = 0.299792458*s.um_scale;
 			    //We specify the width of the pulse in units of the oscillation period
-                double frequency = 1 / (cur_info.freq*s.um_scale);//TODO:rename to wavelength
+                double frequency = 1 / (cur_info.wavelen*s.um_scale);//TODO:rename to wavelength
                 double width = cur_info.width*c_by_a;
                 double start_time = cur_info.start_time*c_by_a;
                 double end_time = cur_info.end_time*c_by_a;
-			    /*double frequency = cur_info.freq/s.um_scale;
-			    double width = cur_info.width*c_by_a;
-			    double start_time = cur_info.start_time*c_by_a;
-			    double end_time = cur_info.end_time*c_by_a;*/
 			    if (cur_info.type == SRC_GAUSSIAN) {
 				printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
 					frequency, width, start_time, end_time);
@@ -852,7 +848,7 @@ void bound_geom::run(const char* fname_prefix) {
 }
 
 /**
- * Save time and frequency domain data for each monitor_loc
+ * Save time and wavelenuency domain data for each monitor_loc
  * fname: filename to use for saving information
  * save_pts: an array of indices of points that the user wants to save. If NULL (default), then all points are saved.
  * n_locs: the size of the array pointed to by save_pts
@@ -873,7 +869,6 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     H5::DataSpace t_space(1, t_dim);
 
     //create the location type and specify members
-    printf("blah %d\n", HOFFSET(sto_vec, y));
     H5::CompType loctype(sizeof(sto_vec));
     loctype.insertMember("x", HOFFSET(sto_vec, x), H5_float_type);
     loctype.insertMember("y", HOFFSET(sto_vec, y), H5_float_type);
@@ -882,6 +877,18 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     hsize_t l_dim[1];
     l_dim[0] = {n_locs};
     H5::DataSpace l_space(1, l_dim);
+
+    //create the source type and specify members
+    H5::CompType srctype(sizeof(source_info));
+    /*H5::DataType enum_src_type(H5T_ENUM, sizeof(src_type));
+    H5::DataType enum_component(H5T_ENUM, sizeof(meep::component));
+    srctype.insertMember("type", HOFFSET(source_info, type), enum_src_type);
+    srctype.insertMember("component", HOFFSET(source_info, component), enum_component);*/
+    srctype.insertMember("wavelen", HOFFSET(source_info, wavelen), H5_float_type);
+    srctype.insertMember("width", HOFFSET(source_info, width), H5_float_type);
+    srctype.insertMember("start_time", HOFFSET(source_info, start_time), H5_float_type);
+    srctype.insertMember("end_time", HOFFSET(source_info, end_time), H5_float_type);
+    srctype.insertMember("amplitude", HOFFSET(source_info, amplitude), H5_float_type);
 
     //take the fourier transform for each point
     std::vector<data_arr> fours(n_locs);
@@ -920,6 +927,17 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     H5::DataSet n_info_dataset(info_group.createDataSet("n_clusters", H5::PredType::NATIVE_HSIZE, n_info_space));
     hsize_t n_clusters = monitor_clusters.size();
     n_info_dataset.write(&n_clusters, H5::PredType::NATIVE_HSIZE);
+    //write information about sources
+    size_t n_srcs = sources.size();
+    source_info* tmp_srcs = (source_info*)malloc(sizeof(source_info)*n_srcs);
+    hsize_t src_dim[1];
+    src_dim[0] = {n_srcs};
+    H5::DataSpace src_space(1, src_dim);
+    H5::DataSet src_dataset(info_group.createDataSet("sources", srctype, src_space));
+    //copy the sources into the buffer we just allocated and convert to fs
+    for (_uint i = 0; i < n_srcs; ++i) tmp_srcs[i] = sources[i];
+    src_dataset.write(tmp_srcs, srctype);
+    free(tmp_srcs);
 
     //iterate over each desired point and save its time series and fourier transform
     printf("found %d monitor locations\n", n_locs);
@@ -961,7 +979,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	    printf("saving point %d to group %s\n", i, out_name);
 	    H5::Group cur_group = clust_group.createGroup(out_name);
 
-	    //write the time and frequency domain data to the file
+	    //write the time and wavelenuency domain data to the file
 	    H5::DataSet t_dataset(cur_group.createDataSet("time", fieldtype, t_space));
 	    H5::DataSet f_dataset(cur_group.createDataSet("frequency", fieldtype, f_space));
 	    t_dataset.write(field_times[i].buf, fieldtype);
