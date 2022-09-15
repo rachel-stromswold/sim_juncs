@@ -709,7 +709,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 			if (*ercode == E_SUCCESS) {
                 double c_by_a = 0.299792458*s.um_scale;
 			    //We specify the width of the pulse in units of the oscillation period
-                double frequency = 1 / (cur_info.wavelen*s.um_scale);//TODO:rename to wavelength
+                double frequency = 1 / (cur_info.wavelen*s.um_scale);
                 double width = cur_info.width*c_by_a;
                 double start_time = cur_info.start_time*c_by_a;
                 double end_time = cur_info.end_time*c_by_a;
