@@ -40,10 +40,14 @@ if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     target_include_directories( ${TEST_EXE} PRIVATE ${HDF5_INCLUDE_DIRS} )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest")
     #copy files needed for unit testing
-    configure_file(tests/test.geom tests/test.geom COPYONLY)
-    configure_file(tests/test.conf tests/test.conf COPYONLY)
-    configure_file(tests/run.geom tests/run.geom COPYONLY)
-    configure_file(tests/run.conf tests/run.conf COPYONLY)
+
+    add_custom_command(TARGET ${TEST_EXE} POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E copy_directory
+		   ${CMAKE_SOURCE_DIR}/tests $<TARGET_FILE_DIR:${PROJECT_NAME}>/tests)
+	       #configure_file(tests/test.geom tests/test.geom COPYONLY)
+	       #configure_file(tests/test.conf tests/test.conf COPYONLY)
+	       #configure_file(tests/run.geom tests/run.geom COPYONLY)
+	       #configure_file(tests/run.conf tests/run.conf COPYONLY)
 endif()
 
 #allow the user to specify what type of geometry they'd like to use
