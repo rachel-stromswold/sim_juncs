@@ -59,6 +59,7 @@ configure_file(junctions/${JUNCTION_TYPE}/params.conf params.conf COPYONLY)
 #copy utility scripts that are used
 configure_file(scripts/run.sh run.sh COPYONLY)
 configure_file(scripts/utils.py utils.py COPYONLY)
+configure_file(scripts/phases.py phases.py COPYONLY)
 configure_file(scripts/set_dims.py set_dims.py COPYONLY)
 configure_file(scripts/time_space.py time_space.py COPYONLY)
 configure_file(scripts/check_enes.py check_enes.py COPYONLY)
