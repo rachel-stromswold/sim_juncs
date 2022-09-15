@@ -828,9 +828,9 @@ void bound_geom::run(const char* fname_prefix) {
 	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
 	    field_times[j].buf[i].re = val.real();
 	    field_times[j].buf[i].im = val.imag();
-        if (field_times[j].buf[i].re > 1000) {
-            printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, field_times[j].buf[i].re);
-        }
+	    if (field_times[j].buf[i].re > 1000) {
+		printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, field_times[j].buf[i].re);
+	    }
 	}
 
         //open an hdf5 file with a reasonable name
@@ -947,43 +947,37 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     size_t n_pt_digits = (size_t)(log(n_locs) / log(10)) + 1;
     //we need to keep track of which monitor location each cluster starts with
     size_t mon_loc_offset = 0;
-    for (_uint j = 0; j < monitor_clusters.size(); ++j) {
+    for (_uint j = 0; j < monitor_clusters.size()+1; ++j) {
+	_uint max_i;
+	if (j >= monitor_clusters.size())
+	    max_i = n_locs;
+	else
+	    max_i = monitor_clusters[j];
 	//write the name for the current group
 	strncpy(out_name, CLUSTER_NAME, SMALL_BUF_SIZE);
 	write_number(out_name + strlen(CLUSTER_NAME), SMALL_BUF_SIZE-strlen(CLUSTER_NAME), j, n_group_digits);
 	H5::Group clust_group = file.createGroup(out_name);
 	//write the locations in this cluster
 	//set the size of the space to only include however many points are in the current cluster
-	size_t n_pts = monitor_clusters[j] - mon_loc_offset;
+	size_t n_pts = max_i - mon_loc_offset;
 	l_dim[0] = {n_pts};
 	l_space = H5::DataSpace(1, l_dim);
 	H5::DataSet l_dataset(clust_group.createDataSet("locations", loctype, l_space));
 	l_dataset.write(tmp_vecs+mon_loc_offset, loctype);
 	//update the monitor location offset
-	mon_loc_offset = monitor_clusters[j];
+	mon_loc_offset = max_i;
 
 	//write the (prefix for) the points in the group
 	strncpy(out_name, POINT_NAME, SMALL_BUF_SIZE);
-	for (; i < monitor_clusters[j]; ++i) {
+	for (; i < max_i; ++i) {
 	    if (field_times[i].size < n_t_pts) {
 		printf("Error: monitor location %d has insufficient points\n", i);
 		break;
 	    }
-	    //take the fourier transform and find its size
-	    /*data_arr four = fft(field_times[i]);
-	    H5::DataSpace f_space(1, f_dim);*/
-	    //create a group to hold the current data point
-	    //snprintf(out_name, SMALL_BUF_SIZE, "/point_%d", i);
+	    //create a unique name for the point that respects alphabetic sorting
 	    write_number(out_name + strlen(POINT_NAME), SMALL_BUF_SIZE-strlen(POINT_NAME), i, n_pt_digits);
 	    printf("saving point %d to group %s\n", i, out_name);
 	    H5::Group cur_group = clust_group.createGroup(out_name);
-	    // ================================= DEBUG STUFF =============================================
-	    for (_uint k = 0; k < field_times[i].size; ++k) {
-		if (field_times[i].buf[i].re > 1000) {
-		    printf("divergence in save_field_times at (i,j)=(%d,%d) (%f)\n", i, k, field_times[i].buf[k].re);
-		}
-	    }
-	    // ================================= DEBUG STUFF =============================================
 
 	    //write the time and wavelenuency domain data to the file
 	    H5::DataSet t_dataset(cur_group.createDataSet("time", fieldtype, t_space));
@@ -992,4 +986,5 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	    f_dataset.write(fours[i].buf, fieldtype);
 	}
     }
+    free(tmp_vecs);
 }

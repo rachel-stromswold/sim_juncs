@@ -590,6 +590,39 @@ void* read_h5_array_raw(const H5::Group& grp, const H5::DataType& ctype, size_t 
     }
 }
 
+TEST_CASE("Test that spans of monitor locations are read correctly") {
+    parse_ercode er;
+
+    //load settings from the configuration file
+    Settings args;
+    std::string name = "tests/span.conf";
+    char* name_dup = strdup(name.c_str());
+    int ret = parse_conf_file(&args, name_dup);
+    free(name_dup);
+
+    //try creating the geometry object
+    bound_geom geometry(args, &er);
+    const size_t SPAN = 20;
+    CHECK(er == E_SUCCESS);
+    //(2/0.1)^2 == 400
+    CHECK(geometry.get_n_monitor_clusters() == 1);
+    std::vector<meep::vec> mon_locs = geometry.get_monitor_locs();
+    CHECK(mon_locs.size() == SPAN*SPAN);
+    double x = 1;
+    for (_uint i = 0; i < SPAN; ++i) {
+	double y = 1;
+	for (_uint j = 0; j < SPAN; ++j) {
+	    CHECK(mon_locs[SPAN*i+j].x() == doctest::Approx(x));
+	    CHECK(mon_locs[SPAN*i+j].y() == doctest::Approx(y));
+	    CHECK(mon_locs[SPAN*i+j].z() == doctest::Approx(1));
+	    y += 0.1;
+	}
+	x += 0.1;
+    }
+
+    cleanup_settings(&args);
+}
+
 TEST_CASE("Test running with a very small system") {
     parse_ercode er;
     char name_buf[BUF_SIZE];

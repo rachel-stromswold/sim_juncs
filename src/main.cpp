@@ -27,6 +27,7 @@ int main(int argc, char **argv) {
         name = strdup(cpp_name.c_str());
     }
     ret = parse_conf_file(&args, name);
+    meep::verbosity = args.verbosity;
     //free memory if it was allocated
     if (!args.conf_fname) free(name);
     if (ret) return ret;

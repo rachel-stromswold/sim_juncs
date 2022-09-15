@@ -43,6 +43,7 @@ typedef struct {
     char* monitor_locs = NULL;
     double post_source_t = 10.0;
     _uint field_dump_span = 20;
+    _uint verbosity = 1;//same as meep
 } Settings;
 
 /**
@@ -303,6 +304,19 @@ inline int parse_args(Settings* a, int* argc, char ** argv) {
 		    return 0;
 		} else {
 		    a->ambient_eps = strtod(argv[i+1], NULL);
+		    //check for errors
+		    if (errno != 0) {
+			printf("Invalid floating point supplied to --eps1");
+			return errno;
+		    }
+		    to_rm = 2;
+		}
+	    } else if (strstr(argv[i], "-v") == argv[i]) {
+		if (i == n_args-1) {
+		    printf("Usage: meep --eps1 <epsilon1>");
+		    return 0;
+		} else {
+		    a->verbosity = strtol(argv[i+1], NULL, 10);
 		    //check for errors
 		    if (errno != 0) {
 			printf("Invalid floating point supplied to --eps1");
