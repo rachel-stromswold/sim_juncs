@@ -949,7 +949,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     size_t mon_loc_offset = 0;
     for (_uint j = 0; j < monitor_clusters.size()+1; ++j) {
 	_uint max_i;
-	if (j >= monitor_clusters.size)
+	if (j >= monitor_clusters.size())
 	    max_i = n_locs;
 	else
 	    max_i = monitor_clusters[j];
