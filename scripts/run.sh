@@ -71,14 +71,18 @@ else
 fi
 
 #make the frequency space plot
-python time_space.py --prefix $h5dir --gap-width ${widths[$((SLURM_ARRAY_TASK_ID-1))]} --gap-thick $thickness
+python time_space.py --fname $h5dir/field_samples.h5 --prefix $h5dir
+python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir
 
 #move the plots into a folder where we can view them
 cp "$h5dir"/eps.pdf "$oname"/figures/eps_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/fields.txt "$oname"/figures/fields_"$SLURM_ARRAY_TASK_ID".txt
 cp "$h5dir"/field_samples.h5 "$oname"/figures/field_samples_"$SLURM_ARRAY_TASK_ID".h5
-cp "$h5dir"/space_plot.pdf "$oname"/figures/space_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/cross_plot.pdf "$oname"/figures/cross_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/tdom_plot.pdf "$oname"/figures/tdom_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/fdom_plot.pdf "$oname"/figures/fdom_plot_test_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/space_plot.pdf "$oname"/figures/space_plot_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/cross_plot.pdf "$oname"/figures/cross_plot_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/tdom_plot.pdf "$oname"/figures/tdom_plot_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/fdom_plot.pdf "$oname"/figures/fdom_plot_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/amps.pdf "$oname"/figures/amps_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/phases.pdf "$oname"/figures/phases_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/sigs.pdf "$oname"/figures/sigs_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/fdom_plot_2d.pdf "$oname"/figures/fdom_plot_2d_test_"$SLURM_ARRAY_TASK_ID".pdf

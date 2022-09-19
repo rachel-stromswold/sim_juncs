@@ -10,10 +10,11 @@ N_COLS = 4
 
 #parse arguments supplied via command line
 parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian pulse envelope to perform CEP estimation.')
+parser.add_argument('--fname', type=str, help='h5 file to read', default='field_samples.h5')
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 args = parser.parse_args()
 
-with h5py.File(args.prefix+"/field_samples.h5", "r") as f:
+with h5py.File(args.fname, "r") as f:
     point_names = list(f['cluster_0'].keys())[1:]
     n_pts = len(point_names)
     n_x_slices = N_COLS
@@ -61,6 +62,7 @@ print("last_time = %f, %f" % (last_time, last_time))
 time_pts = np.linspace(0, last_time, num=len(sample_fields[0][0]))
 
 #get phase estimates
+#phases.opt_pulse_env(time_pts, sample_fields[2][3])
 reses = [[phases.opt_pulse_env(time_pts, sample_fields[i][j]) for j in range(n_x_slices)] for i in range(n_z_slices)]
 
 #make plots
@@ -84,7 +86,7 @@ for j, z in enumerate(z_slices):
         axs_td[j][k].plot(time_pts, phases.gauss_series(res_opt[0].x, time_pts))
         phase = res_opt[0].x[4]
         if abs(phase) > 0.1:
-            axs_td[j][k].annotate(r"$\phi/\pi = {0:.2g}$".format(phase/np.pi), (0.4, 0.1), xycoords='axes fraction')
+            axs_td[j][k].annotate(r"$\phi/\pi = {0:.2g}$".format(phase/np.pi), (0.1, 0.1), xycoords='axes fraction')
         axs_td[j][k].set_ylim(t_bounds)
 
 fig_td.set_tight_layout(True)

@@ -13,6 +13,7 @@ for fname in *.out; do
 done
 
 #copy whatever parameters were used for the simulation
+cp run.sh "$prefix/run.sh"
 cp params.conf "$prefix/params.conf"
 cp junc_template.eps "$prefix/junc_template.eps"
 
