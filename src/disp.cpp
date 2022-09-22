@@ -88,7 +88,8 @@ cgs_material_function::cgs_material_function(CompositeObject* p_volume, std::str
 	double scale = def_ret;
 	//lookup the scaling constant by reading metadata from the object
 	if (p_volume->has_metadata(type)) {
-	    scale = std::stod(p_volume->fetch_metadata(type));
+	    Value tmp_val = p_volume->fetch_metadata(type);
+	    if (tmp_val.get_type() == VAL_NUM) scale = tmp_val.to_float();
 	}
 	regions[0].s = scale;//by default set the scale to whatever the default return value is
 	regions[0].c = p_volume;
@@ -204,7 +205,8 @@ void cgs_material_function::add_region(CompositeObject* p_reg, std::string type)
 	double scale = def_ret;
 	//lookup the scaling constant by reading metadata from the object
 	if (p_reg->has_metadata(type)) {
-	    scale = std::stod(p_reg->fetch_metadata(type));
+	    Value tmp_val = p_reg->fetch_metadata(type);
+	    if (tmp_val.get_type() == VAL_NUM) scale = tmp_val.to_float();
 	}
 	regions[n_regions-1].s = scale;//by default set the scale to whatever the default return value is
     }
@@ -276,24 +278,26 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
     //all sources require that a component and frequency be specified
     if (tmp_er == E_SUCCESS) {
 	if (env_func.n_args > 2) {
-	    if (strcmp(env_func.args[0], "Ex") == 0) {
+	    char* comp_name = NULL;
+	    if (env_func.args[0].get_type() == VAL_STR) comp_name = env_func.args[0].get_val().s;
+	    if (strcmp(comp_name, "Ex") == 0) {
 		component = meep::Ex;
-	    } else if (strcmp(env_func.args[0], "Ey") == 0) {
+	    } else if (strcmp(comp_name, "Ey") == 0) {
 		component = meep::Ey;
-	    } else if (strcmp(env_func.args[0], "Ez") == 0) {
+	    } else if (strcmp(comp_name, "Ez") == 0) {
 		component = meep::Ez;
-	    } else if (strcmp(env_func.args[0], "Hx") == 0) {
+	    } else if (strcmp(comp_name, "Hx") == 0) {
 		component = meep::Hx;
-	    } else if (strcmp(env_func.args[0], "Hy") == 0) {
+	    } else if (strcmp(comp_name, "Hy") == 0) {
 		component = meep::Hy;
-	    } else if (strcmp(env_func.args[0], "Hz") == 0) {
+	    } else if (strcmp(comp_name, "Hz") == 0) {
 		component = meep::Hz;
 	    } else {
 		tmp_er = E_BAD_TOKEN;
 	    }
 
 	    if (tmp_er == E_SUCCESS) {
-		wavelen = strtod(env_func.args[1], NULL);
+		if (env_func.args[1].get_type() == VAL_NUM) wavelen = env_func.args[1].get_val().x;
 		if (errno) tmp_er = E_BAD_TOKEN;
 		//figure out what to do depending on what type of pulse envelope this is
 		if (strcmp(env_func.name, "gaussian") == 0 || strcmp(env_func.name, "Gaussian") == 0) {
@@ -304,49 +308,72 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 		    if (env_func.n_args < 3) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
-			width = strtod(env_func.args[2], NULL);
-			if (errno) tmp_er = E_BAD_TOKEN;
+			if (env_func.args[2].get_type() == VAL_NUM)
+			    width = env_func.args[2].get_val().x;
+			else
+			    tmp_er = E_BAD_TOKEN;
 			//set default values
 			amplitude = 1;
 			start_time = 0;
 			cutoff = DEFAULT_WIDTH_N;
 			//read the start time if supplied
 			if (env_func.n_args > 3) {
-			    start_time = strtod(env_func.args[3], NULL);
+			    if (env_func.args[3].get_type() == VAL_NUM)
+				start_time = env_func.args[3].get_val().x;
+			    else
+				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the cutoff if supplied
 			if (env_func.n_args > 4) {
-			    cutoff = strtod(env_func.args[4], NULL);
+			    if (env_func.args[4].get_type() == VAL_NUM)
+				cutoff = env_func.args[4].get_val().x;
+			    else
+				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the amplitude if supplied
 			if (env_func.n_args > 5) {
-			    amplitude = strtod(env_func.args[5], NULL);
+			    if (env_func.args[5].get_type() == VAL_NUM)
+				amplitude = env_func.args[5].get_val().x;
+			    else
+				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
-                end_time = start_time + 2*cutoff*width;
+		    end_time = start_time + 2*cutoff*width;
 		    }
 		} else if (strcmp(env_func.name, "continuous") == 0) {
 		    type = SRC_CONTINUOUS;
 		    if (env_func.n_args < 3) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
-			start_time = strtod(env_func.args[2], NULL);
+			if (env_func.args[2].get_type() == VAL_NUM)
+			    start_time = env_func.args[2].get_val().x;
+			else
+			    tmp_er = E_BAD_TOKEN;
 			if (errno) tmp_er = E_BAD_TOKEN;
 			//read the end time if supplied
 			if (env_func.n_args > 3) {
-			    end_time = strtod(env_func.args[3], NULL);
+			    if (env_func.args[3].get_type() == VAL_NUM)
+				end_time = env_func.args[3].get_val().x;
+			    else
+				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the width if supplied
 			if (env_func.n_args > 4) {
-			    width = strtod(env_func.args[4], NULL);
+			    if (env_func.args[4].get_type() == VAL_NUM)
+				width = env_func.args[4].get_val().x;
+			    else
+				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the amplitude if supplied
 			if (env_func.n_args > 5) {
-			    amplitude = strtod(env_func.args[5], NULL);
+			    if (env_func.args[5].get_type() == VAL_NUM)
+				amplitude = env_func.args[5].get_val().x;
+			    else
+				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 		    }
@@ -469,7 +496,11 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, i
 void bound_geom::parse_monitors(CompositeObject* comp) {
     //only continue if the user specified locations
     if (comp->has_metadata("locations")) {
-	char* loc_str = strdup(comp->fetch_metadata("locations").c_str());
+	Value tmp_val = comp->fetch_metadata("locations");
+	if (tmp_val.get_type() != VAL_STR) {
+	    printf("Location type is not string\n");
+	}
+	char* loc_str = strdup(tmp_val.to_c_str());
 	//break up the string by end parens
 	char* save_str;
 	char* tok = NULL;
@@ -488,7 +519,7 @@ void bound_geom::parse_monitors(CompositeObject* comp) {
 	    z = 0.0;
 	    //the open paren must occur before the end paren
 	    if (cur_entry > end) {
-		std::cout << "Error: Invalid locations string" << comp->fetch_metadata("locations") << std::endl;
+		printf("Error: Invalid locations string %s\n", tmp_val.get_val().s);
 		break;
 	    }
 
@@ -505,7 +536,7 @@ void bound_geom::parse_monitors(CompositeObject* comp) {
 	    //read the y value
 	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
 	    if (!tok) {
-		std::cout << "Error: Invalid locations string" << comp->fetch_metadata("locations") << std::endl;
+		printf("Error: Invalid locations string %s\n", tmp_val.get_val().s);
 		break;
 	    }
 	    y = strtod(tok, NULL);
@@ -516,7 +547,7 @@ void bound_geom::parse_monitors(CompositeObject* comp) {
 	    //read the z value
 	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
 	    if (!tok) {
-		std::cout << "Error: Invalid locations string" << comp->fetch_metadata("locations") << std::endl;
+		printf("Error: Invalid locations string %s\n", tmp_val.get_val().s);
 		break;
 	    }
 	    z = strtod(tok, NULL);
@@ -535,8 +566,8 @@ void bound_geom::parse_monitors(CompositeObject* comp) {
 	    end = strchr(cur_entry, ')');
 	}
 	free(loc_str);
-    } else if (comp->has_metadata("spacing")) {
-	double spacing = std::stod(comp->fetch_metadata("spacing"));
+    } else if (comp->has_metadata("spacing") && comp->fetch_metadata("spacing").get_type() == VAL_NUM) {
+	double spacing = comp->fetch_metadata("spacing").to_float();
 	//users may also specify monitor locations by providing a Box object and a spacing between each grid point
 	const Object* l_child = comp->get_child_l();
 	if (l_child && comp->get_child_type_l() == CGS_BOX) {
@@ -574,10 +605,12 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     std::vector<CompositeObject*> data = problem.get_data();
     for (size_t i = 0; i < data.size(); ++i) {
 	if (data[i]->has_metadata("pml_thickness")) {
-	    pml_thickness = std::stod(data[i]->fetch_metadata("pml_thickness"));
+	    Value tmp_val = data[i]->has_metadata("pml_thickness");
+	    if (tmp_val.get_type() == VAL_NUM) len = tmp_val.get_val().x;
 	}
 	if (data[i]->has_metadata("length")) {
-	    len = std::stod(data[i]->fetch_metadata("length"));
+	    Value tmp_val = data[i]->has_metadata("length");
+	    if (tmp_val.get_type() == VAL_NUM) len = tmp_val.get_val().x;
 	}
     }
 
@@ -631,10 +664,9 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     for (size_t i = 0; i < roots.size(); ++i) {
 	std::vector<drude_suscept> cur_sups;
 	int res = 0;
-	if (roots[i]->has_metadata("susceptibilities")) {
-	    char* dat = strdup(roots[i]->fetch_metadata("susceptibilities").c_str());
+	if (roots[i]->has_metadata("susceptibilities") && roots[i]->fetch_metadata("susceptibilities").get_type() == VAL_STR) {
+	    char* dat = roots[i]->fetch_metadata("susceptibilities").to_c_str();
 	    cur_sups = parse_susceptibilities(dat, &res);
-	    free(dat);
 	}
 	//add frequency dependent susceptibility
 	for (_uint j = 0; j < cur_sups.size(); ++j) {
@@ -703,16 +735,16 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
 
 		    //only continue if a shape for the pulse was specified
-		    if (data[i]->has_metadata("envelope")) {
-			source_info cur_info(data[i]->fetch_metadata("envelope"), problem, ercode);
+		    if (data[i]->has_metadata("envelope") && data[i]->fetch_metadata("envelope").get_type() == VAL_STR) {
+			source_info cur_info(data[i]->fetch_metadata("envelope").to_c_str(), problem, ercode);
 			//create the EM-wave source at the specified location only if everything was read successfully
 			if (*ercode == E_SUCCESS) {
-                double c_by_a = 0.299792458*s.um_scale;
+			    double c_by_a = 0.299792458*s.um_scale;
 			    //We specify the width of the pulse in units of the oscillation period
-                double frequency = 1 / (cur_info.wavelen*s.um_scale);
-                double width = cur_info.width*c_by_a;
-                double start_time = cur_info.start_time*c_by_a;
-                double end_time = cur_info.end_time*c_by_a;
+			    double frequency = 1 / (cur_info.wavelen*s.um_scale);
+			    double width = cur_info.width*c_by_a;
+			    double start_time = cur_info.start_time*c_by_a;
+			    double end_time = cur_info.end_time*c_by_a;
 			    if (cur_info.type == SRC_GAUSSIAN) {
 				printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
 					frequency, width, start_time, end_time);

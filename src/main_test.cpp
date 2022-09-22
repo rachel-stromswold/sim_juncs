@@ -161,14 +161,15 @@ TEST_CASE("Test function parsing") {
     char buf[BUF_SIZE];
 
     const char* test_func_1 = "f()";
-    const char* test_func_2 = "f(a, b, c)";
-    const char* test_func_3 = "foo([0,1,2,3],a,banana)";
-    const char* test_func_4 = "foo(a, Box(0,1,2,3), banana)";
-    const char* test_func_5 = "foo ( a , b , c )";
+    const char* test_func_2 = "f(\"a\", \"b\", \"c\", 4)";
+    const char* test_func_3 = "foo([1,2,3],\"a\",\"banana\")";
+    const char* test_func_4 = "foo(1, \"Box(0,1,2,3)\", 4+5)";
+    const char* test_func_5 = "foo ( 1 , \"b , c\" )";
     const char* test_func_6 = "f(eps = 3.5)";
     const char* bad_test_func_1 = "foo ( a , b , c";
-    const char* bad_test_func_2 = "foo ( a , b , c, )";
-    const char* bad_test_func_3 = "foo ( a ,, c )";
+    const char* bad_test_func_2 = "foo ( 1 , 2 , 3, )";
+    const char* bad_test_func_3 = "foo ( 1 ,, 3 )";
+    const char* bad_test_func_4 = "foo ( \"a\" , \"b\" , \"c\"";
 
     Scene sc;
     cgs_func cur_func;
@@ -180,15 +181,16 @@ TEST_CASE("Test function parsing") {
     //check string 2
     strncpy(buf, test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     sc.parse_func(buf, 1, cur_func, NULL);
-    CHECK(cur_func.n_args == 3);
+    CHECK(cur_func.n_args == 4);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "f") == 0);
     INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "a") == 0);
+    CHECK(strcmp(cur_func.args[0].to_c_str(), "a") == 0);
     INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[1], "b") == 0);
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "b") == 0);
     INFO("func arg=", cur_func.args[2]);
-    CHECK(strcmp(cur_func.args[2], "c") == 0);
+    CHECK(strcmp(cur_func.args[2].to_c_str(), "c") == 0);
+    CHECK(cur_func.args[3].to_float() == 4);
     //check string 3
     strncpy(buf, test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     sc.parse_func(buf, 3, cur_func, NULL);
@@ -196,43 +198,46 @@ TEST_CASE("Test function parsing") {
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
     INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "[0,1,2,3]") == 0);
+    CHECK(cur_func.args[0].get_type() == VAL_3VEC);
+    evec3* tmp_vec = cur_func.args[0].get_val().v;
+    CHECK(tmp_vec->x() == 1.0);
+    CHECK(tmp_vec->y() == 2.0);
+    CHECK(tmp_vec->z() == 3.0);
+    INFO("func arg=", cur_func.args[1].to_c_str());
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "a") == 0);
     INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[1], "a") == 0);
-    INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[2], "banana") == 0);
+    CHECK(strcmp(cur_func.args[2].to_c_str(), "banana") == 0);
     //check string 4
     strncpy(buf, test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     sc.parse_func(buf, 3, cur_func, NULL);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
-    INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "a") == 0);
-    INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[1], "Box(0,1,2,3)") == 0);
-    INFO("func arg=", cur_func.args[2]);
-    CHECK(strcmp(cur_func.args[2], "banana") == 0);
+    INFO("func arg=", cur_func.args[0].to_float());
+    CHECK(cur_func.args[0].to_float() == 1);
+    INFO("func arg=", cur_func.args[1].to_c_str());
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "Box(0,1,2,3)") == 0);
+    INFO("func arg=", cur_func.args[2].to_float());
+    CHECK(cur_func.args[2].to_float() == 9);
     //check string 5
     strncpy(buf, test_func_5, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     sc.parse_func(buf, 4, cur_func, NULL);
-    CHECK(cur_func.n_args == 3);
+    CHECK(cur_func.n_args == 2);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
-    INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "a") == 0);
-    INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[1], "b") == 0);
-    INFO("func arg=", cur_func.args[2]);
-    CHECK(strcmp(cur_func.args[2], "c") == 0);
+    INFO("func arg=", cur_func.args[0].to_float());
+    CHECK(cur_func.args[0].to_float() == 1);
+    INFO("func arg=", cur_func.args[1].to_c_str());
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "b, c") == 0);
     //check string 6
     strncpy(buf, test_func_6, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     sc.parse_func(buf, 1, cur_func, NULL);
     CHECK(cur_func.n_args == 1);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "f") == 0);
-    INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "eps = 3.5") == 0);
+    INFO("func arg=", cur_func.args[0].to_float());
+    CHECK(cur_func.args[0].to_float() == 3.5);
+    CHECK(strcmp(cur_func.arg_names[0], "eps") == 0);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     parse_ercode er = sc.parse_func(buf, 4, cur_func, NULL);
@@ -243,6 +248,10 @@ TEST_CASE("Test function parsing") {
     CHECK(er == E_LACK_TOKENS);
     //check bad string 3
     strncpy(buf, bad_test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
+    er = sc.parse_func(buf, 4, cur_func, NULL);
+    CHECK(er == E_LACK_TOKENS);
+    //check bad string 4
+    strncpy(buf, bad_test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     er = sc.parse_func(buf, 4, cur_func, NULL);
     CHECK(er == E_LACK_TOKENS);
 }
@@ -343,10 +352,10 @@ TEST_CASE("Test File Parsing") {
     CHECK(data_vec.size() > 0);
     CHECK(data_vec[0]->has_metadata("name"));
     CHECK(data_vec[0]->has_metadata("entry"));
-    std::string name_str = data_vec[0]->fetch_metadata("name");
-    std::string entry_str = data_vec[0]->fetch_metadata("entry");
-    CHECK(name_str == "foo");
-    CHECK(entry_str == "bar,(arr),[blah]");
+    Value name_val = data_vec[0]->fetch_metadata("name");
+    Value ntry_val = data_vec[0]->fetch_metadata("entry");
+    CHECK(name_val.to_float() == 3);
+    CHECK(strcmp(ntry_val.to_c_str(), "bar,(arr),[blah]") == 0);
 
     //test geometric information
     std::vector<CompositeObject*> roots_vec = s.get_roots();
@@ -521,7 +530,7 @@ TEST_CASE("Test geometry file reading") {
     SUBCASE("Test reading of susceptibilities") {
 	CHECK(er == E_SUCCESS);
 	CompositeObject* root = geometry.problem.get_roots()[0];
-	char* dat = strdup(root->fetch_metadata("susceptibilities").c_str());
+	char* dat = strdup(root->fetch_metadata("susceptibilities").to_c_str());
 	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat, (int*)(&er));
 	free(dat);
 	CHECK(sups.size() == 2);

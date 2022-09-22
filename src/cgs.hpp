@@ -16,10 +16,16 @@
 #define SIDE_END	2
 #define SIDE_UNDEF	3
 
+#define FLAG_NORMAL	0
+#define FLAG_OPER	1
+#define FLAG_COMP	2
+#define FLAG_AND	3
+typedef enum {OP_EQ, OP_ADD, OP_SUB, OP_MULT, OP_DIV, OP_NOT, OP_OR, OP_AND, OP_GRT, OP_LST, OP_GEQ, OP_LEQ, N_OPTYPES} Optype_e;
+
 typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
-typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY } parse_ercode;
+typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN } parse_ercode;
 
 typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE, CGS_CMB_NOOP } combine_type;
 //note that ROOTS are a special type of COMPOSITES
@@ -30,12 +36,6 @@ typedef Eigen::Vector3d evec3;
 typedef Eigen::Vector4d evec4;
 
 class CompositeObject;
-
-typedef struct {
-    char* name;
-    char* args[ARGS_BUF_SIZE];
-    _uint n_args = 0;
-} cgs_func;
 
 /**
   * Remove the whitespace surrounding a word
@@ -124,6 +124,51 @@ public:
 
 class Scene;
 
+typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT} valtype;
+class Value;
+union V {
+    char* s;
+    double x;
+    Value* l;
+    evec3* v;
+    Eigen::MatrixXd* m;
+};
+class Value {
+    friend class Scene;
+protected:
+    valtype type;
+    V val;
+    size_t n_els = 1; //only applicable for string and list types
+public:
+    Value() { type = VAL_UNDEF;val.x = 0;n_els=0; }
+    Value(const char* s);
+    Value(std::string s);
+    Value(double x) { type = VAL_NUM;val.x = x; }
+    Value(int x) { type = VAL_NUM;val.x = (double)x; }
+    Value(const Value* vs, size_t n_vs);
+    Value(Eigen::MatrixXd m);
+    Value(evec3 vec);
+    ~Value();
+    Value(const Value& o);//copy 
+    Value(Value&& o);//move
+    //Value& operator=(const Value& o);
+    Value& operator=(Value o);//assign
+    bool operator==(std::string str);
+    bool operator!=(std::string str);
+    valtype get_type() { return type; }
+    size_t size() { return n_els; }
+    V get_val() { return val; }
+    char* to_c_str();
+    double to_float();
+};
+
+typedef struct {
+    char* name;
+    Value args[ARGS_BUF_SIZE];
+    char* arg_names[ARGS_BUF_SIZE];
+    _uint n_args = 0;
+} cgs_func;
+
 /*
  * A composite object is a node in a binary tree that represents one or more primitives combined via unions and intersections
  */
@@ -136,7 +181,7 @@ protected:
     bool is_leaf;
 
     //metadata allows users to attach miscelaneous information to an object such as a name or material properties
-    std::unordered_map<std::string, std::string> metadata;
+    std::unordered_map<std::string, Value> metadata;
 
     //since we need to perform casts to use the appropriate object type, it's helpful to add a layer of abstraction
     int call_child_in(_uint side, const evec3& r);
@@ -160,13 +205,13 @@ public:
     object_type get_child_type_r() const { return child_types[1]; }
     combine_type get_combine_type() const { return cmb; }
     int has_metadata(std::string key) const { return metadata.count(key); }
-    std::string fetch_metadata(std::string key) { return metadata[key]; }
+    Value fetch_metadata(std::string key) { return metadata[key]; }
 };
 
 /**
  * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
  */
-typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_LITERAL, BLK_COMMENT} block_type;
+typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
 template <typename T>
 class CGS_Stack {
 protected:
@@ -190,6 +235,12 @@ public:
     bool is_empty() { return stack_ptr == 0; }
     size_t size() { return stack_ptr; }
     T peek(size_t ind = 1);
+};
+
+struct type_ind_pair {
+public:
+    block_type t;
+    size_t i;
 };
 
 struct side_obj_pair {
@@ -222,9 +273,10 @@ private:
     std::vector<CompositeObject*> roots;
     std::vector<CompositeObject*> data_objs;
 
-    parse_ercode lookup_val(char* tok, double& sto) const;
+    parse_ercode lookup_val(char* tok, Value& sto) const;
+    parse_ercode parse_value(char* tok, Value& sto) const;
     //let users define constants
-    std::unordered_map<std::string, std::string> named_items;
+    std::unordered_map<std::string, Value> named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
     parse_ercode read_file(const char* p_fname);
 
@@ -240,7 +292,7 @@ public:
     std::vector<CompositeObject*> get_data() { return data_objs; }
     void read();
 
-    parse_ercode parse_vector(char* str, evec3& sto) const;
+    parse_ercode parse_vector(char* str, Value& sto) const;
     parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const;
     parse_ercode make_transformation(const cgs_func& f, emat3& res) const;
     parse_ercode parse_func(char* token, long open_par_ind, cgs_func& f, char** end) const;
