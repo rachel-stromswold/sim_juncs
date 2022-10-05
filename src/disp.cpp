@@ -315,14 +315,19 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 			    start_time = strtod(env_func.args[3], NULL);
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
+			//read the start time if supplied
+			if (env_func.n_args > 3) {
+			    phase = strtod(env_func.args[3], NULL);
+			    if (errno) tmp_er = E_BAD_TOKEN;
+			}
 			//read the cutoff if supplied
-			if (env_func.n_args > 4) {
-			    cutoff = strtod(env_func.args[4], NULL);
+			if (env_func.n_args > 5) {
+			    cutoff = strtod(env_func.args[5], NULL);
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the amplitude if supplied
-			if (env_func.n_args > 5) {
-			    amplitude = strtod(env_func.args[5], NULL);
+			if (env_func.n_args > 6) {
+			    amplitude = strtod(env_func.args[6], NULL);
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
                 end_time = start_time + 2*cutoff*width;
@@ -362,8 +367,63 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 
     free(spec);
 }
+// bandwidth (in frequency units, not angular frequency) of the
+// continuous Fourier transform of the Gaussian source function
+// when it has decayed by a tolerance tol below its peak value
+static double gaussian_bandwidth(double width) {
+    double tol = 1e-7;
+    return sqrt(-2.0 * log(tol)) / (width * M_PI);
+}
 
+//TODO: remove?
+gaussian_src_time_phase::gaussian_src_time_phase(double f, double my_fwidth, double phase, double s) {
+    omega = 2*M_PI*f;
+    width = 1.0 / my_fwidth;
+    phi = phase;
+    peak_time = width * s;
+    cutoff = width * s;
+    fwidth = gaussian_bandwidth(width);
+    // correction factor so that current amplitude (= d(dipole)/dt) is
+    // ~ 1 near the peak of the Gaussian.
+    amp = 1.0 / std::complex<double>(0, -omega);
 
+    // this is to make last_source_time as small as possible
+    while (exp(-cutoff * cutoff / (2 * width * width)) < 1e-100)
+        cutoff *= 0.9;
+    cutoff = float(cutoff); // don't make cutoff sensitive to roundoff error
+}
+
+gaussian_src_time_phase::gaussian_src_time_phase(double f, double w, double phase, double st, double et) {
+    omega = 2*M_PI*f;
+    width = w;
+    phi = phase;
+    peak_time = 0.5*(st+et);
+    cutoff = (et-st)*0.5;
+    fwidth = gaussian_bandwidth(width);
+    // correction factor so that current amplitude (= d(dipole)/dt) is
+    // ~ 1 near the peak of the Gaussian.
+    amp = 1.0 / std::complex<double>(0, -omega);
+
+    // this is to make last_source_time as small as possible
+    while (exp(-cutoff * cutoff / (2 * width * width)) < 1e-100)
+        cutoff *= 0.9;
+    cutoff = float(cutoff); // don't make cutoff sensitive to roundoff error
+}
+
+std::complex<double> gaussian_src_time_phase::dipole(double time) const {
+    double tt = time - peak_time;
+    if (float(fabs(tt)) > cutoff) return 0.0;
+
+    return exp(-tt*tt / (2*width*width)) * std::polar(1.0, -omega*tt - phi) * amp;
+}
+
+bool gaussian_src_time_phase::is_equal(const src_time &t) const {
+    const gaussian_src_time_phase *tp = dynamic_cast<const gaussian_src_time_phase *>(&t);
+    if (tp)
+        return (tp->omega == omega && tp->width == width && tp->peak_time == peak_time && tp->cutoff == cutoff);
+    else
+        return 0;
+}
 
 /**
  * Add the list of susceptibilities to the Settings file s. The string should have the format (omega_0,gamma_0,sigma_0),(omega_1,gamma_1,sigma_1),...
@@ -716,7 +776,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 			    if (cur_info.type == SRC_GAUSSIAN) {
 				printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
 					frequency, width, start_time, end_time);
-				meep::gaussian_src_time src(frequency, width, start_time, end_time);
+				gaussian_src_time_phase src(frequency, width, cur_info.phase, start_time, end_time);
 				fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 			    } else if (cur_info.type == SRC_CONTINUOUS) { 
 				printf("Adding continuous wave: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
@@ -836,15 +896,15 @@ void bound_geom::run(const char* fname_prefix) {
         //open an hdf5 file with a reasonable name
         if (i % dump_span == 0) {
 	    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
-	    meep::h5file* file = fields.open_h5file(h5_fname);
-
+	    /*meep::h5file* file = fields.open_h5file(h5_fname);
 	    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
+	    delete file;*/
 	    fields.step();
 	    printf("    %d%% complete\n", 100*i/n_t_pts);
 	    //we're done with the file
-	    delete file;
 	}
     }
+    printf("Simulations completed\n");
 }
 
 /**
