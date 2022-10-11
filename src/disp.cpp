@@ -973,20 +973,25 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     }
     //write the start and end times for each simulation
     hsize_t t_info_dim[1];
-    t_info_dim[0] = {2};
+    t_info_dim[0] = {3};
     H5::DataSpace t_info_space(1, t_info_dim);
     H5::DataSet t_info_dataset(info_group.createDataSet("time_bounds", H5_float_type, t_info_space));
     //set the start and end times for the simulation TODO: is the first boundary necessary or can it be left implicit?
-    _ftype time_boundaries[2];
-    time_boundaries[0] = 0.0;time_boundaries[1] = meep_time_to_fs(ttot);
+    _ftype time_boundaries[3];
+    time_boundaries[0] = 0.0;time_boundaries[1] = meep_time_to_fs(ttot);            //start and end of simulation times
+    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])/n_t_pts;   //step size
     t_info_dataset.write(time_boundaries, H5_float_type);
     //write the number of clusters
     hsize_t n_info_dim[1];
     n_info_dim[0] = {1};
     H5::DataSpace n_info_space(1, n_info_dim);
-    H5::DataSet n_info_dataset(info_group.createDataSet("n_clusters", H5::PredType::NATIVE_HSIZE, n_info_space));
-    hsize_t n_clusters = monitor_clusters.size();
-    n_info_dataset.write(&n_clusters, H5::PredType::NATIVE_HSIZE);
+    H5::DataSet n_c_info_dataset(info_group.createDataSet("n_clusters", H5::PredType::NATIVE_HSIZE, n_info_space));
+    hsize_t hsize_sto = monitor_clusters.size();
+    n_c_info_dataset.write(&hsize_sto, H5::PredType::NATIVE_HSIZE);
+    //write the number of time points
+    H5::DataSet n_t_info_dataset(info_group.createDataSet("n_time_points", H5::PredType::NATIVE_HSIZE, n_info_space));
+    hsize_sto = n_t_pts;
+    n_t_info_dataset.write(&hsize_sto, H5::PredType::NATIVE_HSIZE);
     //write information about sources
     size_t n_srcs = sources.size();
     source_info* tmp_srcs = (source_info*)malloc(sizeof(source_info)*n_srcs);
