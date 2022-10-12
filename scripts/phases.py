@@ -99,7 +99,7 @@ class EnvelopeFitter:
                 elif v < cutoff and i >= self.l_max_i:
                     #make sure we include at least this data point
                     self.ext_ts = self.ext_ts[i_min:i]
-                    self.ext_vs = ext_vs[i_min:i]
+                    self.ext_vs = self.ext_vs[i_min:i]
                     break
         #make extra sure there aren't any divisions by zero
         if self.typ_spacing == 0.0:

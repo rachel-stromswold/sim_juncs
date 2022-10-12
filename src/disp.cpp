@@ -310,14 +310,14 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 			amplitude = 1;
 			start_time = 0;
 			cutoff = DEFAULT_WIDTH_N;
-			//read the start time if supplied
+			//read the phase if supplied
 			if (env_func.n_args > 3) {
-			    start_time = strtod(env_func.args[3], NULL);
+			    phase = strtod(env_func.args[3], NULL);
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the start time if supplied
-			if (env_func.n_args > 3) {
-			    phase = strtod(env_func.args[3], NULL);
+			if (env_func.n_args > 4) {
+			    start_time = strtod(env_func.args[4], NULL);
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the cutoff if supplied
