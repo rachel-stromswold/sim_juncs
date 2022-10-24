@@ -157,30 +157,137 @@ TEST_CASE("Check that numbers are written correctly") {
     CHECK(strlen(buf) == 2);
 }
 
+TEST_CASE("Test value parsing") {
+    char buf[BUF_SIZE];
+    Scene sc;
+    parse_ercode er = E_SUCCESS;
+    Value tmp_val;
+
+    SUBCASE("Reading numbers to values works") {
+	//test integers
+	strncpy(buf, "1", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 1);
+	strncpy(buf, "12", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 12);
+	//test floats
+	strncpy(buf, ".25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 0.25);
+	strncpy(buf, "1.25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 1.25);
+	//test scientific notation
+	strncpy(buf, ".25e10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 0.25e10);
+	strncpy(buf, "1.25e10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 1.25e10);
+	strncpy(buf, "1.25e-10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 1.25e-10);
+    }
+    SUBCASE("Reading strings to values works") {
+	//test a simple string
+	strncpy(buf, "\"foo\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.s, "foo") == 0);
+	//test a string with whitespace
+	strncpy(buf, "\" foo bar \"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.s, " foo bar ") == 0);
+	//test a string with stuff inside it
+	strncpy(buf, "\"foo(bar)\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.s, "foo(bar)") == 0);
+	//test a string with an escaped string
+	strncpy(buf, "\"foo\\\"bar\\\" \"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.s, "foo\\\"bar\\\" ") == 0);
+    }
+    SUBCASE("Reading lists to values works") {
+	//test one element lists
+	strncpy(buf, "[\"foo\"]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.val.l != NULL);
+	CHECK(tmp_val.n_els == 1);
+	CHECK(tmp_val.val.l[0].type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.l[0].val.s, "foo") == 0);
+	//test two element lists
+	strncpy(buf, "[\"foo\", 1]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.val.l != NULL);
+	CHECK(tmp_val.n_els == 2);
+	CHECK(tmp_val.val.l[0].type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.l[0].val.s, "foo") == 0);
+	CHECK(tmp_val.val.l[1].type == VAL_NUM);
+	CHECK(tmp_val.val.l[1].val.x == 1);
+    }
+    SUBCASE("Reading vectors to values works") {
+	//test one element lists
+	strncpy(buf, "vec(1.2, 3.4,56.7)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	er = sc.parse_value(buf, tmp_val);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_3VEC);
+	CHECK(tmp_val.val.v != NULL);
+	CHECK(tmp_val.val.v->x() == doctest::Approx(1.2));
+	CHECK(tmp_val.val.v->y() == doctest::Approx(3.4));
+	CHECK(tmp_val.val.v->z() == doctest::Approx(56.7));
+    }
+}
+
 TEST_CASE("Test function parsing") {
     char buf[BUF_SIZE];
 
     const char* test_func_1 = "f()";
     const char* test_func_2 = "f(\"a\", \"b\", \"c\", 4)";
-    const char* test_func_3 = "foo([1,2,3],\"a\",\"banana\")";
+    const char* test_func_3 = "foo(vec(1,2,3),\"a\",\"banana\")";
     const char* test_func_4 = "foo(1, \"Box(0,1,2,3)\", 4+5)";
     const char* test_func_5 = "foo ( 1 , \"b , c\" )";
     const char* test_func_6 = "f(eps = 3.5)";
     const char* bad_test_func_1 = "foo ( a , b , c";
-    const char* bad_test_func_2 = "foo ( 1 , 2 , 3, )";
-    const char* bad_test_func_3 = "foo ( 1 ,, 3 )";
-    const char* bad_test_func_4 = "foo ( \"a\" , \"b\" , \"c\"";
+    const char* bad_test_func_2 = "foo ( \"a\" , \"b\" , \"c\"";
 
     Scene sc;
     cgs_func cur_func;
     //check string 1
     strncpy(buf, test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 1, cur_func, NULL);
+    parse_ercode er = sc.parse_func(buf, 1, cur_func, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 0);
     CHECK(strcmp(cur_func.name, "f") == 0);
     //check string 2
     strncpy(buf, test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 1, cur_func, NULL);
+    er = sc.parse_func(buf, 1, cur_func, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 4);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "f") == 0);
@@ -193,7 +300,8 @@ TEST_CASE("Test function parsing") {
     CHECK(cur_func.args[3].to_float() == 4);
     //check string 3
     strncpy(buf, test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 3, cur_func, NULL);
+    er = sc.parse_func(buf, 3, cur_func, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
@@ -209,7 +317,8 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2].to_c_str(), "banana") == 0);
     //check string 4
     strncpy(buf, test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 3, cur_func, NULL);
+    er = sc.parse_func(buf, 3, cur_func, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
@@ -221,17 +330,19 @@ TEST_CASE("Test function parsing") {
     CHECK(cur_func.args[2].to_float() == 9);
     //check string 5
     strncpy(buf, test_func_5, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 4, cur_func, NULL);
+    er = sc.parse_func(buf, 4, cur_func, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 2);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
     INFO("func arg=", cur_func.args[0].to_float());
     CHECK(cur_func.args[0].to_float() == 1);
     INFO("func arg=", cur_func.args[1].to_c_str());
-    CHECK(strcmp(cur_func.args[1].to_c_str(), "b, c") == 0);
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "b , c") == 0);
     //check string 6
     strncpy(buf, test_func_6, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 1, cur_func, NULL);
+    er = sc.parse_func(buf, 1, cur_func, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 1);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "f") == 0);
@@ -240,20 +351,12 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.arg_names[0], "eps") == 0);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_ercode er = sc.parse_func(buf, 4, cur_func, NULL);
+    er = sc.parse_func(buf, 4, cur_func, NULL);
     CHECK(er == E_BAD_SYNTAX);
     //check bad string 2
     strncpy(buf, bad_test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     er = sc.parse_func(buf, 4, cur_func, NULL);
-    CHECK(er == E_LACK_TOKENS);
-    //check bad string 3
-    strncpy(buf, bad_test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 4, cur_func, NULL);
-    CHECK(er == E_LACK_TOKENS);
-    //check bad string 4
-    strncpy(buf, bad_test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 4, cur_func, NULL);
-    CHECK(er == E_LACK_TOKENS);
+    CHECK(er == E_BAD_SYNTAX);
 }
 
 TEST_CASE("Test Object Trees") {
@@ -267,11 +370,11 @@ TEST_CASE("Test Object Trees") {
     //setup a bunch of strings describing objects
     const char* root_obj_str = "Composite(eps = 3.5)";
     const char* l_str = "union()";
-    const char* ll_str = "Box([0,0,0], [1,1,1])";
-    const char* lr_str = "Sphere([2,0,0], 1)";
+    const char* ll_str = "Box(vec(0,0,0), vec(1,1,1))";
+    const char* lr_str = "Sphere(vec(2,0,0), 1)";
     const char* r_str = "intersect()";
-    const char* rl_str = "Box([0,0,0], [1,1,1])";
-    const char* rr_str = "Cylinder([2,0,0], 1, 1)";
+    const char* rl_str = "Box(vec(0,0,0), vec(1,1,1))";
+    const char* rr_str = "Cylinder(vec(2,0,0), 1, 1)";
 
     Scene sc;
     //Insert root object
@@ -352,10 +455,18 @@ TEST_CASE("Test File Parsing") {
     CHECK(data_vec.size() > 0);
     CHECK(data_vec[0]->has_metadata("name"));
     CHECK(data_vec[0]->has_metadata("entry"));
+    CHECK(data_vec[0]->has_metadata("num"));
     Value name_val = data_vec[0]->fetch_metadata("name");
     Value ntry_val = data_vec[0]->fetch_metadata("entry");
-    CHECK(name_val.to_float() == 3);
+    Value num_val = data_vec[0]->fetch_metadata("num");
+    CHECK(name_val.type == VAL_STR);
+    CHECK(ntry_val.type == VAL_STR);
+    CHECK(num_val.type == VAL_NUM);
+    CHECK(name_val.val.s != NULL);
+    CHECK(ntry_val.val.s != NULL);
+    CHECK(strcmp(name_val.to_c_str(), "foo") == 0);
     CHECK(strcmp(ntry_val.to_c_str(), "bar,(arr),[blah]") == 0);
+    CHECK(num_val.to_float() == 3);
 
     //test geometric information
     std::vector<CompositeObject*> roots_vec = s.get_roots();

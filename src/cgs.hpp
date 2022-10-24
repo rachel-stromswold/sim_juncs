@@ -7,8 +7,8 @@
 #include <Eigen/Dense>
 #include <unordered_map>
 #include <vector>
-
 #include <cstring>
+#include <math.h>
 
 #define BUF_SIZE 1024
 #define ARGS_BUF_SIZE 256
@@ -42,13 +42,15 @@ class CompositeObject;
   */
 inline char* CGS_trim_whitespace(char* str, size_t* len) {
     if (!str) return NULL;
-    char* start = NULL;
+    char* start = str;
+    bool started = false;
     _uint last_non = 0;
     for (_uint i = 0; str[i] != 0; ++i) {
         if (str[i] != ' ' && str[i] != '\t' && str[i] != '\n') {
             last_non = i;
-            if (!start) {
+            if (!started) {
                 start = str + i;
+		started = true;
             }
         }
     }
@@ -135,7 +137,11 @@ union V {
 };
 class Value {
     friend class Scene;
+#ifndef DEBUG_INFO
 protected:
+#else
+public:
+#endif
     valtype type;
     V val;
     size_t n_els = 1; //only applicable for string and list types
@@ -160,13 +166,14 @@ public:
     V get_val() { return val; }
     char* to_c_str();
     double to_float();
+    Value cast_to(valtype type, parse_ercode& er) const;
 };
 
 typedef struct {
     char* name;
     Value args[ARGS_BUF_SIZE];
     char* arg_names[ARGS_BUF_SIZE];
-    _uint n_args = 0;
+    size_t n_args = 0;
 } cgs_func;
 
 /*
@@ -241,6 +248,9 @@ struct type_ind_pair {
 public:
     block_type t;
     size_t i;
+    type_ind_pair() { t = BLK_UNDEF;i = 0; }
+    type_ind_pair(size_t ii) { t = BLK_UNDEF;i = ii; }
+    type_ind_pair(block_type tt, size_t ii) { t = tt;i = ii; }
 };
 
 struct side_obj_pair {
@@ -274,7 +284,6 @@ private:
     std::vector<CompositeObject*> data_objs;
 
     parse_ercode lookup_val(char* tok, Value& sto) const;
-    parse_ercode parse_value(char* tok, Value& sto) const;
     //let users define constants
     std::unordered_map<std::string, Value> named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
@@ -292,7 +301,8 @@ public:
     std::vector<CompositeObject*> get_data() { return data_objs; }
     void read();
 
-    parse_ercode parse_vector(char* str, Value& sto) const;
+    parse_ercode parse_value(char* tok, Value& sto) const;
+    parse_ercode parse_list(char* str, Value& sto) const;
     parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const;
     parse_ercode make_transformation(const cgs_func& f, emat3& res) const;
     parse_ercode parse_func(char* token, long open_par_ind, cgs_func& f, char** end) const;
