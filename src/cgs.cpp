@@ -701,13 +701,15 @@ char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
 	    if (str[i] == '\\') {
 		//check for escape sequences
 		++i;
+		bool placed_escape = false;
 		switch (str[i]) {
-		case 'n': str[j++] = '\n';break;
-		case 't': str[j++] = '\t';break;
-		case '\\': str[j++] = '\\';break;
-		case '\"': str[j++] = '\"';break;
+		case 'n': str[j++] = '\n';placed_escape = true;break;
+		case 't': str[j++] = '\t';placed_escape = true;break;
+		case '\\': str[j++] = '\\';placed_escape = true;break;
+		case '\"': str[j++] = '\"';placed_escape = true;break;
 		default: er = E_BAD_SYNTAX;
 		}
+		if (placed_escape) continue;
 	    } else if (str[i] == '\"') {
 		tmp = blk_stk.peek();
 		if (blk_stk.is_empty() || tmp.t != BLK_QUOTE) {

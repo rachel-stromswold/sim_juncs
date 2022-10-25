@@ -273,6 +273,7 @@ TEST_CASE("Test function parsing") {
     const char* test_func_4 = "foo(1, \"Box(0,1,2,3)\", 4+5)";
     const char* test_func_5 = "foo ( 1 , \"b , c\" )";
     const char* test_func_6 = "f(eps = 3.5)";
+    const char* test_func_7 = "f(name = \"bar\")";
     const char* bad_test_func_1 = "foo ( a , b , c";
     const char* bad_test_func_2 = "foo ( \"a\" , \"b\" , \"c\"";
 
@@ -349,6 +350,16 @@ TEST_CASE("Test function parsing") {
     INFO("func arg=", cur_func.args[0].to_float());
     CHECK(cur_func.args[0].to_float() == 3.5);
     CHECK(strcmp(cur_func.arg_names[0], "eps") == 0);
+    //check string 7
+    strncpy(buf, test_func_7, BUF_SIZE);buf[BUF_SIZE-1] = 0;
+    er = sc.parse_func(buf, 1, cur_func, NULL);
+    CHECK(er == E_SUCCESS);
+    CHECK(cur_func.n_args == 1);
+    INFO("func name=", cur_func.name);
+    CHECK(strcmp(cur_func.name, "f") == 0);
+    INFO("func arg=", cur_func.args[0].to_c_str());
+    CHECK(strcmp(cur_func.args[0].to_c_str(), "bar") == 0);
+    CHECK(strcmp(cur_func.arg_names[0], "name") == 0);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     er = sc.parse_func(buf, 4, cur_func, NULL);
