@@ -120,7 +120,7 @@ Value::Value(evec3 vec) {
     n_els = 1;
     val.v = new evec3(vec);
 }
-Value::~Value() {
+void Value::cleanup() {
     if (type == VAL_STR && val.s) {
 	free(val.s);
     } else if (type == VAL_LIST && val.l) {
@@ -131,8 +131,13 @@ Value::~Value() {
 	delete val.v;
     }
 }
-//copy 
-Value::Value(const Value& o) {
+Value::~Value() {
+    cleanup();
+    type = VAL_UNDEF;
+    n_els = 0;
+    val.s = NULL;
+}
+void Value::copy(const Value& o) {
     type = o.type;
     n_els = o.n_els;
     //strings or lists must be copied
@@ -149,6 +154,10 @@ Value::Value(const Value& o) {
     } else {
 	val.x = o.val.x;
     }
+}
+//copy 
+Value::Value(const Value& o) {
+    copy(o);
 }
 //move
 Value::Value(Value&& o) {
@@ -179,7 +188,7 @@ Value::Value(Value&& o) {
     val = o.val;
     return *this;
 }*/
-Value& Value::operator=(Value o) {
+Value& Value::operator=(Value& o) {
     //swap type and number of elements
     valtype tmp = type;
     type = o.type;
@@ -190,6 +199,14 @@ Value& Value::operator=(Value o) {
     V tmp_v = val;
     val = o.val;
     o.val = tmp_v;
+    return *this;
+}
+Value& Value::operator=(const Value& o) {
+    if (this != &o) {
+	//swap type and number of elements
+	cleanup();
+	copy(o);
+    }
     return *this;
 }
 bool Value::operator==(std::string str) {
@@ -414,8 +431,9 @@ parse_ercode Scene::lookup_val(char* tok, Value& sto) const {
     return E_SUCCESS;
 }
 
-parse_ercode Scene::parse_value(char* str, Value& sto) const {
-    parse_ercode ret = E_SUCCESS;
+Value Scene::parse_value(char* str, parse_ercode& er) const {
+    Value sto;
+    er = E_SUCCESS;
 
     //store locations of the first instance of different operators. We do this so we can quickly look up new operators if we didn't find any other operators of a lower precedence (such operators are placed in the tree first).
     int first_open_ind = -1;
@@ -439,10 +457,10 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
 	    blk_stk.push({BLK_SQUARE, i});
 	    if (first_open_ind == -1) { first_open_ind = i; }
 	} else if (str[i] == /*[*/']') {
-	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_SQUARE) return E_BAD_SYNTAX;
+	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_SQUARE) { er = E_BAD_SYNTAX;return sto; }
 	    //now parse the argument as a vector
 	    parse_ercode tmp_er = parse_list(str+start_ind.i, sto);
-	    if (tmp_er != E_SUCCESS) return tmp_er;
+	    if (tmp_er != E_SUCCESS) { er = tmp_er;return sto; }
 	    if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
 	} else if (str[i] == '('/*)*/) {
 	    //keep track of open and close parenthesis, these will come in handy later
@@ -452,7 +470,7 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
 	    //only set the open index if this is the first match
 	    if (first_open_ind == -1) { first_open_ind = i; }
 	} else if (str[i] == /*(*/')') {
-	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_PAREN) return E_BAD_SYNTAX;
+	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_PAREN) { er = E_BAD_SYNTAX;return sto; }
 	    --nest_level;
 	    //only set the end paren location if it hasn't been set yet and the stack has no more parenthesis to remove, TODO: make this work with other block types inside a set of parenthesis
 	    if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
@@ -485,10 +503,10 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
 		char term_char = str[i];
 		str[i] = 0;
 		//parse right and left values
-		parse_ercode er = parse_value(str, tmp_l);
-		if (er != E_SUCCESS) return er;
-		er = parse_value(str+i+1, tmp_r);
-		if (er != E_SUCCESS) return er;
+		tmp_l = parse_value(str, er);
+		if (er != E_SUCCESS) return sto;
+		tmp_r = parse_value(str+i+1, er);
+		if (er != E_SUCCESS) return sto;
 		sto.type = VAL_NUM;
 		//remember to recurse after we finish looping
 		found_valid_op = 1;
@@ -507,7 +525,7 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
 		    }
 		    ++i;
 		} else if (term_char == '>') {
-		    if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) return E_BAD_VALUE;
+		    if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
 		    if (str[i+1] == '=') {
 			sto.val.x = (tmp_l.val.x >= tmp_r.val.x)? 1: 0;
 			++i;
@@ -515,7 +533,7 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
 			sto.val.x = (tmp_l.val.x > tmp_r.val.x)? 1: 0;
 		    }
 		} else if (term_char == '<') {
-		    if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) return E_BAD_VALUE;
+		    if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
 		    if (str[i+1] == '=') {
 			sto.val.x = (tmp_l.val.x <= tmp_r.val.x)? 1: 0;
 			++i;
@@ -556,7 +574,7 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
 			sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m * *tmp_r.val.m);
 		    }
 		} else if (term_char == '/') {
-		    if (tmp_r.val.x == 0) return E_NAN;
+		    if (tmp_r.val.x == 0) { er = E_NAN;return sto; }//TODO: return a nan?
 		    if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
 			sto.val.x = tmp_l.val.x / tmp_r.val.x;
 		    } else if (tmp_r.type == VAL_NUM && tmp_l.type == VAL_MAT) {	
@@ -569,7 +587,8 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
     }
     if (nest_level > 0) {
 	printf("expected close paren\n");
-	return E_BAD_SYNTAX;
+	er = E_BAD_SYNTAX;
+	return sto;
     }
 
     //last try removing parenthesis
@@ -581,7 +600,7 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
 	    if (er != E_SUCCESS) {
 		//try interpreting as a number
 		sto.val.x = strtod(str, NULL);
-		if (errno) return E_BAD_TOKEN;
+		if (errno) { er = E_BAD_TOKEN;return sto; }
 		sto.type = VAL_NUM;
 	    }
 	} else if (str[first_open_ind] == '\"' && str[last_close_ind] == '\"') {
@@ -602,28 +621,30 @@ parse_ercode Scene::parse_value(char* str, Value& sto) const {
 		    str[last_close_ind+1] = 0;
 		    cgs_func tmp_f;
 		    char* f_end;
-		    ret = parse_func(str, first_open_ind, tmp_f, &f_end);
-		    if (ret != E_SUCCESS) return ret;
+		    er = parse_func(str, first_open_ind, tmp_f, &f_end);
+		    if (er != E_SUCCESS) { return sto; }
 		    //TODO: allow user defined functions
 		    if (strcmp(tmp_f.name, "vec") == 0) {
-			if (tmp_f.n_args < 3) return E_LACK_TOKENS;
-			if (tmp_f.args[0].type != VAL_NUM || tmp_f.args[1].type != VAL_NUM || tmp_f.args[2].type != VAL_NUM) return E_BAD_TOKEN;
+			if (tmp_f.n_args < 3) { er = E_LACK_TOKENS;return sto; }
+			if (tmp_f.args[0].type != VAL_NUM || tmp_f.args[1].type != VAL_NUM || tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return sto; }
 			sto.type = VAL_3VEC;
 			sto.val.v = new evec3(tmp_f.args[0].val.x, tmp_f.args[1].val.x, tmp_f.args[2].val.x);
 			sto.n_els = 3;
-			return E_SUCCESS;
+			er = E_SUCCESS;
+			return sto;
 		    }
 		    str[last_close_ind+1] = term_char;
-		    return E_BAD_TOKEN;
+		    er = E_BAD_TOKEN;
+		    return sto;
 		}
 	    }
 	    //otherwise interpret this as a parenthetical expression
 	    str[last_close_ind] = 0;
 	    str = CGS_trim_whitespace(str+first_open_ind+1, NULL);
-	    ret = parse_value(str, sto);
+	    sto = parse_value(str, er);
 	}
     }
-    return ret;
+    return sto;
 }
 
 /**
@@ -782,9 +803,10 @@ parse_ercode Scene::parse_list(char* str, Value& sto) const {
     size_t n_els;
     char** list_els = csv_to_list(start+1, ',', &n_els, er);
     if (er != E_SUCCESS) return er;
-    Value* buf = (Value*)malloc(sizeof(Value)*n_els);
+    Value* buf = (Value*)calloc(n_els, sizeof(Value));
     for (size_t i = 0; list_els[i] && i < n_els; ++i) {
-	if ((er = parse_value(list_els[i], buf[i])) != E_SUCCESS) return er;
+	buf[i] = parse_value(list_els[i], er);
+	if (er != E_SUCCESS) return er;
     }
     //cleanup and reset the string
     *end = ']';
@@ -968,7 +990,8 @@ parse_ercode Scene::parse_func(char* token, long open_par_ind, cgs_func& f, char
 	} else {
 	    f.arg_names[i] = NULL;
 	}
-	if ((er = parse_value(list_els[i], f.args[i])) != E_SUCCESS) return er;
+	f.args[i] = parse_value(list_els[i], er);
+	if (er != E_SUCCESS) return er;
     }
     //cleanup and reset the string
     //*term_ptr = /*(*/')';
@@ -1042,7 +1065,8 @@ parse_ercode Scene::parse_func(char* token, long open_par_ind, cgs_func& f, char
 	    arg_str[last_non_space+1] = 0;
 	    //check if we need to figure out the value based on context
 	    if (last_val.type == VAL_UNDEF) {
-		parse_ercode tmp_er = parse_value(cur_tok, last_val);
+		parse_ercode tmp_er;
+		last_val = parse_value(cur_tok, tmp_er);
 	    }
 	    //set the name and its value
 	    if (cur_name) f.arg_names[j] = CGS_trim_whitespace(cur_name, NULL);
@@ -1074,7 +1098,8 @@ parse_ercode Scene::parse_func(char* token, long open_par_ind, cgs_func& f, char
         arg_str[last_non_space+1] = 0;
 	//parse the final value
 	if (last_val.type == VAL_UNDEF) {
-	    parse_ercode tmp_er = parse_value(cur_tok, last_val);
+	    parse_ercode tmp_er;
+	    last_val= parse_value(cur_tok, tmp_er);
 	}
 	if (cur_name) f.arg_names[j] = CGS_trim_whitespace(cur_name, NULL);
         f.args[j++] = last_val;

@@ -401,7 +401,8 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
  *  -2 invalid or empty string
  *  -3 insufficient memory
  */
-std::vector<drude_suscept> bound_geom::parse_susceptibilities(char* const str, int* er) {
+std::vector<drude_suscept> bound_geom::parse_susceptibilities(Value val, int* er) {
+    char* str = val.to_c_str();
     std::vector<drude_suscept> ret;
     //check that the Settings struct is valid and allocate memory
     if (!str) {
@@ -665,8 +666,8 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
 	std::vector<drude_suscept> cur_sups;
 	int res = 0;
 	if (roots[i]->has_metadata("susceptibilities") && roots[i]->fetch_metadata("susceptibilities").get_type() == VAL_STR) {
-	    char* dat = roots[i]->fetch_metadata("susceptibilities").to_c_str();
-	    cur_sups = parse_susceptibilities(dat, &res);
+	    Value sup_val = roots[i]->fetch_metadata("susceptibilities");
+	    cur_sups = parse_susceptibilities(sup_val, &res);
 	}
 	//add frequency dependent susceptibility
 	for (_uint j = 0; j < cur_sups.size(); ++j) {

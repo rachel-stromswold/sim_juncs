@@ -154,11 +154,14 @@ public:
     Value(const Value* vs, size_t n_vs);
     Value(Eigen::MatrixXd m);
     Value(evec3 vec);
+    void copy(const Value& o);
+    void cleanup();
     ~Value();
     Value(const Value& o);//copy 
     Value(Value&& o);//move
     //Value& operator=(const Value& o);
-    Value& operator=(Value o);//assign
+    Value& operator=(Value& o);//assign
+    Value& operator=(const Value& o);//assign
     bool operator==(std::string str);
     bool operator!=(std::string str);
     valtype get_type() { return type; }
@@ -301,7 +304,7 @@ public:
     std::vector<CompositeObject*> get_data() { return data_objs; }
     void read();
 
-    parse_ercode parse_value(char* tok, Value& sto) const;
+    Value parse_value(char* tok, parse_ercode& er) const;
     parse_ercode parse_list(char* str, Value& sto) const;
     parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const;
     parse_ercode make_transformation(const cgs_func& f, emat3& res) const;

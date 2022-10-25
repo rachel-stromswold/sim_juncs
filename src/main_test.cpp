@@ -166,39 +166,39 @@ TEST_CASE("Test value parsing") {
     SUBCASE("Reading numbers to values works") {
 	//test integers
 	strncpy(buf, "1", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 1);
 	strncpy(buf, "12", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 12);
 	//test floats
 	strncpy(buf, ".25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 0.25);
 	strncpy(buf, "1.25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 1.25);
 	//test scientific notation
 	strncpy(buf, ".25e10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 0.25e10);
 	strncpy(buf, "1.25e10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 1.25e10);
 	strncpy(buf, "1.25e-10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 1.25e-10);
@@ -206,25 +206,25 @@ TEST_CASE("Test value parsing") {
     SUBCASE("Reading strings to values works") {
 	//test a simple string
 	strncpy(buf, "\"foo\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.s, "foo") == 0);
 	//test a string with whitespace
 	strncpy(buf, "\" foo bar \"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.s, " foo bar ") == 0);
 	//test a string with stuff inside it
 	strncpy(buf, "\"foo(bar)\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.s, "foo(bar)") == 0);
 	//test a string with an escaped string
 	strncpy(buf, "\"foo\\\"bar\\\" \"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.s, "foo\\\"bar\\\" ") == 0);
@@ -232,7 +232,7 @@ TEST_CASE("Test value parsing") {
     SUBCASE("Reading lists to values works") {
 	//test one element lists
 	strncpy(buf, "[\"foo\"]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_LIST);
 	CHECK(tmp_val.val.l != NULL);
@@ -241,7 +241,7 @@ TEST_CASE("Test value parsing") {
 	CHECK(strcmp(tmp_val.val.l[0].val.s, "foo") == 0);
 	//test two element lists
 	strncpy(buf, "[\"foo\", 1]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_LIST);
 	CHECK(tmp_val.val.l != NULL);
@@ -254,7 +254,7 @@ TEST_CASE("Test value parsing") {
     SUBCASE("Reading vectors to values works") {
 	//test one element lists
 	strncpy(buf, "vec(1.2, 3.4,56.7)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	er = sc.parse_value(buf, tmp_val);
+	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_3VEC);
 	CHECK(tmp_val.val.v != NULL);
