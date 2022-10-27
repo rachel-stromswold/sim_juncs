@@ -8,9 +8,13 @@ import matplotlib.pyplot as plt
 from scipy.stats import linregress
 import time
 
+plt.rc('font', size=14)
+plt.rc('xtick', labelsize=12)
+plt.rc('ytick', labelsize=12)
+
 N_COLS = 1
 
-AMP_RANGE = (0, 1.0)
+AMP_RANGE = (0, 0.5)
 SIG_RANGE = (0, 10.0)
 PHI_RANGE = (-1.0, 1.0)
 
@@ -36,6 +40,7 @@ with h5py.File(args.fname, "r") as f:
     #create a numpy array for time points, this will be shared across all points
     keylist = list(f['cluster_0'].keys())
     n_t_pts = len(f['cluster_0'][keylist[1]]['time'])
+    n_post_skip = n_t_pts // phases.SKIP
     #read information to figure out time units and step sizes
     t_min = f['info']['time_bounds'][0]
     t_max = f['info']['time_bounds'][1]
@@ -54,14 +59,16 @@ with h5py.File(args.fname, "r") as f:
     amp, t_0, sig, omega, cep = phases.get_params(res)
     print("cep=%f cep/pi=%f" % (cep, cep/np.pi))'''
 
+    x_0 = (9.0-f[clust_names[0]]['locations'][slice_name][0])/16
+
     for i, clust in enumerate(clust_names):
-        x = (9.0-f[clust]['locations'][slice_name][0])/16
+        x = (9.0-f[clust]['locations'][slice_name][0])/16 - x_0
         #fetch a list of points and their associated coordinates
         points = list(f[clust].keys())[1:]
-        zs = (np.array(f[clust]['locations'][slice_dir])-9)/16
-        x_range = (1.1*zs[0], -1.1*zs[0])
-        l_gold = [x_range[0], zs[2]]
-        r_gold = [-zs[2], x_range[-1]]
+        zs = (np.array(f[clust]['locations'][slice_dir])-9)/24
+        x_range = (1.05*zs[0], -1.05*zs[0])
+        l_gold = [x_range[0], zs[5]]
+        r_gold = [-zs[5], x_range[-1]]
 
         n_z_pts = len(points)
         if zs.shape[0] != n_z_pts:
@@ -99,13 +106,13 @@ with h5py.File(args.fname, "r") as f:
                         rel_phase -= 2
                         phase_cor -= 2'''
                 amp_arr[0,jj] = amp
-                amp_arr[1,jj] = np.sqrt(res_env.hess_inv[0][0]/err_2)
+                amp_arr[1,jj] = np.sqrt(res_env.hess_inv[0][0]/(err_2*n_post_skip))/2
                 t_0_arr[0,jj] = t_0
-                t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/err_2)
+                t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/(err_2*n_post_skip))
                 sig_arr[0,jj] = sig
-                sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig))
+                sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig*n_post_skip))
                 phase_arr[0,jj] = cep/np.pi
-                phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi))
+                phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi*n_post_skip))
             else:
                 print("bad fit! i={}, j={}".format(i,j))
 
@@ -123,6 +130,7 @@ with h5py.File(args.fname, "r") as f:
             i_cent = i_zer
             new_size += 1
         print(phase_arr[0])
+        print(phase_arr[1])
         if new_size > len(good_zs):
             new_good_zs = np.zeros(new_size)
             amp_arr = np.resize(amp_arr, (2, new_size))
@@ -156,7 +164,42 @@ with h5py.File(args.fname, "r") as f:
             t_0_arr = np.resize(t_0_arr, (2, new_size))
             sig_arr = np.resize(sig_arr, (2, new_size))
             phase_arr = np.resize(phase_arr, (3, new_size))
+            for ii in range(new_size-i_zer):
+                new_good_zs[i_cent-ii] = good_zs[i_cent-ii]
+                new_good_zs[i_zer+ii] = -good_zs[i_cent-ii]
+                amp_arr[0,i_zer+ii] = amp_arr[0,i_cent-ii]
+                amp_arr[1,i_zer+ii] = amp_arr[1,i_cent-ii]
+                t_0_arr[0,i_zer+ii] = t_0_arr[0,i_cent-ii]
+                t_0_arr[1,i_zer+ii] = t_0_arr[1,i_cent-ii]
+                sig_arr[0,i_zer+ii] = sig_arr[0,i_cent-ii]
+                sig_arr[1,i_zer+ii] = sig_arr[1,i_cent-ii]
+                phase_arr[0,i_zer+ii] = phase_arr[0,i_cent-ii]
+                phase_arr[1,i_zer+ii] = phase_arr[1,i_cent-ii]
 
+        #make two axis demo plot
+        if i == 2:
+            d_fig, d_ax1 = plt.subplots(figsize=(7,3))
+            d_ax2 = d_ax1.twinx()
+            #label things
+            d_fig.suptitle("Phase and amplitude across a junction")
+            d_ax1.set_ylabel(r"$\phi/\pi$", color='red')
+            d_ax1.set_xlabel(r"${}$ ($\mu$m)".format(slice_dir))
+            d_ax2.set_ylabel(r"Amplitude", color='blue')
+            #phase plot
+            d_ax1.scatter(new_good_zs, phase_arr[0], color='red')
+            d_ax1.plot([new_good_zs[0], new_good_zs[-1]], [0, 0], color='black', linestyle=':')
+            d_ax1.plot([new_good_zs[0], new_good_zs[-1]], [0.5, 0.5], color='gray', linestyle=':')
+            d_ax1.plot([new_good_zs[0], new_good_zs[-1]], [-0.5, -0.5], color='gray', linestyle=':')
+            d_ax1.set_xlim(x_range)
+            d_ax1.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+            d_ax1.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+            d_ax1.set_ylim(PHI_RANGE)
+            d_ax1.set_yticks([-1, -0.5, 0, 0.5, 1])
+            #amplitude plot
+            d_ax2.scatter(new_good_zs, amp_arr[0], color='blue')
+            d_ax2.set_xlim(x_range)
+            d_ax2.set_ylim(AMP_RANGE)
+            d_fig.savefig(args.prefix+"/demo.pdf")
         #matplotlib is annoying and the axes it gives have a different type depending on the column
         if N_COLS == 1:
             tmp_axs_amp = axs_amp[i]
@@ -167,23 +210,25 @@ with h5py.File(args.fname, "r") as f:
             tmp_axs_time = axs_time[i//N_COLS,i%N_COLS]
             tmp_axs_cep = axs_cep[i//N_COLS,i%N_COLS]
         #make amplitude plot
-        tmp_axs_amp.scatter(new_good_zs, amp_arr[0])
-        tmp_axs_amp.annotate(r"${0}={1:.2g} \mu m$".format(slice_name, x), (0.01, 1.05), xycoords='axes fraction')
+        tmp_axs_amp.errorbar(new_good_zs, amp_arr[0], yerr=amp_arr[1], fmt='.', linestyle='')
+        #tmp_axs_amp.annotate(r"${0}={1:.2g} \mu m$".format(slice_name, x), (0.01, 1.05), xycoords='axes fraction')
         tmp_axs_amp.set_xlim(x_range)
         tmp_axs_amp.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
         tmp_axs_amp.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
         tmp_axs_amp.set_ylim(AMP_RANGE)
         #make spread plot
-        tmp_axs_time.scatter(new_good_zs, sig_arr[0], label=r"$\sigma$")
-        tmp_axs_time.annotate(r"${0}={1:.2g} \mu m$".format(slice_name, x), (0.01, 1.05), xycoords='axes fraction')
+        tmp_axs_time.errorbar(new_good_zs, sig_arr[0], yerr=sig_arr[1], label=r"$\sigma$", fmt='.', linestyle='')
+        #tmp_axs_time.annotate(r"${0}={1:.2g} \mu m$".format(slice_name, x), (0.01, 1.05), xycoords='axes fraction')
         tmp_axs_time.set_xlim(x_range)
         tmp_axs_time.fill_between(l_gold, SIG_RANGE[0], SIG_RANGE[1], color='yellow', alpha=0.3)
         tmp_axs_time.fill_between(r_gold, SIG_RANGE[0], SIG_RANGE[1], color='yellow', alpha=0.3)
         tmp_axs_time.set_ylim(SIG_RANGE)
         #make phase plot
-        tmp_axs_cep.annotate(r"${0}={1:.2g}$ $\mu$m".format(slice_name, x), (0.01, 1.05), xycoords='axes fraction')
-        tmp_axs_cep.scatter(new_good_zs, phase_arr[0])
+        #tmp_axs_cep.annotate(r"${0}={1:.2g}$ $\mu$m".format(slice_name, x), (0.01, 1.05), xycoords='axes fraction')
+        tmp_axs_cep.errorbar(new_good_zs, phase_arr[0], yerr=phase_arr[1], fmt='.', linestyle='')
         tmp_axs_cep.plot([new_good_zs[0], new_good_zs[-1]], [0, 0], color='black', linestyle=':')
+        tmp_axs_cep.plot([new_good_zs[0], new_good_zs[-1]], [0.5, 0.5], color='gray', linestyle=':')
+        tmp_axs_cep.plot([new_good_zs[0], new_good_zs[-1]], [-0.5, -0.5], color='gray', linestyle=':')
         tmp_axs_cep.set_xlim(x_range)
         tmp_axs_cep.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
         tmp_axs_cep.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
@@ -218,9 +263,9 @@ with h5py.File(args.fname, "r") as f:
     fig_amp.supxlabel(r"${}$ ($\mu$m)".format(slice_dir))
     fig_time.supxlabel(r"${}$ ($\mu$m)".format(slice_dir))
     fig_cep.supxlabel(r"${}$ ($\mu$m)".format(slice_dir))
-    fig_amp.set_tight_layout(True)
-    fig_time.set_tight_layout(True)
-    fig_cep.set_tight_layout(True)
+    #fig_amp.tight_layout(pad=0.5)
+    #fig_time.tight_layout(pad=0.5)
+    #fig_cep.tight_layout(pad=0.5)
     fig_cep.savefig(args.prefix+"/phases.pdf")
     fig_amp.savefig(args.prefix+"/amps.pdf")
     fig_time.savefig(args.prefix+"/sigs.pdf")

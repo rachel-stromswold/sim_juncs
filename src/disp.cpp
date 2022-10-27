@@ -379,7 +379,7 @@ static double gaussian_bandwidth(double width) {
 gaussian_src_time_phase::gaussian_src_time_phase(double f, double my_fwidth, double phase, double s) {
     omega = 2*M_PI*f;
     width = 1.0 / my_fwidth;
-    phi = phase;
+    phi = phase+M_PI;
     peak_time = width * s;
     cutoff = width * s;
     fwidth = gaussian_bandwidth(width);
@@ -396,7 +396,7 @@ gaussian_src_time_phase::gaussian_src_time_phase(double f, double my_fwidth, dou
 gaussian_src_time_phase::gaussian_src_time_phase(double f, double w, double phase, double st, double et) {
     omega = 2*M_PI*f;
     width = w;
-    phi = phase;
+    phi = phase+M_PI;
     peak_time = 0.5*(st+et);
     cutoff = (et-st)*0.5;
     fwidth = gaussian_bandwidth(width);
