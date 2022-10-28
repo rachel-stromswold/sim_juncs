@@ -43,7 +43,7 @@ class dielectric_func:
         self.numers = self.sigmas*(self.omegas**2)
 
     def get_eps(self, omega):
-        return np.sum( self.eps_inf + self.numers / (self.lorentz*self.omegas**2 - omega**2 - 1j*omega*self.gammas) )
+        return self.eps_inf + np.sum( self.numers / (self.lorentz*self.omegas**2 - omega**2 - 1j*omega*self.gammas) )
 
     def get_eps_arr(self, omegas):
         #return np.array( [self.eps_inf + np.sum( self.sigmas*self.omegas**2 / (self.lorentz*self.omegas**2 - omega**2 - 1j*omega*self.gammas) ) for omega in omegas] )

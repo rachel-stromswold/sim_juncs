@@ -2,7 +2,7 @@
 #SBATCH -p standard --time=12:00:00 --mem=244G
 #SBATCH -a 1-10
 
-#this is an SBATCH argument when running on femto -C Gold6330
+#this is an SBATCH argument when running on femto: -C Gold6330
 
 run_local="f"
 run_simuls="t"
@@ -42,14 +42,15 @@ echo "working directory name: $pname, output name: $oname, run local? $run_local
 #the widths used for each job in the array. These are similar to those used in Schiffrin et al. For a SiO2 junction.
 #widths=("0.40" "0.44" "0.48" "0.52" "0.56" "0.60" "0.64" "0.68" "0.72" "0.76")
 widths=("0.05" "0.10" "0.15" "0.20" "0.25" "0.30" "0.35" "0.45" "0.50" "0.55")
+#hacky way of getting just gold and just silica
+#widths=("0.00" "10.00")
 thickness="0.2"
 resolution="12.0"
 h5dir="$pname/test_$SLURM_ARRAY_TASK_ID"
 
 #make the h5 directory and subdirectories
 mkdir $h5dir
-mkdir $h5dir/figures
-mkdir $h5dir/figures/fit_figs
+mkdir $h5dir/fit_figs
 
 if [ $run_simuls == "t" ]; then
     rm -f $h5dir/*
@@ -76,9 +77,10 @@ python time_space.py --fname $h5dir/field_samples.h5 --prefix $h5dir
 python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir
 
 #move the plots into a folder where we can view them
-cp "$h5dir"/junc.geom "$oname"/figures/junc_"$SLURM_ARRAY_TASK_ID".geom
+mkdir $oname/figures
+cp "$h5dir"/junc.geom "$oname"/junc_"$SLURM_ARRAY_TASK_ID".geom
+cp "$h5dir"/field_samples.h5 "$oname"/field_samples_"$SLURM_ARRAY_TASK_ID".h5
 cp "$h5dir"/eps.pdf "$oname"/figures/eps_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/field_samples.h5 "$oname"/figures/field_samples_"$SLURM_ARRAY_TASK_ID".h5
 cp "$h5dir"/space_plot.pdf "$oname"/figures/space_plot_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/cross_plot.pdf "$oname"/figures/cross_plot_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/tdom_plot.pdf "$oname"/figures/tdom_plot_"$SLURM_ARRAY_TASK_ID".pdf
