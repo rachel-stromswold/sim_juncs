@@ -270,8 +270,8 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
 source_info::source_info(std::string spec_str, const Scene& problem, parse_ercode* ercode) {
     //read the specification for the pulse as a function
     char* spec = strdup( spec_str.c_str() );
-    cgs_func env_func;
-    parse_ercode tmp_er = problem.parse_func(spec, -1, env_func, NULL);
+    parse_ercode tmp_er;
+    cgs_func env_func = problem.parse_func(spec, -1, tmp_er, NULL);
 
     //figure out the field component that the user wants to add (Default to electric field polarized in x direction)
     component = meep::Ex;
@@ -402,7 +402,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
  *  -3 insufficient memory
  */
 std::vector<drude_suscept> bound_geom::parse_susceptibilities(Value val, int* er) {
-    char* str = val.to_c_str();
+    char* str = strdup(val.val.s);
     std::vector<drude_suscept> ret;
     //check that the Settings struct is valid and allocate memory
     if (!str) {
@@ -428,6 +428,7 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(Value val, int* er
 	//the open paren must occur before the end paren
 	if (cur_entry > end) {
 	    set_ercode(er, -2);
+	    free(str);
 	    return ret;
 	}
 
@@ -439,30 +440,35 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(Value val, int* er
 	if (errno) {
 	    errno = 0;
 	    set_ercode(er, -2);
+	    free(str);
 	    return ret;
 	}
 	//read the gamma value
 	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
 	if (!tok) {
 	    set_ercode(er, -2);
+	    free(str);
 	    return ret;
 	}
 	cur_sus.gamma = strtod(tok, NULL);
 	if (errno) {
 	    errno = 0;
 	    set_ercode(er, -2);
+	    free(str);
 	    return ret;
 	}
 	//read the sigma value
 	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
 	if (!tok) {
 	    set_ercode(er, -2);
+	    free(str);
 	    return ret;
 	}
 	cur_sus.sigma = strtod(tok, NULL);
 	if (errno) {
 	    errno = 0;
 	    set_ercode(er, -2);
+	    free(str);
 	    return ret;
 	}
 	//read the (optional) use denom flag
@@ -488,6 +494,7 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(Value val, int* er
 	end = strchr(cur_entry, ')');
     }
 
+    free(str);
     return ret;
 }
 
@@ -606,12 +613,12 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     std::vector<CompositeObject*> data = problem.get_data();
     for (size_t i = 0; i < data.size(); ++i) {
 	if (data[i]->has_metadata("pml_thickness")) {
-	    Value tmp_val = data[i]->has_metadata("pml_thickness");
-	    if (tmp_val.get_type() == VAL_NUM) len = tmp_val.get_val().x;
+	    Value tmp_val = data[i]->fetch_metadata("pml_thickness");
+	    if (tmp_val.get_type() == VAL_NUM) len = tmp_val.val.x;
 	}
 	if (data[i]->has_metadata("length")) {
-	    Value tmp_val = data[i]->has_metadata("length");
-	    if (tmp_val.get_type() == VAL_NUM) len = tmp_val.get_val().x;
+	    Value tmp_val = data[i]->fetch_metadata("length");
+	    if (tmp_val.get_type() == VAL_NUM) len = tmp_val.val.x;
 	}
     }
 

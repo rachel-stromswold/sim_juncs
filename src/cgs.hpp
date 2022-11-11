@@ -106,6 +106,20 @@ public:
     evec3 get_offset() const { return offset; }
 };
 
+class Plane : public Object {
+private:
+    evec3 normal;
+    double offset;
+
+public:
+    Plane(evec3& normal, double offset, int p_invert=0);
+    Plane(evec3& point_1, evec3& point_2, evec3& point_3, int p_invert=0);
+    int in(const evec3& r);
+
+    evec3 get_normal() const { return normal; }
+    double get_offset() const { return offset; }
+};
+
 class Cylinder : public Object {
 private:
     evec3 center;
@@ -128,6 +142,7 @@ class Scene;
 
 typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT} valtype;
 class Value;
+class cgs_func;
 union V {
     char* s;
     double x;
@@ -135,33 +150,13 @@ union V {
     evec3* v;
     Eigen::MatrixXd* m;
 };
-class Value {
-    friend class Scene;
-#ifndef DEBUG_INFO
-protected:
-#else
-public:
-#endif
+
+struct Value {
     valtype type;
     V val;
-    size_t n_els = 1; //only applicable for string and list types
-public:
-    Value() { type = VAL_UNDEF;val.x = 0;n_els=0; }
-    Value(const char* s);
-    Value(std::string s);
-    Value(double x) { type = VAL_NUM;val.x = x; }
-    Value(int x) { type = VAL_NUM;val.x = (double)x; }
-    Value(const Value* vs, size_t n_vs);
-    Value(Eigen::MatrixXd m);
-    Value(evec3 vec);
-    void copy(const Value& o);
-    void cleanup();
-    ~Value();
-    Value(const Value& o);//copy 
-    Value(Value&& o);//move
-    //Value& operator=(const Value& o);
-    Value& operator=(Value& o);//assign
-    Value& operator=(const Value& o);//assign
+    size_t n_els; //only applicable for string and list types
+
+    Value() { val.x = 0;type=VAL_UNDEF;n_els=0; }
     bool operator==(std::string str);
     bool operator!=(std::string str);
     valtype get_type() { return type; }
@@ -171,13 +166,25 @@ public:
     double to_float();
     Value cast_to(valtype type, parse_ercode& er) const;
 };
+void cleanup_val(Value* o);
+Value copy_val(const Value o);
+void swap_val(Value* a, Value* b);
 
-typedef struct {
+struct cgs_func {
     char* name;
     Value args[ARGS_BUF_SIZE];
     char* arg_names[ARGS_BUF_SIZE];
-    size_t n_args = 0;
-} cgs_func;
+    size_t n_args;
+    cgs_func() { name = NULL;n_args = 0; }
+};
+Value make_val_str(const char* s);
+Value make_val_std_str(std::string s);
+Value make_val_list(const Value* vs, size_t n_vs);
+Value make_val_mat(Eigen::MatrixXd m);
+Value make_val_vec3(evec3 vec);
+cgs_func copy_func(const cgs_func o);
+void cleanup_func(Value* o);
+void swap(cgs_func* a, cgs_func* b);
 
 /*
  * A composite object is a node in a binary tree that represents one or more primitives combined via unions and intersections
@@ -286,7 +293,7 @@ private:
     std::vector<CompositeObject*> roots;
     std::vector<CompositeObject*> data_objs;
 
-    parse_ercode lookup_val(char* tok, Value& sto) const;
+    Value lookup_val(char* tok, parse_ercode& sto) const;
     //let users define constants
     std::unordered_map<std::string, Value> named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
@@ -305,10 +312,11 @@ public:
     void read();
 
     Value parse_value(char* tok, parse_ercode& er) const;
-    parse_ercode parse_list(char* str, Value& sto) const;
+    Value parse_list(char* str, parse_ercode& sto) const;
     parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const;
     parse_ercode make_transformation(const cgs_func& f, emat3& res) const;
-    parse_ercode parse_func(char* token, long open_par_ind, cgs_func& f, char** end) const;
+    cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end) const;
+    //void cleanup_func(cgs_func& f);
 };
 
 #endif //CGS_H

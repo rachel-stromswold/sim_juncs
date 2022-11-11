@@ -92,122 +92,87 @@ int Cylinder::in(const evec3& r) {
     return 1 - invert;
 }
 
-Value::Value(const char* s) {
-    type = VAL_STR;
-    n_els = strlen(s) + 1;
-    val.s = (char*)malloc(sizeof(char)*n_els);
-    for (size_t i = 0; i < n_els; ++i) val.s[i] = s[i];
+Value make_val_str(const char* s) {
+    Value v;
+    v.type = VAL_STR;
+    v.n_els = strlen(s) + 1;
+    v.val.s = (char*)malloc(sizeof(char)*v.n_els);
+    for (size_t i = 0; i < v.n_els; ++i) v.val.s[i] = s[i];
+    return v;
 }
-Value::Value(std::string s) {
-    type = VAL_STR;
-    n_els = s.size();
-    val.s = (char*)malloc(sizeof(char)*n_els);
-    for (size_t i = 0; i < n_els; ++i) val.s[i] = s[i];
+Value make_val_std_str(std::string s) {
+    Value v;
+    v.type = VAL_STR;
+    v.n_els = s.size();
+    v.val.s = (char*)malloc(sizeof(char)*v.n_els);
+    for (size_t i = 0; i < v.n_els; ++i) v.val.s[i] = s[i];
+    return v;
 }
-Value::Value(const Value* vs, size_t n_vs) {
-    type = VAL_LIST;
-    n_els = n_vs;
-    val.l = (Value*)malloc(sizeof(Value)*n_els);
-    for (size_t i = 0; i < n_els; ++i) val.l[i] = vs[i];
+Value make_val_list(const Value* vs, size_t n_vs) {
+    Value v;
+    v.type = VAL_LIST;
+    v.n_els = n_vs;
+    v.val.l = (Value*)malloc(sizeof(Value)*v.n_els);
+    for (size_t i = 0; i < v.n_els; ++i) v.val.l[i] = vs[i];
+    return v;
 }
-Value::Value(Eigen::MatrixXd m) {
-    type = VAL_MAT;
-    n_els = 1;
-    val.m = new Eigen::MatrixXd(m);
+Value make_val_mat(Eigen::MatrixXd m) {
+    Value v;
+    v.type = VAL_MAT;
+    v.n_els = 1;
+    v.val.m = new Eigen::MatrixXd(m);
+    return v;
 }
-Value::Value(evec3 vec) {
-    type = VAL_3VEC;
-    n_els = 1;
-    val.v = new evec3(vec);
+Value make_val_vec3(evec3 vec) {
+    Value v;
+    v.type = VAL_3VEC;
+    v.n_els = 1;
+    v.val.v = new evec3(vec);
+    return v;
 }
-void Value::cleanup() {
-    if (type == VAL_STR && val.s) {
-	free(val.s);
-    } else if (type == VAL_LIST && val.l) {
-	free(val.l);
-    } else if (type == VAL_MAT && val.m) {
-	delete val.m;
-    } else if (type == VAL_3VEC && val.v) {
-	delete val.v;
+void cleanup_val(Value* v) {
+    if (v->type == VAL_STR && v->val.s) {
+	free(v->val.s);
+    } else if (v->type == VAL_LIST && v->val.l) {
+	for (size_t i = 0; i < v->n_els; ++i) cleanup_val(v->val.l + i);
+	free(v->val.l);
+    } else if (v->type == VAL_MAT && v->val.m) {
+	delete v->val.m;
+    } else if (v->type == VAL_3VEC && v->val.v) {
+	delete v->val.v;
     }
 }
-Value::~Value() {
-    cleanup();
-    type = VAL_UNDEF;
-    n_els = 0;
-    val.s = NULL;
-}
-void Value::copy(const Value& o) {
-    type = o.type;
-    n_els = o.n_els;
+Value copy_val(const Value o) {
+    Value ret;
+    ret.type = o.type;
+    ret.n_els = o.n_els;
     //strings or lists must be copied
-    if (type == VAL_STR) {
-	val.s = (char*)malloc(sizeof(char)*n_els);
-	for (size_t i = 0; i < n_els; ++i) val.s[i] = o.val.s[i];
-    } else if (type == VAL_LIST) {
-	val.l = (Value*)malloc(sizeof(Value)*n_els);
-	for (size_t i = 0; i < n_els; ++i) val.l[i] = o.val.l[i];
-    } else if (type == VAL_MAT) {
-	val.m = new Eigen::MatrixXd(*(o.val.m));
-    } else if (type == VAL_3VEC) {
-	val.v = new evec3(*(o.val.v));
+    if (o.type == VAL_STR) {
+	ret.val.s = (char*)malloc(sizeof(char)*o.n_els);
+	for (size_t i = 0; i < o.n_els; ++i) ret.val.s[i] = o.val.s[i];
+    } else if (o.type == VAL_LIST) {
+	ret.val.l = (Value*)calloc(o.n_els, sizeof(Value));
+	for (size_t i = 0; i < o.n_els; ++i) ret.val.l[i] = o.val.l[i];
+    } else if (o.type == VAL_MAT) {
+	ret.val.m = new Eigen::MatrixXd(*(o.val.m));
+    } else if (o.type == VAL_3VEC) {
+	ret.val.v = new evec3(*(o.val.v));
     } else {
-	val.x = o.val.x;
+	ret.val.x = o.val.x;
     }
+    return ret;
 }
-//copy 
-Value::Value(const Value& o) {
-    copy(o);
-}
-//move
-Value::Value(Value&& o) {
-    type = o.type;
-    n_els = o.n_els;
-    if (type == VAL_STR) {
-	val.s = o.val.s;
-	o.val.s = NULL;
-    } else if (type == VAL_LIST) {
-	val.l = o.val.l;
-	o.val.l = NULL;
-    } else if (type == VAL_MAT) {
-	val.m = o.val.m;
-	o.val.m = NULL;
-    } else if (type == VAL_3VEC) {
-	val.v = o.val.v;
-	o.val.v = NULL;
-    } else {
-	val.x = o.val.x;
-    }
-    o.type = VAL_UNDEF;
-    o.n_els = 0;
-}
-//assign
-/*Value& Value::operator=(const Value& o) {
-    type = o.type;
-    n_els = o.n_els;
-    val = o.val;
-    return *this;
-}*/
-Value& Value::operator=(Value& o) {
+void swap_val(Value* a, Value* b) {
     //swap type and number of elements
-    valtype tmp = type;
-    type = o.type;
-    o.type = tmp;
-    size_t tmp_n = n_els;
-    n_els = o.n_els;
-    o.n_els = tmp_n;
-    V tmp_v = val;
-    val = o.val;
-    o.val = tmp_v;
-    return *this;
-}
-Value& Value::operator=(const Value& o) {
-    if (this != &o) {
-	//swap type and number of elements
-	cleanup();
-	copy(o);
-    }
-    return *this;
+    valtype tmp = a->type;
+    a->type = b->type;
+    b->type = tmp;
+    size_t tmp_n = a->n_els;
+    a->n_els = b->n_els;
+    b->n_els = tmp_n;
+    V tmp_v = a->val;
+    a->val = b->val;
+    b->val = tmp_v;
 }
 bool Value::operator==(std::string str) {
     if (type != VAL_STR) return false;
@@ -242,7 +207,7 @@ double Value::to_float() {
  */
 Value Value::cast_to(valtype t, parse_ercode& er) const {
     er = E_SUCCESS;
-    if (type == VAL_UNDEF) { er = E_BAD_VALUE;return Value(*this); }
+    if (type == VAL_UNDEF) { er = E_BAD_VALUE;return copy_val(*this); }
     if (type == t) return Value(*this);
     Value ret;
     ret.type = t;
@@ -250,8 +215,8 @@ Value Value::cast_to(valtype t, parse_ercode& er) const {
 	if (t == VAL_3VEC) {
 	    Value* tmp_lst = val.l;
 	    //check that we have at least three numeric values
-	    if (n_els < 3) { er = E_LACK_TOKENS;return Value(*this); }
-	    if (tmp_lst[0].type != VAL_NUM || tmp_lst[1].type != VAL_NUM || tmp_lst[2].type != VAL_NUM) return E_BAD_TOKEN;
+	    if (n_els < 3) { er = E_LACK_TOKENS;return copy_val(*this); }
+	    if (tmp_lst[0].type != VAL_NUM || tmp_lst[1].type != VAL_NUM || tmp_lst[2].type != VAL_NUM) { er = E_BAD_TOKEN;return copy_val(*this); }
 	    //actually change data and free the old
 	    ret.val.v = new evec3(tmp_lst[0].val.x, tmp_lst[1].val.x, tmp_lst[2].val.x);
 	    ret.n_els = 3;
@@ -260,6 +225,52 @@ Value Value::cast_to(valtype t, parse_ercode& er) const {
 	//*this = parse_value(val.s);
     }
     return ret;
+}
+void cleanup_func(cgs_func* f) {
+    for (size_t i = 0; i < f->n_args; ++i) cleanup_val(f->args + i);
+}
+cgs_func copy_func(const cgs_func o) {
+    cgs_func f;
+    f.name = strdup(o.name);
+    f.n_args = o.n_args;
+    for (size_t i = 0; i < f.n_args; ++i) {
+	f.args[i] = copy_val(o.args[i]);
+	if (o.arg_names[i]) f.arg_names[i] = strdup(o.arg_names[i]);
+    }
+    return f;
+}
+void swap_func(cgs_func* a, cgs_func* b) {
+    char* tmp_name = a->name;
+    a->name = b->name;
+    b->name = tmp_name;
+    size_t tmp_n_args = a->n_args;
+    a->n_args = b->n_args;
+    b->n_args = tmp_n_args;
+    //WLOG fix sf and lf to be the pointers to the functions smaller and larger number of arguments respectively
+    cgs_func* sf = a;
+    cgs_func* lf = b;
+    size_t min_n_args = a->n_args;
+    size_t max_n_args = b->n_args;
+    if (b->n_args < a->n_args) {
+	sf = b;
+	lf = a;
+	min_n_args = b->n_args;
+	max_n_args = a->n_args;
+    }
+    //finally we can actually swap each element, a full swap only needs to be done for the minimal number of arguments
+    size_t i = 0;
+    for (; i < min_n_args; ++i) {
+	Value tmp_val = sf->args[i];
+	sf->args[i] = lf->args[i];
+	lf->args[i] = tmp_val;
+	tmp_name = sf->arg_names[i];
+	sf->arg_names[i] = lf->arg_names[i];
+	lf->arg_names[i] = tmp_name;
+    }
+    for (; i < max_n_args; ++i) {
+	sf->args[i] = lf->args[i];
+	sf->arg_names[i] = lf->arg_names[i];
+    }
 }
 
 CompositeObject::CompositeObject(combine_type p_cmb) {
@@ -287,7 +298,7 @@ CompositeObject::CompositeObject(combine_type p_cmb, const cgs_func& spec, int p
 		}
 	    }*/
 	    std::string tok_cpp(spec.arg_names[i]);
-	    metadata[tok_cpp] = spec.args[i];
+	    metadata[tok_cpp] = copy_val(spec.args[i]);
 	}
     }
     cmb = p_cmb;
@@ -376,6 +387,9 @@ CompositeObject::~CompositeObject() {
 		delete children[i];
 	}
     }
+    for (auto it = metadata.begin(); it != metadata.end(); ++it) {
+	cleanup_val(&(it->second));
+    }
 }
 
 int CompositeObject::call_child_in(_uint side, const evec3& r) {
@@ -423,12 +437,11 @@ int CompositeObject::in(const evec3& r) {
     return invert;
 }
 
-parse_ercode Scene::lookup_val(char* tok, Value& sto) const {
-    errno = 0;
-     std::string cpp_tok(tok);
-    if (named_items.count(cpp_tok) == 0) return E_BAD_TOKEN;
-    sto = named_items.at(cpp_tok);
-    return E_SUCCESS;
+Value Scene::lookup_val(char* tok, parse_ercode& er) const {
+    std::string cpp_tok(tok);
+    if (named_items.count(cpp_tok) == 0) { Value v;er = E_BAD_TOKEN;return v; }
+    er = E_SUCCESS;
+    return named_items.at(cpp_tok);
 }
 
 Value Scene::parse_value(char* str, parse_ercode& er) const {
@@ -459,8 +472,8 @@ Value Scene::parse_value(char* str, parse_ercode& er) const {
 	} else if (str[i] == /*[*/']') {
 	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_SQUARE) { er = E_BAD_SYNTAX;return sto; }
 	    //now parse the argument as a vector
-	    parse_ercode tmp_er = parse_list(str+start_ind.i, sto);
-	    if (tmp_er != E_SUCCESS) { er = tmp_er;return sto; }
+	    sto = parse_list(str+start_ind.i, er);
+	    if (er != E_SUCCESS) return sto;
 	    if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
 	} else if (str[i] == '('/*)*/) {
 	    //keep track of open and close parenthesis, these will come in handy later
@@ -596,11 +609,15 @@ Value Scene::parse_value(char* str, parse_ercode& er) const {
 	//if there isn't a valid parenthetical expression, then we should interpret this as a value string
 	if (first_open_ind < 0 || last_close_ind < 0) {
 	    str = CGS_trim_whitespace(str, NULL);
-	    parse_ercode er = lookup_val(str, sto);
+	    sto = lookup_val(str, er);
 	    if (er != E_SUCCESS) {
 		//try interpreting as a number
+		errno = 0;
 		sto.val.x = strtod(str, NULL);
-		if (errno) { er = E_BAD_TOKEN;return sto; }
+		if (errno) {
+		    er = E_BAD_TOKEN;return sto;
+		}
+		er = E_SUCCESS;
 		sto.type = VAL_NUM;
 	    }
 	} else if (str[first_open_ind] == '\"' && str[last_close_ind] == '\"') {
@@ -621,7 +638,7 @@ Value Scene::parse_value(char* str, parse_ercode& er) const {
 		    str[last_close_ind+1] = 0;
 		    cgs_func tmp_f;
 		    char* f_end;
-		    er = parse_func(str, first_open_ind, tmp_f, &f_end);
+		    tmp_f = parse_func(str, first_open_ind, er, &f_end);
 		    if (er != E_SUCCESS) { return sto; }
 		    //TODO: allow user defined functions
 		    if (strcmp(tmp_f.name, "vec") == 0) {
@@ -787,26 +804,23 @@ char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
  * 	-1: insufficient tokens
  * 	-2: one of the tokens supplied was invalid
  */
-parse_ercode Scene::parse_list(char* str, Value& sto) const {
-    parse_ercode er;
-    sto.val.v = new evec3();
+Value Scene::parse_list(char* str, parse_ercode& er) const {
+    Value sto;
     //find the start and the end of the vector
     char* start = strchr(str, '[');
     //make sure that the string is null terminated
     char* end = strchr_block(start+1, ']');
-    if (!end) return E_BAD_SYNTAX;
+    if (!end) { er = E_BAD_SYNTAX;return sto; }
     *end = 0;
-
-    Value tmp_val;
 
     //read the coordinates separated by spaces
     size_t n_els;
     char** list_els = csv_to_list(start+1, ',', &n_els, er);
-    if (er != E_SUCCESS) return er;
+    if (er != E_SUCCESS) { free(list_els);return sto; }
     Value* buf = (Value*)calloc(n_els, sizeof(Value));
     for (size_t i = 0; list_els[i] && i < n_els; ++i) {
 	buf[i] = parse_value(list_els[i], er);
-	if (er != E_SUCCESS) return er;
+	if (er != E_SUCCESS) { free(list_els);free(buf);return sto; }
     }
     //cleanup and reset the string
     *end = ']';
@@ -815,31 +829,8 @@ parse_ercode Scene::parse_list(char* str, Value& sto) const {
     sto.type = VAL_LIST;
     sto.n_els = n_els;
     sto.val.l = buf;
-    return E_SUCCESS;
-    /*char* save_str;
-    char* tok = strtok_r(start+1, ",", &save_str);
-    if (!tok) return E_LACK_TOKENS;
-    tok = CGS_trim_whitespace(tok, NULL);
-    errno = 0;
-    if ((er = parse_value(tok, tmp_val)) != E_SUCCESS) return er;
-    if (tmp_val.type != VAL_NUM) return E_BAD_VALUE;
-    sto.val.v->x() = tmp_val.val.x;
-    //y
-    tok = strtok_r(NULL, ",", &save_str);
-    if (!tok) return E_LACK_TOKENS;
-    if ((er = parse_value(tok, tmp_val)) != E_SUCCESS) return er;
-    if (tmp_val.type != VAL_NUM) return E_BAD_VALUE;
-    sto.val.v->y() = tmp_val.val.x;
-    //z
-    tok = strtok_r(NULL, ",", &save_str);
-    if (!tok) return E_LACK_TOKENS;
-    if ((er = parse_value(tok, tmp_val)) != E_SUCCESS) return er;
-    if (tmp_val.type != VAL_NUM) return E_BAD_VALUE;
-    sto.val.v->z() = tmp_val.val.x;*/
-
-    sto.type = VAL_3VEC;
-
-    return E_SUCCESS;
+    er = E_SUCCESS;
+    return sto;
 }
 
 /**
@@ -945,8 +936,8 @@ parse_ercode Scene::make_transformation(const cgs_func& f, emat3& res) const {
  * end: If not NULL, a pointer to the first character after the end of the string is stored here. If an error occurred during parsing end will be set to NULL.
  * returns: an errorcode if an invalid string was supplied.
  */
-parse_ercode Scene::parse_func(char* token, long open_par_ind, cgs_func& f, char** end) const {
-    parse_ercode er;
+cgs_func Scene::parse_func(char* token, long open_par_ind, parse_ercode& er, char** end) const {
+    cgs_func f;
 
     //by default we want to indicate that we didn't get to the end
     if (end) *end = NULL;
@@ -955,7 +946,7 @@ parse_ercode Scene::parse_func(char* token, long open_par_ind, cgs_func& f, char
     if (open_par_ind < 0 || token[open_par_ind] != '('/*)*/) {
 	char* par_char = strchr(token, '('/*)*/);
 	//make sure there actually is an open paren
-	if (par_char == NULL) return E_BAD_TOKEN;
+	if (par_char == NULL) { er = E_BAD_TOKEN;return f; }
 	open_par_ind = par_char - token;
     }
 
@@ -967,18 +958,18 @@ parse_ercode Scene::parse_func(char* token, long open_par_ind, cgs_func& f, char
     char* arg_str = token+open_par_ind+1;
     //make sure that the string is null terminated
     char* term_ptr = strchr_block(arg_str, /*(*/')');
-    if (!term_ptr) return E_BAD_SYNTAX;
+    if (!term_ptr) { er = E_BAD_SYNTAX;return f; }
     *term_ptr = 0;
     if (end) *end = term_ptr+1;
-
+ 
     //read the coordinates separated by spaces
     char** list_els = csv_to_list(arg_str, ',', &(f.n_args), er);
-    if (er != E_SUCCESS) return er;
+    if (er != E_SUCCESS) { free(list_els);return f; }
     //make sure that we don't go out of bounds, TODO: let functions accept arbitrarily many arguments?
     if (f.n_args >= ARGS_BUF_SIZE) {
 	er = E_NOMEM;
 	free(list_els);
-	return er;
+	return f;
     }
     for (size_t i = 0; list_els[i] && i < f.n_args; ++i) {
 	//handle named arguments
@@ -991,125 +982,12 @@ parse_ercode Scene::parse_func(char* token, long open_par_ind, cgs_func& f, char
 	    f.arg_names[i] = NULL;
 	}
 	f.args[i] = parse_value(list_els[i], er);
-	if (er != E_SUCCESS) return er;
+	if (er != E_SUCCESS) { free(list_els);return f; }
     }
     //cleanup and reset the string
     //*term_ptr = /*(*/')';
     free(list_els);
-    return E_SUCCESS;
-
-    //keep track of information for individual arguments
-    CGS_Stack<type_ind_pair> blk_stk;
-    int blk_stk_in = 0;
-    int p_block_in = 0;
-    size_t j = 0;
-    bool tok_start = false;
-    char* cur_tok = arg_str;
-    char* cur_name = NULL;
-    size_t last_non_space = 0;
-    size_t i = 0;
-
-    //keep track of the last value
-    Value last_val;
-    last_val.type = VAL_UNDEF;
-
-    for (; arg_str[i] != 0; ++i) {
-	//it is possible that there is an array or function inside one of the arguments, we should ignore field separators in those blocks
-	if (arg_str[i] == '[') {
-	    blk_stk.push({BLK_SQUARE, i});
-	} else if (arg_str[i] == ']') {
-	    type_ind_pair start_ind;
-	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_SQUARE) return E_BAD_SYNTAX;
-	    //now parse the argument as a vector
-	    parse_ercode tmp_er = parse_list(arg_str+start_ind.i, last_val);
-	    if (tmp_er != E_SUCCESS) return tmp_er;
-	} else if (arg_str[i] == '(') {
-	    blk_stk.push({BLK_PAREN, i});
-	} else if (arg_str[i] == ')') {
-	    type_ind_pair start_ind;
-	    //when we reach an end paren without a matching open paren we should stop reading the function
-	    if (blk_stk.pop(&start_ind) != E_SUCCESS) break;
-	    //if (p_block_in < 0) break;
-	} else if (arg_str[i] == '\"') {
-	    tok_start = true;
-	    arg_str[i] = ' ';
-	    size_t str_start_ind = i+1;
-	    //skip ahead until we find the end of the quote
-	    for (_uint j = i+1; arg_str[j] != 0; ++j) {
-		if (arg_str[j] == '\"' && arg_str[j-1] != '\\') {
-		    //once we reach the end of the string we need to set the higher level index accordingly
-		    last_non_space = j-1;
-		    i = j;
-		    arg_str[j] = ' ';//assign the character to be ignored
-		    break;
-		}
-	    }
-	    //copy the string into the value memory
-	    last_val.type = VAL_STR;
-	    last_val.n_els = (last_non_space-str_start_ind)+2;
-	    last_val.val.s = (char*)malloc(sizeof(char)*last_val.n_els);
-	    for (size_t j = 0; j < last_val.n_els; ++j) last_val.val.s[j] = arg_str[str_start_ind+j];
-	    last_val.val.s[last_val.n_els-1] = 0;
-	    continue;
-	} else if (arg_str[i] == '=' && arg_str[i+1] != '=' && arg_str[i+1] != 0) {
-	    //this is a named argument, set the name and reset the token to only include the portion after the = sign
-	    arg_str[i] = 0;
-	    cur_name = CGS_trim_whitespace(cur_tok, NULL);
-	    ++i;
-	    cur_tok = arg_str+i;
-	}
-	
-	//now if this character is a field separator we add it to the argument list
-	if (arg_str[i] == ',' && blk_stk.is_empty()) {
-	    if (!tok_start) return E_LACK_TOKENS;
-	    arg_str[last_non_space+1] = 0;
-	    //check if we need to figure out the value based on context
-	    if (last_val.type == VAL_UNDEF) {
-		parse_ercode tmp_er;
-		last_val = parse_value(cur_tok, tmp_er);
-	    }
-	    //set the name and its value
-	    if (cur_name) f.arg_names[j] = CGS_trim_whitespace(cur_name, NULL);
-	    f.args[j++] = last_val;
-	    //now reset the current token
-	    cur_name = NULL;
-	    cur_tok = arg_str + i + 1;
-	    tok_start = false;
-	    //make sure we reset the value type
-	    last_val.type = VAL_UNDEF;
-	    continue;
-	}
-
-	//we want to remove whitespace surrounding the arguments
-	if (arg_str[i] == ' ' || arg_str[i] == '\t') {
-	    if (!tok_start) {
-		cur_tok += 1;
-	    }
-	} else {
-	    last_non_space = i;
-	    tok_start = true;
-	}
-    }
-    //this means that there wasn't a closing parenthesis found
-    if (arg_str[i] == 0) return E_BAD_SYNTAX;
-    //add the last token
-    //if (j > 0) {
-        if (!tok_start) return E_LACK_TOKENS;
-        arg_str[last_non_space+1] = 0;
-	//parse the final value
-	if (last_val.type == VAL_UNDEF) {
-	    parse_ercode tmp_er;
-	    last_val= parse_value(cur_tok, tmp_er);
-	}
-	if (cur_name) f.arg_names[j] = CGS_trim_whitespace(cur_name, NULL);
-        f.args[j++] = last_val;
-        arg_str[i] = 0;
-    //}
-    f.n_args = j;
-    //assign the end pointer if the caller wants it
-    if (end) *end = arg_str + i + 1;
-
-    return E_SUCCESS;
+    return f;
 }
 
 template <typename T>
@@ -1362,7 +1240,7 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			//initialize a new cgs_func with the appropriate arguments
 			cgs_func cur_func;
 			char* endptr;
-			er = parse_func(cur_token, i, cur_func, &endptr);
+			cur_func = parse_func(cur_token, i, er, &endptr);
 			switch (er) {
 			    case E_BAD_TOKEN:
 				printf("Error on line %d: Invalid function name \"%s\"\n", lineno, cur_token);
@@ -1404,6 +1282,7 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			}
 			//jump ahead until after the end of the function
 			if (er == E_SUCCESS) i = endptr - buf;
+			cleanup_func(&cur_func);
 		    //check for comments
 		    } else if (buf[i] == '/') {
 			if (i < line_len-1) {
@@ -1442,7 +1321,7 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			char* tok = CGS_trim_whitespace(buf, NULL);
 			size_t val_len;
 			char* val = CGS_trim_whitespace(buf+i+1, &val_len);
-			named_items[std::string(tok)] = std::string(val);
+			named_items[std::string(tok)] = make_val_str(val);
 		    }
 		} else {
 		    //check if we reached the end of a comment or string literal block

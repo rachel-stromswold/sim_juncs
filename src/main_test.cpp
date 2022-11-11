@@ -278,16 +278,16 @@ TEST_CASE("Test function parsing") {
     const char* bad_test_func_2 = "foo ( \"a\" , \"b\" , \"c\"";
 
     Scene sc;
-    cgs_func cur_func;
+    parse_ercode er;
     //check string 1
     strncpy(buf, test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_ercode er = sc.parse_func(buf, 1, cur_func, NULL);
+    cgs_func cur_func = sc.parse_func(buf, 1, er, NULL);
     CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 0);
     CHECK(strcmp(cur_func.name, "f") == 0);
     //check string 2
     strncpy(buf, test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 1, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 1, er, NULL);
     CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 4);
     INFO("func name=", cur_func.name);
@@ -301,7 +301,7 @@ TEST_CASE("Test function parsing") {
     CHECK(cur_func.args[3].to_float() == 4);
     //check string 3
     strncpy(buf, test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 3, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 3, er, NULL);
     CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
@@ -318,7 +318,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[2].to_c_str(), "banana") == 0);
     //check string 4
     strncpy(buf, test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 3, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 3, er, NULL);
     CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
@@ -331,7 +331,7 @@ TEST_CASE("Test function parsing") {
     CHECK(cur_func.args[2].to_float() == 9);
     //check string 5
     strncpy(buf, test_func_5, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 4, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 4, er, NULL);
     CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 2);
     INFO("func name=", cur_func.name);
@@ -342,7 +342,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[1].to_c_str(), "b , c") == 0);
     //check string 6
     strncpy(buf, test_func_6, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 1, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 1, er, NULL);
     CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 1);
     INFO("func name=", cur_func.name);
@@ -352,7 +352,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.arg_names[0], "eps") == 0);
     //check string 7
     strncpy(buf, test_func_7, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 1, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 1, er, NULL);
     CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 1);
     INFO("func name=", cur_func.name);
@@ -362,18 +362,17 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.arg_names[0], "name") == 0);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 4, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 4, er, NULL);
     CHECK(er == E_BAD_SYNTAX);
     //check bad string 2
     strncpy(buf, bad_test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 4, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 4, er, NULL);
     CHECK(er == E_BAD_SYNTAX);
 }
 
 TEST_CASE("Test Object Trees") {
     //declare variables
     char buf[BUF_SIZE];
-    cgs_func cur_func;
     ObjectStack test_stack;
     Object* cur_obj;object_type cur_type;
     parse_ercode er;
@@ -390,43 +389,50 @@ TEST_CASE("Test Object Trees") {
     Scene sc;
     //Insert root object
     strncpy(buf, root_obj_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cgs_func cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert object 1
     strncpy(buf, l_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert left union object
     strncpy(buf, ll_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert right union object
     strncpy(buf, lr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert object 2
     strncpy(buf, r_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert left union object
     strncpy(buf, rl_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
     //Insert right union object
     strncpy(buf, rr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
@@ -653,7 +659,7 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(er == E_SUCCESS);
 	CompositeObject* root = geometry.problem.get_roots()[0];
 	char* dat = strdup(root->fetch_metadata("susceptibilities").to_c_str());
-	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat, (int*)(&er));
+	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(make_val_str(dat), (int*)(&er));
 	free(dat);
 	CHECK(sups.size() == 2);
 	CHECK(sups[0].omega_0 == 1.0);
