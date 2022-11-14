@@ -170,38 +170,45 @@ TEST_CASE("Test value parsing") {
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 1);
+	cleanup_val(&tmp_val);
 	strncpy(buf, "12", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 12);
+	cleanup_val(&tmp_val);
 	//test floats
 	strncpy(buf, ".25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 0.25);
+	cleanup_val(&tmp_val);
 	strncpy(buf, "1.25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 1.25);
+	cleanup_val(&tmp_val);
 	//test scientific notation
 	strncpy(buf, ".25e10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 0.25e10);
+	cleanup_val(&tmp_val);
 	strncpy(buf, "1.25e10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 1.25e10);
+	cleanup_val(&tmp_val);
 	strncpy(buf, "1.25e-10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_NUM);
 	CHECK(tmp_val.val.x == 1.25e-10);
+	cleanup_val(&tmp_val);
     }
     SUBCASE("Reading strings to values works") {
 	//test a simple string
@@ -210,24 +217,28 @@ TEST_CASE("Test value parsing") {
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.s, "foo") == 0);
+	cleanup_val(&tmp_val);
 	//test a string with whitespace
 	strncpy(buf, "\" foo bar \"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.s, " foo bar ") == 0);
+	cleanup_val(&tmp_val);
 	//test a string with stuff inside it
 	strncpy(buf, "\"foo(bar)\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.s, "foo(bar)") == 0);
+	cleanup_val(&tmp_val);
 	//test a string with an escaped string
 	strncpy(buf, "\"foo\\\"bar\\\" \"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.s, "foo\\\"bar\\\" ") == 0);
+	cleanup_val(&tmp_val);
     }
     SUBCASE("Reading lists to values works") {
 	//test one element lists
@@ -239,6 +250,7 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.n_els == 1);
 	CHECK(tmp_val.val.l[0].type == VAL_STR);
 	CHECK(strcmp(tmp_val.val.l[0].val.s, "foo") == 0);
+	cleanup_val(&tmp_val);
 	//test two element lists
 	strncpy(buf, "[\"foo\", 1]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
@@ -250,6 +262,7 @@ TEST_CASE("Test value parsing") {
 	CHECK(strcmp(tmp_val.val.l[0].val.s, "foo") == 0);
 	CHECK(tmp_val.val.l[1].type == VAL_NUM);
 	CHECK(tmp_val.val.l[1].val.x == 1);
+	cleanup_val(&tmp_val);
     }
     SUBCASE("Reading vectors to values works") {
 	//test one element lists
@@ -261,6 +274,7 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.val.v->x() == doctest::Approx(1.2));
 	CHECK(tmp_val.val.v->y() == doctest::Approx(3.4));
 	CHECK(tmp_val.val.v->z() == doctest::Approx(56.7));
+	cleanup_val(&tmp_val);
     }
 }
 
@@ -285,6 +299,7 @@ TEST_CASE("Test function parsing") {
     CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 0);
     CHECK(strcmp(cur_func.name, "f") == 0);
+    cleanup_func(&cur_func);
     //check string 2
     strncpy(buf, test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 1, er, NULL);
@@ -299,6 +314,7 @@ TEST_CASE("Test function parsing") {
     INFO("func arg=", cur_func.args[2]);
     CHECK(strcmp(cur_func.args[2].to_c_str(), "c") == 0);
     CHECK(cur_func.args[3].to_float() == 4);
+    cleanup_func(&cur_func);
     //check string 3
     strncpy(buf, test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 3, er, NULL);
@@ -316,6 +332,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[1].to_c_str(), "a") == 0);
     INFO("func arg=", cur_func.args[1]);
     CHECK(strcmp(cur_func.args[2].to_c_str(), "banana") == 0);
+    cleanup_func(&cur_func);
     //check string 4
     strncpy(buf, test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 3, er, NULL);
@@ -329,6 +346,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[1].to_c_str(), "Box(0,1,2,3)") == 0);
     INFO("func arg=", cur_func.args[2].to_float());
     CHECK(cur_func.args[2].to_float() == 9);
+    cleanup_func(&cur_func);
     //check string 5
     strncpy(buf, test_func_5, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 4, er, NULL);
@@ -340,6 +358,7 @@ TEST_CASE("Test function parsing") {
     CHECK(cur_func.args[0].to_float() == 1);
     INFO("func arg=", cur_func.args[1].to_c_str());
     CHECK(strcmp(cur_func.args[1].to_c_str(), "b , c") == 0);
+    cleanup_func(&cur_func);
     //check string 6
     strncpy(buf, test_func_6, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 1, er, NULL);
@@ -350,6 +369,7 @@ TEST_CASE("Test function parsing") {
     INFO("func arg=", cur_func.args[0].to_float());
     CHECK(cur_func.args[0].to_float() == 3.5);
     CHECK(strcmp(cur_func.arg_names[0], "eps") == 0);
+    cleanup_func(&cur_func);
     //check string 7
     strncpy(buf, test_func_7, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 1, er, NULL);
@@ -360,14 +380,17 @@ TEST_CASE("Test function parsing") {
     INFO("func arg=", cur_func.args[0].to_c_str());
     CHECK(strcmp(cur_func.args[0].to_c_str(), "bar") == 0);
     CHECK(strcmp(cur_func.arg_names[0], "name") == 0);
+    cleanup_func(&cur_func);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 4, er, NULL);
     CHECK(er == E_BAD_SYNTAX);
+    cleanup_func(&cur_func);
     //check bad string 2
     strncpy(buf, bad_test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 4, er, NULL);
     CHECK(er == E_BAD_SYNTAX);
+    cleanup_func(&cur_func);
 }
 
 TEST_CASE("Test Object Trees") {
@@ -394,6 +417,7 @@ TEST_CASE("Test Object Trees") {
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert object 1
     strncpy(buf, l_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
@@ -401,6 +425,7 @@ TEST_CASE("Test Object Trees") {
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert left union object
     strncpy(buf, ll_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
@@ -408,6 +433,7 @@ TEST_CASE("Test Object Trees") {
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert right union object
     strncpy(buf, lr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
@@ -415,6 +441,7 @@ TEST_CASE("Test Object Trees") {
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert object 2
     strncpy(buf, r_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
@@ -422,6 +449,7 @@ TEST_CASE("Test Object Trees") {
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert left union object
     strncpy(buf, rl_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
@@ -429,6 +457,7 @@ TEST_CASE("Test Object Trees") {
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert right union object
     strncpy(buf, rr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
@@ -436,6 +465,7 @@ TEST_CASE("Test Object Trees") {
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
 
     //get all composite objects in the tree
     CompositeObject* root = test_stack.get_root();
@@ -597,13 +627,20 @@ TEST_CASE("Test reading of configuration files") {
 	Settings args;
 	//parse commandline arguments
 	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0" };
-	//gcc doesn't like using string literals as c-strings, ugh
+	//gcc doesn't like using string literals as c-strings, ugh.
 	int n_args = sizeof(sim_argv_cpp)/sizeof(std::string);
+	//need to create two lists since parse_args modifies the list in place. The second list is only used so that we know which addresses to free.
 	char** sim_argv_c = (char**)malloc(sizeof(char*)*n_args);
-	for (_uint i = 0; i < n_args; ++i) sim_argv_c[i] = strdup(sim_argv_cpp[i].c_str());
+	char** post_sim_argv_c = (char**)malloc(sizeof(char*)*n_args);
+	for (_uint i = 0; i < n_args; ++i) {
+	    sim_argv_c[i] = strdup(sim_argv_cpp[i].c_str());
+	    post_sim_argv_c[i] = sim_argv_c[i];
+	}
 
 	//finally we can parse the command line arguments
-	int ret = parse_args(&args, &n_args, sim_argv_c);
+	int post_n_args = n_args;
+	int ret = parse_args(&args, &post_n_args, sim_argv_c);
+	CHECK(post_n_args == 1);
 
 	//this is used when calling parse_args, so it should be checked before everything else
 	CHECK(args.conf_fname != NULL);
@@ -630,7 +667,7 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.post_source_t == 1.0);
 
 	//deallocate memory
-	for (_uint i = 0; i < n_args; ++i) free(sim_argv_c[i]);
+	for (_uint i = 0; i < n_args; ++i) free(post_sim_argv_c[i]);
 	free(sim_argv_c);
 	cleanup_settings(&args);
     }
@@ -659,7 +696,9 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(er == E_SUCCESS);
 	CompositeObject* root = geometry.problem.get_roots()[0];
 	char* dat = strdup(root->fetch_metadata("susceptibilities").to_c_str());
-	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(make_val_str(dat), (int*)(&er));
+	Value dat_val = make_val_str(dat);
+	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat_val, (int*)(&er));
+	cleanup_val(&dat_val);
 	free(dat);
 	CHECK(sups.size() == 2);
 	CHECK(sups[0].omega_0 == 1.0);

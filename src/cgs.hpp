@@ -183,7 +183,7 @@ Value make_val_list(const Value* vs, size_t n_vs);
 Value make_val_mat(Eigen::MatrixXd m);
 Value make_val_vec3(evec3 vec);
 cgs_func copy_func(const cgs_func o);
-void cleanup_func(Value* o);
+void cleanup_func(cgs_func* o);
 void swap(cgs_func* a, cgs_func* b);
 
 /*

@@ -141,6 +141,7 @@ void cleanup_val(Value* v) {
     } else if (v->type == VAL_3VEC && v->val.v) {
 	delete v->val.v;
     }
+    v->val.x = 0;
 }
 Value copy_val(const Value o) {
     Value ret;
@@ -208,11 +209,12 @@ double Value::to_float() {
 Value Value::cast_to(valtype t, parse_ercode& er) const {
     er = E_SUCCESS;
     if (type == VAL_UNDEF) { er = E_BAD_VALUE;return copy_val(*this); }
-    if (type == t) return Value(*this);
+    if (type == t) return copy_val(*this);
     Value ret;
     ret.type = t;
-    if (type == VAL_LIST) {
-	if (t == VAL_3VEC) {
+    ret.n_els = n_els;
+    if (t == VAL_3VEC) {
+	if (type == VAL_LIST) {
 	    Value* tmp_lst = val.l;
 	    //check that we have at least three numeric values
 	    if (n_els < 3) { er = E_LACK_TOKENS;return copy_val(*this); }
@@ -221,8 +223,20 @@ Value Value::cast_to(valtype t, parse_ercode& er) const {
 	    ret.val.v = new evec3(tmp_lst[0].val.x, tmp_lst[1].val.x, tmp_lst[2].val.x);
 	    ret.n_els = 3;
 	}
+    } else if (t == VAL_LIST) {
+	if (type == VAL_3VEC) {
+	    ret.n_els = 3;
+	    ret.val.l = (Value*)malloc(sizeof(Value)*ret.n_els);
+	    for (size_t i = 0; i < ret.n_els; ++i) {
+		ret.val.l[i].type = VAL_NUM;
+		ret.val.l[i].n_els = 1;
+		ret.val.l[i].val.x = (*val.v)(i);
+	    }
+	} else if (type == VAL_MAT) {
+	    //TODO
+	}
     } else if (type == VAL_STR) {
-	//*this = parse_value(val.s);
+	//TODO
     }
     return ret;
 }
@@ -468,13 +482,13 @@ Value Scene::parse_value(char* str, parse_ercode& er) const {
     for (_uint i = 0; str[i] != 0; ++i) {
 	if (str[i] == '['/*]*/) {
 	    blk_stk.push({BLK_SQUARE, i});
+	    ++nest_level;
 	    if (first_open_ind == -1) { first_open_ind = i; }
 	} else if (str[i] == /*[*/']') {
 	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_SQUARE) { er = E_BAD_SYNTAX;return sto; }
-	    //now parse the argument as a vector
-	    sto = parse_list(str+start_ind.i, er);
-	    if (er != E_SUCCESS) return sto;
-	    if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
+	    --nest_level;
+	    //if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
+	    last_close_ind = i;
 	} else if (str[i] == '('/*)*/) {
 	    //keep track of open and close parenthesis, these will come in handy later
 	    blk_stk.push({BLK_PAREN, i});
@@ -486,7 +500,8 @@ Value Scene::parse_value(char* str, parse_ercode& er) const {
 	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_PAREN) { er = E_BAD_SYNTAX;return sto; }
 	    --nest_level;
 	    //only set the end paren location if it hasn't been set yet and the stack has no more parenthesis to remove, TODO: make this work with other block types inside a set of parenthesis
-	    if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
+	    //if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
+	    last_close_ind = i;
 	} else if (str[i] == '\"' && (i == 0 || str[i-1] != '\\')) {
 	    start_ind = blk_stk.peek();
 	    if (blk_stk.is_empty() || start_ind.t != BLK_QUOTE) {
@@ -628,6 +643,11 @@ Value Scene::parse_value(char* str, parse_ercode& er) const {
 	    sto.val.s = (char*)malloc(sizeof(char)*sto.n_els);
 	    for (size_t i = 0; i < sto.n_els-1; ++i) sto.val.s[i] = str[first_open_ind+i+1];
 	    sto.val.s[sto.n_els-1] = 0;
+	} else if (str[first_open_ind] == '[' && str[last_close_ind] == ']') {
+	    //now parse the argument as a list
+	    sto = parse_list(str+first_open_ind, er);
+	    sto.type = VAL_LIST;
+	    if (er != E_SUCCESS) return sto;
 	} else if (str[first_open_ind] == '(' && str[last_close_ind] == ')') {
 	    //check to see if this is a function call (it is if there are any non-whitespace characters before the open paren
 	    int is_func = 0;
@@ -853,6 +873,9 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
 	//make the box
 	if (ptr) *ptr = new Box(*(corn_1.val.v), *(corn_2.val.v), p_invert);
 	if (type) *type = CGS_BOX;
+	//cleanup
+	cleanup_val(&corn_1);
+	cleanup_val(&corn_2);
     } else if (strcmp(f.name, "Sphere") == 0) {
 	if (f.n_args < 2) return E_LACK_TOKENS;
 	//if we have enough tokens make sure we have both elements as vectors
@@ -861,6 +884,8 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
 	double rad = f.args[1].val.x;
 	if (ptr) *ptr = new Sphere(*(cent.val.v), rad, p_invert);
 	if (type) *type = CGS_SPHERE;
+	//cleanup
+	cleanup_val(&cent);
     } else if (strcmp(f.name, "Cylinder") == 0) {
 	if (f.n_args < 3) return E_LACK_TOKENS;
 	Value cent = f.args[0].cast_to(VAL_3VEC, er);
@@ -875,6 +900,8 @@ parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* ty
 	}
 	if (ptr) *ptr = new Cylinder(*(cent.val.v), h, r1, r2, p_invert);
 	if (type) *type = CGS_CYLINDER;
+	//cleanup
+	cleanup_val(&cent);
     } else if (strcmp(f.name, "Composite") == 0) {
 	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
 	if (type) *type = CGS_ROOT;
@@ -1244,9 +1271,11 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			switch (er) {
 			    case E_BAD_TOKEN:
 				printf("Error on line %d: Invalid function name \"%s\"\n", lineno, cur_token);
+				cleanup_func(&cur_func);
 				return fail_exit(er, fp);
 			    case E_BAD_SYNTAX:
 				printf("Error on line %d: Invalid syntax\n", lineno);
+				cleanup_func(&cur_func);
 				return fail_exit(er, fp);
 			    default: break;
 			}

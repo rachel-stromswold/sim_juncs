@@ -383,6 +383,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 	    tmp_er = E_LACK_TOKENS;
 	}
     }
+    cleanup_func(&env_func);
 
     //set the error code if there was one and the caller wants it
     if (ercode) *ercode = tmp_er;
