@@ -1,6 +1,7 @@
 #!/bin/bash
-#SBATCH -p standard --time=12:00:00 --mem=244G
-#SBATCH -a 1-10
+#SBATCH -p femto --time=12:00:00 --mem=244G
+#SBATCH -A femto
+#SBATCH -a 1-5
 
 #this is an SBATCH argument when running on femto: -C Gold6330
 
@@ -74,7 +75,7 @@ fi
 
 #make the frequency space plot
 python time_space.py --fname $h5dir/field_samples.h5 --prefix $h5dir
-python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir
+python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width ${widths[$((SLURM_ARRAY_TASK_ID-1))]} --gap-thick $thickness
 
 #move the plots into a folder where we can view them
 mkdir $oname/figures
@@ -84,6 +85,7 @@ cp "$h5dir"/eps.pdf "$oname"/figures/eps_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/space_plot.pdf "$oname"/figures/space_plot_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/cross_plot.pdf "$oname"/figures/cross_plot_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/tdom_plot.pdf "$oname"/figures/tdom_plot_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/amps_theory.pdf "$oname"/figures/amps_theory_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/amps.pdf "$oname"/figures/amps_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/phases.pdf "$oname"/figures/phases_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/sigs.pdf "$oname"/figures/sigs_"$SLURM_ARRAY_TASK_ID".pdf

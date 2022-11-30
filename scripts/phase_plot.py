@@ -21,6 +21,14 @@ AMP_RANGE = (0, 0.55)
 SIG_RANGE = (0, 10.0)
 PHI_RANGE = (-1.0, 1.0)
 PAD_FACTOR = 1.05
+#FREQ_0 = 6.56
+FREQ_0 = 0.43
+N_FREQ_COMPS=100
+EPS_0 = 200.6
+#EPS_0 = 2.5
+
+#The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
+HIGHEST_MODE=3
 
 #parse arguments supplied via command line
 parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian pulse envelope to perform CEP estimation.')
@@ -60,6 +68,15 @@ class phase_finder:
         t_max = self.f['info']['time_bounds'][1]
         self.dt = (t_max-t_min)/n_t_pts
         self.t_pts = np.linspace(t_min, t_max, num=n_t_pts)
+        #this normalizes the square errors to have reasonable units
+        self.sq_er_fact = self.dt*phases.SKIP/(t_max-t_min)
+        #figure out a range of incident frequencies
+        avg_field_0, avg_sig_0, avg_phase_0 = self.find_avg_vals(self.clust_names[0])
+        self.df = 6/(avg_sig_0*N_FREQ_COMPS)
+        self.freq_range = np.linspace(-FREQ_0-3/avg_sig_0, -FREQ_0+3/avg_sig_0, num=N_FREQ_COMPS)
+        self.freq_comps = avg_field_0*avg_sig_0*np.exp(-1j*avg_phase_0-((self.freq_range+FREQ_0)*avg_sig_0)**2/2)/np.sqrt(2*np.pi)
+        '''self.freq_range = np.array([FREQ_0])
+        self.freq_comps = np.array([0j+avg_field_0/self.df])'''
 
     def get_clust_location(self, clust):
         '''return the location of the cluster with the name clust along the propagation direction (z if slice_dir=x x if slice_dir=z)'''
@@ -95,7 +112,7 @@ class phase_finder:
             n_evals += 1
             print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
             #only include this point if the fit was good
-            if res.fun < 500.0:
+            if res.fun*self.sq_er_fact < 50.0:
                 good_zs.append(zs[j])
                 jj = len(good_zs)-1
                 amp, t_0, sig, omega, cep = phases.get_params(res)
@@ -174,38 +191,157 @@ class phase_finder:
             return vals[0], vals[1], vals[2], vals[3]
         else:
             #figure out data by phase fitting
-            dat_xs, amp_arr, sig_arr, phase_arr = pf.read_cluster(clust_name)
+            dat_xs, amp_arr, sig_arr, phase_arr = self.read_cluster(clust_name)
             with open(data_name, 'wb') as fh:
                 pickle.dump([dat_xs, amp_arr, sig_arr, phase_arr], fh)
             return dat_xs, amp_arr, sig_arr, phase_arr
 
-    def get_field_amps(self, x_pts, z, field_0, omega, diel_const, n_modes=3):
+    def get_field_amps(self, x_pts, z, diel_const, vac_wavelen=0.7, n_modes=HIGHEST_MODE):
         #omega = 2*np.pi*.299792458 / vac_wavelen
         #kc = 2*np.pi / (vac_wavelen*np.sqrt(diel_const))
         #L_c = vac_wavelen*np.sqrt(diel_const)/2
-        kc = omega*np.sqrt(diel_const)/0.2998
+        kc_2 = diel_const
         length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
+        #alphas = (self.freq_range**2+0j)/0.08988
+        l_by_lc_sq = np.ones(self.freq_range.shape[0])*diel_const*( 2*np.pi*length/vac_wavelen )**2
+        #l_by_lc_sq = np.ones(self.freq_range.shape[0])*diel_const*( 0.177*length/(0.3*np.pi) )**2
+        pi_by_l_sq = (np.pi/length)**2
         #print("L_c={}, L={}".format(L_c, length))
-        amps = np.zeros(len(x_pts))
+        fields = 1j*np.zeros(len(x_pts))
         for k in range(n_modes):
             n = 2*k + 1
             #beta_sq = ((np.pi/L_c)**2)*(1 - (n*L_c/length)**2)
-            beta_sq = kc**2 - (n*np.pi/length)**2
+            #beta = np.sqrt(alphas*diel_const - (n*np.pi/length)**2)
+            neg_beta_sq = pi_by_l_sq*(n**2 - l_by_lc_sq)
             #real beta implies propagation, no decay
-            if beta_sq > 0 or z < 0:
-                #print("n={}, z.beta_sq={}, kc={}".format(n, z*np.sqrt(beta_sq), kc))
+            if z > 0 and neg_beta_sq[neg_beta_sq.shape[0]//2] > 0:
+                fields = fields + ( np.sin(n*np.pi*(x_pts+length/2)/length)/n )*np.sum( self.freq_comps*np.exp(-z*np.sqrt(neg_beta_sq)) )*self.df
+                #fields = fields + ( np.sin(n*np.pi*(x_pts+length/2)/length)/n )*np.exp(1j*z*beta)*self.df
+            else:
+                fields += np.sin(n*np.pi*(x_pts+length/2)/length)*np.sum(self.freq_comps)*self.df/n
+            '''if beta_sq > 0 or z < 0:
+                #print("n={}, z.beta_sq={}, kc={}".format(n, z*np.sqrt(np.abs(beta_sq)), kc))
                 amps += np.sin(n*np.pi*(x_pts+length/2)/length)/n
             else:
                 #print("n={}, z.beta_sq={}j, kc={}".format(n, z*np.sqrt(-beta_sq), kc))
-                amps += np.sin(n*np.pi*(x_pts+length/2)/length)*np.exp(-z*np.sqrt(-beta_sq))/n
-        return 4*field_0*np.real(amps)/np.pi
+                amps += np.sin(n*np.pi*(x_pts+length/2)/length)*np.exp(-z*np.sqrt(-beta_sq))/n'''
+        #return 4*field_0*np.abs(np.real(amps))/np.pi
+        return 4*np.real(fields)/np.pi
 
-    def fit_eps(self, x_pts, amps, z, field_0):
+    def get_field_phases(self, x_pts, z, diel_const, inc_phase, n_modes=HIGHEST_MODE):
+        length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
+        alphas = (self.freq_range**2+0j)/0.08988
+        fours = np.exp(inc_phase)*np.ones(len(x_pts))
+        for k in range(n_modes):
+            n = 2*k + 1
+            betas = np.sqrt(alphas*diel_const - (n*np.pi/length)**2)
+            fours = fours + self.df*np.sum(np.exp(-1j*betas*z))*np.sin(n*np.pi*(x_pts+length/2)/length)/n
+        return np.array([phases.fix_angle(x) for x in np.arctan2(np.imag(fours), np.real(fours))/np.pi])
+
+    def get_n_component(self, x_pts, amps, n):
+        length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
+        inner = np.sin(n*np.pi*(x_pts+length/2)/length)*amps
+        #use trapezoid rule to integrate
+        ret = 0
+        for i in range(1, len(x_pts)):
+            ret += 0.5*(x_pts[i]+x_pts[i-1])*(inner[i]+inner[i-1])
+        return 2*ret/length #2/L normalization factor since \int_0^L sin^2(npix/L)dx = L/2
+
+    def get_field_amps_jac(self, x_pts, z, diel_const, n_modes=3):
+        length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
+        fields = 1j*np.zeros(len(x_pts))
+        alphas = (self.freq_range**2+0j)/0.08988
+        for k in range(n_modes):
+            n = 2*k + 1
+            beta = np.sqrt(alphas*diel_const - (n*np.pi/length)**2)
+            #real beta implies propagation, no decay
+            if z > 0:
+                fields = fields + ( np.sin(n*np.pi*(x_pts+length/2)/length)/n )* \
+                np.sum( 1j*z*self.freq_comps*alphas*np.exp(1j*z*beta)/beta )*self.df
+        return 2*np.real(fields)/np.pi
+
+    #def fit_eps(self, x_pts, amps, z):
+    def fit_eps(self, inds=[]):
         import scipy.optimize as opt
-        ff = lambda x: np.sum( (self.get_field_amps(x_pts, z, x[0], x[1], 8.2) - amps)**2 )
-        x0 = np.array([field_0, 6.56])
-        print("sq_err(x0)=%f" % ff(x0))
-        return opt.minimize(ff, x0)
+        #ff = lambda x: np.sum( (self.get_field_amps(x_pts, z, x[0]) - amps)**2 )
+        #select which clusters to use based on caller argument
+        if inds == -1 or len(inds) == 0:
+            inds = range(1, len(pf.clust_names))
+        clusts = [pf.clust_names[ind] for ind in inds]
+
+        junc_bounds = self.get_junc_bounds()
+        length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
+        slice_zs = []
+        slice_xs = []
+        slice_amps = []
+        avg_eps_est = 0
+        for clust in clusts:
+            dat_xs, amp_arr, _, _ = self.lookup_fits(clust)
+            #the TE mode expansion is only valid inside the junction, so we need to truncate the arrays
+            lowest_valid = -1
+            highest_valid = -1
+            slice_zs.append(self.get_clust_location(clust))
+            '''high_off = (junc_bounds[1]-junc_bounds[0])/(2*HIGHEST_MODE-1)
+            fit_bounds = (junc_bounds[0]+high_off, junc_bounds[1]-high_off)'''
+            fit_bounds = junc_bounds
+            for j, x in enumerate(dat_xs):
+                if lowest_valid < 0 and x >= fit_bounds[0]:
+                    lowest_valid = j
+                if x <= fit_bounds[1]:
+                    highest_valid = j
+            slice_xs.append(dat_xs[lowest_valid:highest_valid+1])
+            slice_amps.append(amp_arr[:, lowest_valid:highest_valid+1])
+            comp_1 = self.get_n_component(slice_xs[-1], slice_amps[-1][0], 1)
+            comp_3 = self.get_n_component(slice_xs[-1], slice_amps[-1][0], 3)/3 #divide by component along this basis vector
+            comp_5 = self.get_n_component(slice_xs[-1], slice_amps[-1][0], 5)/5
+            r31 = (comp_3/comp_1)**2
+            r53 = (comp_5/comp_3)**2
+            print("n=1: %f" % comp_1)
+            print("n=3: %f" % comp_3)
+            print("n=5: %f" % comp_5)
+            #estimate epsilon based on ratios between different components under varying assumptions of propagation or decay
+            est_1p3d = (np.pi*0.2998/(FREQ_0*length))**2*(9-r31)
+            est_1d3d = (np.pi*0.2998/(FREQ_0*length))**2*(r31-9)/(r31-1)
+            est_3p5d = (np.pi*0.2998/(FREQ_0*length))**2*(9*r53-25)
+            est_3d5d = (np.pi*0.2998/(FREQ_0*length))**2*(9*r53-25)/(r53-1)
+            print("\tcomp_3/comp_1 = {}\n\t--> (1p3d) estimated eps = {}\n\t--> (1d3d) estimated eps = {}".format(np.sqrt(r31), est_1p3d, est_1d3d))
+            print("\tcomp_5/comp_3 = {}\n\t--> (1p3d) estimated eps = {}\n\t--> (1d3d) estimated eps = {}".format(np.sqrt(r53), est_3p5d, est_3d5d))
+            #based on which component is larger, average our estimates for epsilon
+            if r31 < 1:
+                avg_eps_est += est_1p3d
+            else:
+                avg_eps_est += est_1d3d
+            if r53 <= 1:
+                avg_eps_est += est_3p5d
+            else:
+                avg_eps_est += est_3d5d        
+        if avg_eps_est <= 0:
+            avg_eps_est = EPS_0
+        else:
+            avg_eps_est /= 2*len(clusts)
+        print("avg_eps = %f" % avg_eps_est)
+
+        #square error which we seek to minimize
+        def ff(eps):
+            ret = 0
+            for z, dat_x, dat_amp in zip(slice_zs, slice_xs, slice_amps):
+                ret += np.sum( (self.get_field_amps(dat_x, z, eps) - dat_amp[0])**2 )
+            return ret
+        def jac_ff(eps):
+            ret = 0
+            for z, dat_x, dat_amp in zip(slice_zs, slice_xs, slice_amps):
+                ret += np.sum( 2*(self.get_field_amps(dat_x, z, eps) - dat_amp[0])*self.get_field_amps_jac(dat_x, z, eps) )
+            return ret
+        print((ff(avg_eps_est+0.001)-ff(avg_eps_est-0.001))/0.002, jac_ff(avg_eps_est))
+        print("sq_err(x0)=%f" % ff(avg_eps_est))
+        return opt.minimize(ff, avg_eps_est, jac=jac_ff), avg_eps_est
+
+    def find_avg_vals(self, clust):
+        dat_xs, amp_arr, sig_arr, phase_arr = self.lookup_fits(clust)
+        field_0 = np.sum(amp_arr[0]) / amp_arr.shape[1]
+        sig_0 = np.sum(sig_arr[0]) / sig_arr.shape[1]
+        phase_0 = np.sum(phase_arr[0]) / sig_arr.shape[1]
+        return field_0, sig_0, phase_0
 
 def get_axis(axs_list, ind):
     #matplotlib is annoying and the axes it gives have a different type depending on the column
@@ -224,7 +360,7 @@ def make_theory_plots(pf):
     x_pts = np.linspace(junc_bounds[0], junc_bounds[1], num=100)
     for i, clust in enumerate(pf.clust_names):
         z = pf.get_clust_location(clust)
-        amps = pf.get_field_amps(x_pts, z, 0.5, 0.1, 3.5)
+        amps = pf.get_field_amps(x_pts, z, 0.5, 0.1, EPS_0)
         #actually make the plot
         tmp_axs = get_axis(axs_amp, i)
         tmp_axs.plot(x_pts, amps)
@@ -241,57 +377,62 @@ def make_fits(pf):
     r_gold = [junc_bounds[1], pf.x_range[-1]]
     #initialize plots
     fig_amp, axs_amp = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
+    fig_phs, axs_phs = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
+    fig_amp.suptitle(r"amplitude across a junction $E_1=1/\sqrt{2}$, $E_2=0")
     fig_fits, axs_fits = plt.subplots(2)
     fit_xs = np.zeros((3, pf.n_clusts))
     x_cnt = np.linspace(junc_bounds[0], junc_bounds[1], num=100)
-    avg_field_0 = 0.0
-    for i, clust in enumerate(pf.clust_names):
-        dat_xs, amp_arr, sig_arr, phase_arr = pf.lookup_fits(clust)
-        #the TE mode expansion is only valid inside the junction, so we need to truncate the arrays
-        lowest_valid = -1
-        highest_valid = -1
-        for j, x in enumerate(dat_xs):
-            if lowest_valid < 0 and x >= junc_bounds[0]:
-                lowest_valid = j
-            if x <= junc_bounds[1]:
-                highest_valid = j
-        dat_xs = dat_xs[lowest_valid:highest_valid+1]
-        amp_arr = amp_arr[:, lowest_valid:highest_valid+1]
-        #average the field
-        if i == 0:
-            avg_field_0 = np.sum(amp_arr[0]) / len(amp_arr[0])
-        print(avg_field_0)
-        z = pf.get_clust_location(clust)
-        res = pf.fit_eps(dat_xs, amp_arr[0], z, avg_field_0)
+    #res = pf.fit_eps(inds=[1])
+    res, eps_init = pf.fit_eps()
+    print(res)
+    #iterate over each cluster
+    '''for i, clust in enumerate(pf.clust_names):
+        res = pf.fit_eps(dat_xs, amp_arr[0], z)
         fit_xs[0, i] = z
         fit_xs[1, i] = res.x[0]
-        fit_xs[2, i] = res.x[1]
         print(res)
-        #amps_fit = pf.get_field_amps(x_cnt, z, 0.4, 6.56, 8.2)
-        amps_fit_0 = pf.get_field_amps(x_cnt, z, avg_field_0, 6.56, 8.2)
-        amps_fit = pf.get_field_amps(x_cnt, z, res.x[0], res.x[1], 8.2)
+        #amps_fit = pf.get_field_amps(x_cnt, z, 0.4, 6.56, FREQ_0)
+        amps_fit_0 = pf.get_field_amps(x_cnt, z, EPS_0)
+        amps_fit = pf.get_field_amps(x_cnt, z, res.x[0])
         #actually make the plot
         tmp_axs = get_axis(axs_amp, i)
-        tmp_axs.plot(x_cnt, amps_fit_0, color='red')
-        tmp_axs.plot(x_cnt, amps_fit)
-        tmp_axs.scatter(dat_xs, amp_arr[0])
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        #tmp_axs.plot(x_cnt, np.abs(amps_fit_0), color='red')
+        tmp_axs.plot(x_cnt, np.abs(amps_fit))'''
         #tmp_axs.set_ylim(AMP_RANGE)
     axs_fits[0].scatter(fit_xs[0], fit_xs[1])
     axs_fits[1].scatter(fit_xs[0], fit_xs[2])
     axs_fits[0].set_ylim(AMP_RANGE)
     axs_fits[1].set_ylim([6, 7])
     #now perform a plot using the average of fits
-    avg_fit = [np.sum(fit_xs[1])/fit_xs.shape[1], np.sum(fit_xs[2])/fit_xs.shape[1]]
-    print("average fit: {}".format(avg_fit))
+    avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
+    #print("average fit: {}".format(avg_fit))
     for i, clust in enumerate(pf.clust_names):
-        amps_fit = pf.get_field_amps(x_cnt, z, avg_fit[0], avg_fit[1], 8.2)
+        #amps_fit = pf.get_field_amps(x_cnt, pf.get_clust_location(clust), np.abs(avg_fit[0]))
+        #amps_fit = pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 2.6372705)
+        dat_xs,amp_arr,sig_arr,phs_arr = pf.lookup_fits(clust)
+        amps_fit = np.abs(pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 4.5, vac_wavelen=0.7))
+        phss_fit = np.abs(pf.get_field_phases(x_cnt, pf.get_clust_location(clust), 4.5, -np.pi/2))
         tmp_axs = get_axis(axs_amp, i)
-        tmp_axs.plot(x_cnt, amps_fit, color='green')
+        if i < len(pf.clust_names) - 1:
+            tmp_axs.get_xaxis().set_visible(False)
+        tmp_axs.set_xlim(pf.x_range)
+        tmp_axs.set_ylim([0, 0.5])
+        tmp_axs.plot(x_cnt, amps_fit)
+        #tmp_axs.errorbar(dat_xs, amp_arr[0], yerr=amp_arr[1], fmt='.', linestyle='')
+        tmp_axs.scatter(dat_xs, amp_arr[0], s=3)
+        tmp_axs.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs = get_axis(axs_phs, i)
+        tmp_axs.set_xlim(pf.x_range)
+        tmp_axs.set_ylim(PHI_RANGE)
+        tmp_axs.plot(x_cnt, phss_fit)
+        #tmp_axs.scatter(dat_xs, phs_arr[0])
+        tmp_axs.errorbar(dat_xs, phs_arr[0], yerr=phs_arr[1], fmt='.', linestyle='')
+        tmp_axs.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
     #save the figures
     fig_amp.savefig(args.prefix+"/amps_theory.pdf")
+    fig_phs.savefig(args.prefix+"/phases_theory.pdf")
     fig_fits.savefig(args.prefix+"/fit_plt.pdf")
 
 def make_plots(pf):
@@ -304,7 +445,7 @@ def make_plots(pf):
     fig_time, axs_time = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
     fig_cep, axs_cep = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
     for i, clust in enumerate(pf.clust_names):
-        good_zs, amp_arr, sig_arr, phase_arr = pf.lookup_fits(clust)
+        good_zs, amp_arr, sig_arr, phase_arr = pf.read_cluster(clust)
         #make two axis demo plot
         if i == 2:
             d_fig, d_ax1 = plt.subplots(figsize=(7,3))
@@ -390,6 +531,6 @@ def make_plots(pf):
     fig_time.savefig(args.prefix+"/sigs.pdf")
 
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
-make_plots(pf)
+#make_plots(pf)
 #make_theory_plots(pf)
 make_fits(pf)

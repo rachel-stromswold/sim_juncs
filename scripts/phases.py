@@ -17,6 +17,11 @@ WIDTH_SCALE = 1000
 
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
+#for a local maxima with amplitude A_l/A_g >= LOC_MAX_CUT, the location of A_l will be considered for double envelope optimization. Here A_l is the amplitude of the local maxima and A_g is the amplitude of the global maxima
+LOC_MAX_CUT = 0.2
+#The number of standard deviations away from the local maxima to consider when performing least squares fits
+DEF_KEEP_N = 2.5
+
 '''def jac_num(func, x):
     #Numerically estimate the jacobian of func at point f
     dim = len(x)
@@ -109,7 +114,7 @@ class EnvelopeFitter:
             else:
                 self.typ_spacing = self.ext_ts[1] - self.ext_ts[0]
 
-    def cut_devs(self, keep_n=-1, both_tails=False):
+    def cut_devs(self, keep_n=DEF_KEEP_N, both_tails=False):
         '''estimate the standard deviation of a distribution by taking the full width at half maximum and then return this value along with copies of t_pts and a_pts truncated to only include points within keep_n deviations from the center.
         ext_ts: x axis values of the distribution
         ext_vs: pdf
@@ -165,7 +170,7 @@ class EnvelopeFitter:
         else:
             return fwhm, self.ext_ts[i_min:], self.ext_vs[i_min:]
 
-    def opt_envelope(self, keep_n=-1, fig_name=''):
+    def opt_envelope(self, keep_n=DEF_KEEP_N, fig_name=''):
         '''Performs a least squares fit to find a rough estimate of the shape of the pulse envelope. This is used by the opt_pulse to optimize the pulse shape inside the envelope
         t_pts: a numpy array of times at which each point occurblue
         a_pts: the values corresponding to the t_pts
@@ -216,6 +221,7 @@ class EnvelopeFitter:
     def opt_double_envelope(self, fig_name=''):
         '''Optimize an envelope that is a superposition of two gaussians'''
         fwhm,_,_ = self.cut_devs(both_tails=True)
+        print("fwhm = %f" % fwhm)
 
         #normalize the amplitude
         l_ext_ts = np.array(self.ext_ts)
@@ -223,7 +229,7 @@ class EnvelopeFitter:
 
         local_maxes = []
         for i in range(1, len(l_ext_vs)-1):
-            if l_ext_vs[i] > 0.3 and l_ext_vs[i] > l_ext_vs[i-1] and l_ext_vs[i] > l_ext_vs[i+1]:
+            if l_ext_vs[i] > LOC_MAX_CUT and l_ext_vs[i] > l_ext_vs[i-1] and l_ext_vs[i] > l_ext_vs[i+1]:
                 local_maxes.append(i)
 
         #the square error
@@ -344,7 +350,7 @@ def find_local_maxima(t_pts, a_pts, cutoff=AMP_CUTOFF):
 
     return ext_ts, ext_vs, max_t, max_v, typ_spacing
 
-def opt_pulse(t_pts_0, a_pts_0, env_x, est_omega, est_phi, keep_n=-1):
+def opt_pulse(t_pts_0, a_pts_0, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
     '''Set values for the a_pts for each time point
     a_pts: the values of the electric field at each corresponding time point in t_pts. Note that len(a_pts) must be the same as len(t_pts)
     env_x: an array representing the value found from an envelope fit (i.e if you call res=opt_envelope(...) this would be res.x
@@ -425,7 +431,7 @@ def fix_double_pulse_order(res):
         res.x[4] += res.x[3]*(res.x[1]-res.x[6])
     return res
 
-def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=-1):
+def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
     '''Set values for the a_pts for each time point
     a_pts: the values of the electric field at each corresponding time point in t_pts. Note that len(a_pts) must be the same as len(t_pts)
     env_x: an array representing the value found from an envelope fit (i.e if you call res=opt_envelope(...) this would be res.x
@@ -478,7 +484,7 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=-1):
 
     return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
 
-def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=-1, fig_name=''):
+def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
     if a_pts_0.shape != t_pts_0.shape:
         raise ValueError("t_pts and a_pts must have the same shape")
     env_fig_name = ''
@@ -513,12 +519,12 @@ def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=-1, fig_name=''):
     #substantial evidence as defined by Jeffreys
     if np.isnan(ln_bayes) or ln_bayes > 1.15:
         env_res = env_res_1
-        res, low_t, hi_t = opt_double_pulse(t_pts_0, a_pts_0, env_res_1.x, est_omega_1, est_phi_1, keep_n=keep_n)
+        res, low_t, hi_t = opt_double_pulse(t_pts_skip, a_pts_skip, env_res_1.x, est_omega_1, est_phi_1, keep_n=keep_n)
         err = err_1
         used_double = True
     else:
         env_res = env_res_0
-        res, low_t, hi_t = opt_pulse(t_pts_0, a_pts_0, env_res_0.x, est_omega_0, est_phi_0, keep_n=keep_n)
+        res, low_t, hi_t = opt_pulse(t_pts_skip, a_pts_skip, env_res_0.x, est_omega_0, est_phi_0, keep_n=keep_n)
         err = err_0
         used_double = False
 
