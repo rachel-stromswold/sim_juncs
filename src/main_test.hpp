@@ -11,12 +11,13 @@
 #define POW_N 4
 
 #define EPSILON 0.01
-#define TEST_N	10000
+#define TEST_N	100000
 
 #define CAM_X	1.5
 #define CAM_Y	1.3
 #define CAM_Z	2.0
-#define IM_RES	256
+#define IM_RES	128
+#define IM_DPT	255
 
 //from Numerical recipes in C
 #define LCG_MULT 1664525

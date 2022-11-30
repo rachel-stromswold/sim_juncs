@@ -601,11 +601,14 @@ TEST_CASE("Test volumes") {
     _uint state = lcg(lcg(TEST_SEED));
     double x, y, z;
     //initialize the camera for viewing the volumes
-    /*evec3 cam_pos(CAM_X,CAM_Y,CAM_Z);
-    evec3 y_comp(0,0,1);
+    evec3 cam_pos(CAM_X,CAM_Y,CAM_Z);
+    evec3 y_comp(-CAM_X, -CAM_Y, (CAM_X*CAM_X+CAM_Y*CAM_Y)/CAM_Z);
     evec3 x_comp = -cam_pos.cross(y_comp);
     emat3 view_mat;
-    view_mat << x_comp/x_comp.norm(), y_comp, -cam_pos/cam_pos.norm();*/
+    view_mat << x_comp/x_comp.norm(), y_comp/y_comp.norm(), -cam_pos/cam_pos.norm();
+    //figure out where the origin gets mapped. We will make this the center of the screen
+    evec3 offset = -view_mat*cam_pos;
+    offset.z() = 0;
     //test volumes by sampling from a cube with side lengths unit 1 and testing the fraction that are included
     evec3 center(0.5, 0.5, 0.5);
     evec3 corner_1(1, 1, 0);
@@ -617,11 +620,17 @@ TEST_CASE("Test volumes") {
     double sphere_frac = 0;
     double plane_frac = 0;
     double cyl_frac = 0;
+    //now load the scene just so we can draw it
+    parse_ercode er;
+    Scene s("tests/test.geom", &er);
+    CHECK(er == E_SUCCESS);
+    CompositeObject* test_root = s.get_roots()[0];
     //these are matrices specifying the intensity of each pixel in grayscale
     _uint8 sphere_arr[IM_RES*IM_RES];
     _uint8 plane_arr[IM_RES*IM_RES];
     _uint8 cyl_arr[IM_RES*IM_RES];
-    for (size_t i = 0; i < IM_RES*IM_RES; ++i) { sphere_arr[i]=0;plane_arr[i]=0;cyl_arr[i]=0; }
+    _uint8 scene_arr[IM_RES*IM_RES];
+    for (size_t i = 0; i < IM_RES*IM_RES; ++i) { sphere_arr[i]=0xff;plane_arr[i]=0xff;cyl_arr[i]=0xff; }
     //sample random points
     for (size_t i = 0; i < TEST_N; ++i) {
 	state = lcg(state);
@@ -633,25 +642,52 @@ TEST_CASE("Test volumes") {
 	state = lcg(state);
 	//initialize a point from the random values and compute it's position projected onto the view matrix. The z-buffer will act as color intensity
 	evec3 r(x, y, z);
-	/*evec3 view_r = view_mat*(r - cam_pos);
-	size_t ind = (IM_RES/2+floor(view_r.x()*IM_RES))+IM_RES*(IM_RES/2+floor(view_r.y()*IM_RES));
-	_uint8 depth = 64+floor(128*view_r.z());*/
+	evec3 view_r = view_mat*(r - cam_pos);
+	size_t ind = floor( (1+view_r.x())*IM_RES/2 ) + IM_RES*floor( (1+view_r.y())*IM_RES/2 );
+	if (ind >= IM_RES*IM_RES) ind = 0;
+	_uint8 depth = floor(IM_DPT*view_r.z());
 	if (test_sphere.in(r)) {
 	    sphere_frac += 1.0/TEST_N;
-	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	    if (depth < sphere_arr[ind]) sphere_arr[ind] = depth;
 	}
 	if (test_plane.in(r)) {
 	    plane_frac += 1.0/TEST_N;
-	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	    if (depth < plane_arr[ind]) plane_arr[ind] = depth;
 	}
 	if (test_cyl.in(r)) {
 	    cyl_frac += 1.0/TEST_N;
-	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	    if (depth < cyl_arr[ind]) cyl_arr[ind] = depth;
+	}
+	if (test_root->in(r) && depth < scene_arr[ind]) {
+	    scene_arr[ind] = depth;
 	}
     }
-    /*FILE* fp_sphere = fopen("/tmp/sphere.pgm");
-    FILE* fp_sphere = fopen("/tmp/plane.pgm");
-    FILE* fp_sphere = fopen("/tmp/plane.pgm");*/
+    //write pgm files to visualize the geometries being drawn
+    FILE* fp_sphere = fopen("/tmp/sphere.pgm", "w");
+    FILE* fp_plane = fopen("/tmp/plane.pgm", "w");
+    FILE* fp_cyl = fopen("/tmp/cyl.pgm", "w");
+    FILE* fp_scene = fopen("/tmp/scene.pgm", "w");
+    fprintf(fp_sphere, "P2\n%d %d\n%d\n", IM_RES, IM_RES, IM_DPT);
+    fprintf(fp_plane, "P2\n%d %d\n%d\n", IM_RES, IM_RES, IM_DPT);
+    fprintf(fp_cyl, "P2\n%d %d\n%d\n", IM_RES, IM_RES, IM_DPT);
+    fprintf(fp_scene, "P2\n%d %d\n%d\n", IM_RES, IM_RES, IM_DPT);
+    for (size_t yy = 0; yy < IM_RES; ++yy) {
+	for (size_t xx = 0; xx < IM_RES; ++xx) {
+	    size_t ind = yy*IM_RES+xx;
+	    fprintf(fp_sphere, "%d ", sphere_arr[ind]);
+	    fprintf(fp_plane, "%d ", plane_arr[ind]);
+	    fprintf(fp_cyl, "%d ", cyl_arr[ind]);
+	    fprintf(fp_scene, "%d ", scene_arr[ind]);
+	}
+	fprintf(fp_sphere, "\n");
+	fprintf(fp_plane, "\n");
+	fprintf(fp_cyl, "\n");
+	fprintf(fp_scene, "\n");
+    }
+    fclose(fp_sphere);
+    fclose(fp_plane);
+    fclose(fp_cyl);
+    fclose(fp_scene);
 
     double v_sphere = 1.33333*M_PI*0.125;
     double v_plane = 5.0/6;
