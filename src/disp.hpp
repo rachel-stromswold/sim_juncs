@@ -147,7 +147,7 @@ public:
     Scene problem;
 
 #ifdef DEBUG_INFO
-    std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
+    std::vector<drude_suscept> parse_susceptibilities(Value val, int* er);
     meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
     void parse_monitors(CompositeObject* comp);
 #endif

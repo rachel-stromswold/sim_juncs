@@ -7,55 +7,97 @@
 #include <Eigen/Dense>
 #include <unordered_map>
 #include <vector>
-
 #include <cstring>
+#include <math.h>
 
 #define BUF_SIZE 1024
 #define ARGS_BUF_SIZE 256
+#define FUNC_BUF_SIZE 8
 
 #define SIDE_END	2
 #define SIDE_UNDEF	3
 
+#define FLAG_NORMAL	0
+#define FLAG_OPER	1
+#define FLAG_COMP	2
+#define FLAG_AND	3
+typedef enum {OP_EQ, OP_ADD, OP_SUB, OP_MULT, OP_DIV, OP_NOT, OP_OR, OP_AND, OP_GRT, OP_LST, OP_GEQ, OP_LEQ, N_OPTYPES} Optype_e;
+
 typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
-typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY } parse_ercode;
+typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED } parse_ercode;
 
 typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE, CGS_CMB_NOOP } combine_type;
 //note that ROOTS are a special type of COMPOSITES
-typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_CYLINDER } object_type;
+typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_PLANE, CGS_CYLINDER } object_type;
 
 typedef Eigen::Matrix3d emat3;
 typedef Eigen::Vector3d evec3;
 typedef Eigen::Vector4d evec4;
 
-class CompositeObject;
+/**
+ * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
+ */
+typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
+template <typename T>
+class CGS_Stack {
+protected:
+    size_t stack_ptr;
+    size_t buf_len;
+    T* buf;
+    parse_ercode grow(size_t new_size);
 
-typedef struct {
-    char* name;
-    char* args[ARGS_BUF_SIZE];
-    _uint n_args = 0;
-} cgs_func;
+public:
+    CGS_Stack();
+    ~CGS_Stack<T>();
+    void swap(CGS_Stack<T>& o);
+    CGS_Stack(const CGS_Stack<T>& o);
+    CGS_Stack(CGS_Stack<T>&& o);
+    CGS_Stack<T>& operator=(CGS_Stack<T> o);
+
+    parse_ercode push(T b);
+    parse_ercode pop(T* ptr);
+    void reset();
+    bool has(const T& key);
+    bool is_empty() { return stack_ptr == 0; }
+    size_t size() { return stack_ptr; }
+    T peek(size_t ind = 1);
+};
+
+class CompositeObject;
 
 /**
   * Remove the whitespace surrounding a word
   */
 inline char* CGS_trim_whitespace(char* str, size_t* len) {
     if (!str) return NULL;
-    char* start = NULL;
+    size_t start_ind = 0;
+    bool started = false;
     _uint last_non = 0;
     for (_uint i = 0; str[i] != 0; ++i) {
         if (str[i] != ' ' && str[i] != '\t' && str[i] != '\n') {
             last_non = i;
-            if (!start) {
-                start = str + i;
+            if (!started) {
+                start_ind = i;
+		started = true;
             }
         }
     }
     str[last_non+1] = 0;
-    if (len) *len = last_non+1;
-    return start;
+    if (len) *len = last_non - start_ind+1;
+    return str+start_ind;
 }
+
+/**
+ * This acts similar to getline, but stops at a semicolon, newline (unless preceeded by a \), {, or }.
+ * bufptr: a pointer to which the buffer is saved. If bufptr is NULL than a new buffer is allocated through malloc()
+ * n: a pointer to a size_t with the number of characters in the buffer pointed to by bufptr. The call will return do nothing if n is null but *bufptr is not.
+ * fp: file pointer to read from
+ * linecount: a pointer to an integer specifying the number of new line characters read.
+ * Returns: 0 if the end of the file was reached, 1 otherwise
+ */
+int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* line);
 
 /*
  * A virtual class which describes a simple shape (such as cubes, cylinders spheres etc)
@@ -104,6 +146,20 @@ public:
     evec3 get_offset() const { return offset; }
 };
 
+class Plane : public Object {
+private:
+    evec3 normal;
+    double offset;
+
+public:
+    Plane(evec3& normal, double offset, int p_invert=0);
+    Plane(evec3& point_1, evec3& point_2, evec3& point_3, int p_invert=0);
+    int in(const evec3& r);
+
+    evec3 get_normal() const { return normal; }
+    double get_offset() const { return offset; }
+};
+
 class Cylinder : public Object {
 private:
     evec3 center;
@@ -124,6 +180,52 @@ public:
 
 class Scene;
 
+typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT} valtype;
+class Value;
+class cgs_func;
+union V {
+    char* s;
+    double x;
+    Value* l;
+    evec3* v;
+    Eigen::MatrixXd* m;
+};
+
+struct Value {
+    valtype type;
+    V val;
+    size_t n_els; //only applicable for string and list types
+
+    Value() { val.x = 0;type=VAL_UNDEF;n_els=0; }
+    bool operator==(std::string str);
+    bool operator!=(std::string str);
+    valtype get_type() { return type; }
+    size_t size() { return n_els; }
+    V get_val() { return val; }
+    char* to_c_str();
+    double to_float();
+    Value cast_to(valtype type, parse_ercode& er) const;
+};
+void cleanup_val(Value* o);
+Value copy_val(const Value o);
+void swap_val(Value* a, Value* b);
+
+struct cgs_func {
+    char* name;
+    Value args[ARGS_BUF_SIZE];
+    char* arg_names[ARGS_BUF_SIZE];
+    size_t n_args;
+    cgs_func() { name = NULL;n_args = 0; }
+};
+Value make_val_str(const char* s);
+Value make_val_std_str(std::string s);
+Value make_val_list(const Value* vs, size_t n_vs);
+Value make_val_mat(Eigen::MatrixXd m);
+Value make_val_vec3(evec3 vec);
+cgs_func copy_func(const cgs_func o);
+void cleanup_func(cgs_func* o);
+void swap(cgs_func* a, cgs_func* b);
+
 /*
  * A composite object is a node in a binary tree that represents one or more primitives combined via unions and intersections
  */
@@ -136,7 +238,7 @@ protected:
     bool is_leaf;
 
     //metadata allows users to attach miscelaneous information to an object such as a name or material properties
-    std::unordered_map<std::string, std::string> metadata;
+    std::unordered_map<std::string, Value> metadata;
 
     //since we need to perform casts to use the appropriate object type, it's helpful to add a layer of abstraction
     int call_child_in(_uint side, const evec3& r);
@@ -160,38 +262,22 @@ public:
     object_type get_child_type_r() const { return child_types[1]; }
     combine_type get_combine_type() const { return cmb; }
     int has_metadata(std::string key) const { return metadata.count(key); }
-    std::string fetch_metadata(std::string key) { return metadata[key]; }
+    Value fetch_metadata(std::string key) { return metadata[key]; }
+};
+
+struct type_ind_pair {
+public:
+    block_type t;
+    size_t i;
+    type_ind_pair() { t = BLK_UNDEF;i = 0; }
+    type_ind_pair(size_t ii) { t = BLK_UNDEF;i = ii; }
+    type_ind_pair(block_type tt, size_t ii) { t = tt;i = ii; }
 };
 
 /**
- * A helper class (and enumeration) that can track the context and scope of a curly brace block while parsing a file
+ * A helper class for scene which maintains two parallel stacks used when constructing binary trees. The first specifies the integer code for the side occupied and the second stores pointers to objects. Each index specified in the side array is a "tribit" with 0 specifying the left side, 1 the right and 2 the end end of the stack
+ * WARNING: The stack only handles pointers to objects. The caller is responsible for managing the lifetime of each object placed on the stack.
  */
-typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_LITERAL, BLK_COMMENT} block_type;
-template <typename T>
-class CGS_Stack {
-protected:
-    size_t stack_ptr;
-    size_t buf_len;
-    T* buf;
-    parse_ercode grow(size_t new_size);
-
-public:
-    CGS_Stack();
-    ~CGS_Stack<T>();
-    void swap(CGS_Stack<T>& o);
-    CGS_Stack(const CGS_Stack<T>& o);
-    CGS_Stack(CGS_Stack<T>&& o);
-    CGS_Stack<T>& operator=(CGS_Stack<T> o);
-
-    parse_ercode push(T b);
-    parse_ercode pop(T* ptr);
-    void reset();
-    bool has(const T& key);
-    bool is_empty() { return stack_ptr == 0; }
-    size_t size() { return stack_ptr; }
-    T peek(size_t ind = 1);
-};
-
 struct side_obj_pair {
 public:
     _uint side;
@@ -201,11 +287,6 @@ public:
     side_obj_pair(side_obj_pair&& o) { side = o.side;obj = o.obj;o.side = 0;o.obj = NULL; }
     side_obj_pair& operator=(const side_obj_pair& o) { side = o.side;obj = o.obj;return *this; }
 };
-
-/**
- * A helper class for scene which maintains two parallel stacks used when constructing binary trees. The first specifies the integer code for the side occupied and the second stores pointers to objects. Each index specified in the side array is a "tribit" with 0 specifying the left side, 1 the right and 2 the end end of the stack
- * WARNING: The stack only handles pointers to objects. The caller is responsible for managing the lifetime of each object placed on the stack.
- */
 class ObjectStack : public CGS_Stack<side_obj_pair> {
 public:
     //parse_ercode push(_uint side, CompositeObject* obj);
@@ -216,15 +297,52 @@ public:
     CompositeObject* get_root();
 };
 
+/**
+ * A helper class for scene which maintains two parallel stacks used when constructing binary trees. The first specifies the integer code for the side occupied and the second stores pointers to objects. Each index specified in the side array is a "tribit" with 0 specifying the left side, 1 the right and 2 the end end of the stack
+ * WARNING: The stack only handles pointers to objects. The caller is responsible for managing the lifetime of each object placed on the stack.
+ * NOTE: the context performs a shallow copy of everything pushed onto it and does not perform any cleanup
+ */
+struct name_val_pair {
+    char* name;
+    Value val;
+};
+class context : public CGS_Stack<name_val_pair> {
+public:
+    //parse_ercode push(_uint side, CompositeObject* obj);
+    void emplace(char* p_name, Value val) { name_val_pair inst;inst.name = p_name;inst.val = val;push(inst); }
+    Value lookup(const char* name) const;
+    parse_ercode pop_n(size_t n);
+    Value parse_value(char* tok, parse_ercode& er) const;
+    cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end) const;
+    Value parse_list(char* str, parse_ercode& sto) const;
+    void swap(CGS_Stack<name_val_pair>& o) { CGS_Stack<name_val_pair>::swap(o); }
+};
+/**
+ * A class for functions defined by the user along with the implementation code
+ */
+class user_func {
+private:
+    cgs_func call_sig;
+    //this is a dynamic buffer for the number of lines
+    size_t n_lines;
+    char** code_lines;
+public:
+    //read the function with contents stored in the file pointer fp at the current file position
+    user_func(cgs_func sig, char** bufptr, size_t* n, FILE* fp);
+    ~user_func();
+    user_func(const user_func& o);
+    user_func(user_func&& o);
+    size_t get_n_lines() { return n_lines; }
+    Value eval(context& c, cgs_func call, parse_ercode& er);
+};
 class Scene {
 private:
     //std::vector<Object*> objects;
     std::vector<CompositeObject*> roots;
     std::vector<CompositeObject*> data_objs;
 
-    parse_ercode lookup_val(char* tok, double& sto) const;
     //let users define constants
-    std::unordered_map<std::string, std::string> named_items;
+    context named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
     parse_ercode read_file(const char* p_fname);
 
@@ -239,11 +357,11 @@ public:
     std::vector<CompositeObject*> get_roots() { return roots; }
     std::vector<CompositeObject*> get_data() { return data_objs; }
     void read();
-
-    parse_ercode parse_vector(char* str, evec3& sto) const;
+ 
     parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const;
     parse_ercode make_transformation(const cgs_func& f, emat3& res) const;
-    parse_ercode parse_func(char* token, long open_par_ind, cgs_func& f, char** end) const;
+    context get_context() const { return named_items; }
+    //void cleanup_func(cgs_func& f);
 };
 
 #endif //CGS_H

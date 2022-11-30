@@ -122,6 +122,38 @@ TEST_CASE("Test Fourier transforms") {
     cleanup_data_arr(&dat);
 }
 
+TEST_CASE("Test line reading") {
+    FILE* fp = fopen("tests/test_lines.geom", "r");
+    char* buf = NULL;
+    size_t bsize = 0;
+    size_t lineno = 1;
+    CHECK(lineno == 1);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "This should be a line") == 0);
+    CHECK(lineno == 2);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "so should this") == 0);
+    CHECK(lineno == 3);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "    The line should end with curly {"/*}*/) == 0);
+    CHECK(lineno == 4);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "    This line should include curly{"/*}*/) == 0);
+    CHECK(lineno == 7);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, /*{*/"    }") == 0);
+    CHECK(lineno == 7);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, /*{*/"}") == 0);
+    CHECK(lineno == 8);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "This should be one line") == 0);
+    CHECK(lineno == 9);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "last_test()") == 0);
+    free(buf);
+}
+
 TEST_CASE("Check that numbers are written correctly") {
     char buf[BUF_SIZE];
     //simple numbers
@@ -157,100 +189,245 @@ TEST_CASE("Check that numbers are written correctly") {
     CHECK(strlen(buf) == 2);
 }
 
+TEST_CASE("Test value parsing") {
+    char buf[BUF_SIZE];
+    context sc;
+    parse_ercode er = E_SUCCESS;
+    Value tmp_val;
+
+    SUBCASE("Reading numbers to values works") {
+	//test integers
+	strncpy(buf, "1", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 1);
+	cleanup_val(&tmp_val);
+	strncpy(buf, "12", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 12);
+	cleanup_val(&tmp_val);
+	//test floats
+	strncpy(buf, ".25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 0.25);
+	cleanup_val(&tmp_val);
+	strncpy(buf, "1.25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 1.25);
+	cleanup_val(&tmp_val);
+	//test scientific notation
+	strncpy(buf, ".25e10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 0.25e10);
+	cleanup_val(&tmp_val);
+	strncpy(buf, "1.25e10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 1.25e10);
+	cleanup_val(&tmp_val);
+	strncpy(buf, "1.25e-10", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 1.25e-10);
+	cleanup_val(&tmp_val);
+    }
+    SUBCASE("Reading strings to values works") {
+	//test a simple string
+	strncpy(buf, "\"foo\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.s, "foo") == 0);
+	cleanup_val(&tmp_val);
+	//test a string with whitespace
+	strncpy(buf, "\" foo bar \"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.s, " foo bar ") == 0);
+	cleanup_val(&tmp_val);
+	//test a string with stuff inside it
+	strncpy(buf, "\"foo(bar)\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.s, "foo(bar)") == 0);
+	cleanup_val(&tmp_val);
+	//test a string with an escaped string
+	strncpy(buf, "\"foo\\\"bar\\\" \"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.s, "foo\\\"bar\\\" ") == 0);
+	cleanup_val(&tmp_val);
+    }
+    SUBCASE("Reading lists to values works") {
+	//test one element lists
+	strncpy(buf, "[\"foo\"]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.val.l != NULL);
+	CHECK(tmp_val.n_els == 1);
+	CHECK(tmp_val.val.l[0].type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.l[0].val.s, "foo") == 0);
+	cleanup_val(&tmp_val);
+	//test two element lists
+	strncpy(buf, "[\"foo\", 1]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.val.l != NULL);
+	CHECK(tmp_val.n_els == 2);
+	CHECK(tmp_val.val.l[0].type == VAL_STR);
+	CHECK(strcmp(tmp_val.val.l[0].val.s, "foo") == 0);
+	CHECK(tmp_val.val.l[1].type == VAL_NUM);
+	CHECK(tmp_val.val.l[1].val.x == 1);
+	cleanup_val(&tmp_val);
+    }
+    SUBCASE("Reading vectors to values works") {
+	//test one element lists
+	strncpy(buf, "vec(1.2, 3.4,56.7)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_3VEC);
+	CHECK(tmp_val.val.v != NULL);
+	CHECK(tmp_val.val.v->x() == doctest::Approx(1.2));
+	CHECK(tmp_val.val.v->y() == doctest::Approx(3.4));
+	CHECK(tmp_val.val.v->z() == doctest::Approx(56.7));
+	cleanup_val(&tmp_val);
+    }
+}
+
 TEST_CASE("Test function parsing") {
     char buf[BUF_SIZE];
 
     const char* test_func_1 = "f()";
-    const char* test_func_2 = "f(a, b, c)";
-    const char* test_func_3 = "foo([0,1,2,3],a,banana)";
-    const char* test_func_4 = "foo(a, Box(0,1,2,3), banana)";
-    const char* test_func_5 = "foo ( a , b , c )";
+    const char* test_func_2 = "f(\"a\", \"b\", \"c\", 4)";
+    const char* test_func_3 = "foo(vec(1,2,3),\"a\",\"banana\")";
+    const char* test_func_4 = "foo(1, \"Box(0,1,2,3)\", 4+5)";
+    const char* test_func_5 = "foo ( 1 , \"b , c\" )";
     const char* test_func_6 = "f(eps = 3.5)";
+    const char* test_func_7 = "f(name = \"bar\")";
     const char* bad_test_func_1 = "foo ( a , b , c";
-    const char* bad_test_func_2 = "foo ( a , b , c, )";
-    const char* bad_test_func_3 = "foo ( a ,, c )";
+    const char* bad_test_func_2 = "foo ( \"a\" , \"b\" , \"c\"";
 
-    Scene sc;
-    cgs_func cur_func;
+    context sc;
+    parse_ercode er;
     //check string 1
     strncpy(buf, test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 1, cur_func, NULL);
+    cgs_func cur_func = sc.parse_func(buf, 1, er, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 0);
     CHECK(strcmp(cur_func.name, "f") == 0);
+    cleanup_func(&cur_func);
     //check string 2
     strncpy(buf, test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 1, cur_func, NULL);
-    CHECK(cur_func.n_args == 3);
+    cur_func = sc.parse_func(buf, 1, er, NULL);
+    CHECK(er == E_SUCCESS);
+    CHECK(cur_func.n_args == 4);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "f") == 0);
     INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "a") == 0);
+    CHECK(strcmp(cur_func.args[0].to_c_str(), "a") == 0);
     INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[1], "b") == 0);
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "b") == 0);
     INFO("func arg=", cur_func.args[2]);
-    CHECK(strcmp(cur_func.args[2], "c") == 0);
+    CHECK(strcmp(cur_func.args[2].to_c_str(), "c") == 0);
+    CHECK(cur_func.args[3].to_float() == 4);
+    cleanup_func(&cur_func);
     //check string 3
     strncpy(buf, test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 3, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 3, er, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
     INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "[0,1,2,3]") == 0);
+    CHECK(cur_func.args[0].get_type() == VAL_3VEC);
+    evec3* tmp_vec = cur_func.args[0].get_val().v;
+    CHECK(tmp_vec->x() == 1.0);
+    CHECK(tmp_vec->y() == 2.0);
+    CHECK(tmp_vec->z() == 3.0);
+    INFO("func arg=", cur_func.args[1].to_c_str());
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "a") == 0);
     INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[1], "a") == 0);
-    INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[2], "banana") == 0);
+    CHECK(strcmp(cur_func.args[2].to_c_str(), "banana") == 0);
+    cleanup_func(&cur_func);
     //check string 4
     strncpy(buf, test_func_4, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 3, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 3, er, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 3);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
-    INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "a") == 0);
-    INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[1], "Box(0,1,2,3)") == 0);
-    INFO("func arg=", cur_func.args[2]);
-    CHECK(strcmp(cur_func.args[2], "banana") == 0);
+    INFO("func arg=", cur_func.args[0].to_float());
+    CHECK(cur_func.args[0].to_float() == 1);
+    INFO("func arg=", cur_func.args[1].to_c_str());
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "Box(0,1,2,3)") == 0);
+    INFO("func arg=", cur_func.args[2].to_float());
+    CHECK(cur_func.args[2].to_float() == 9);
+    cleanup_func(&cur_func);
     //check string 5
     strncpy(buf, test_func_5, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 4, cur_func, NULL);
-    CHECK(cur_func.n_args == 3);
+    cur_func = sc.parse_func(buf, 4, er, NULL);
+    CHECK(er == E_SUCCESS);
+    CHECK(cur_func.n_args == 2);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "foo") == 0);
-    INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "a") == 0);
-    INFO("func arg=", cur_func.args[1]);
-    CHECK(strcmp(cur_func.args[1], "b") == 0);
-    INFO("func arg=", cur_func.args[2]);
-    CHECK(strcmp(cur_func.args[2], "c") == 0);
+    INFO("func arg=", cur_func.args[0].to_float());
+    CHECK(cur_func.args[0].to_float() == 1);
+    INFO("func arg=", cur_func.args[1].to_c_str());
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "b , c") == 0);
+    cleanup_func(&cur_func);
     //check string 6
     strncpy(buf, test_func_6, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, 1, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 1, er, NULL);
+    CHECK(er == E_SUCCESS);
     CHECK(cur_func.n_args == 1);
     INFO("func name=", cur_func.name);
     CHECK(strcmp(cur_func.name, "f") == 0);
-    INFO("func arg=", cur_func.args[0]);
-    CHECK(strcmp(cur_func.args[0], "eps = 3.5") == 0);
+    INFO("func arg=", cur_func.args[0].to_float());
+    CHECK(cur_func.args[0].to_float() == 3.5);
+    CHECK(strcmp(cur_func.arg_names[0], "eps") == 0);
+    cleanup_func(&cur_func);
+    //check string 7
+    strncpy(buf, test_func_7, BUF_SIZE);buf[BUF_SIZE-1] = 0;
+    cur_func = sc.parse_func(buf, 1, er, NULL);
+    CHECK(er == E_SUCCESS);
+    CHECK(cur_func.n_args == 1);
+    INFO("func name=", cur_func.name);
+    CHECK(strcmp(cur_func.name, "f") == 0);
+    INFO("func arg=", cur_func.args[0].to_c_str());
+    CHECK(strcmp(cur_func.args[0].to_c_str(), "bar") == 0);
+    CHECK(strcmp(cur_func.arg_names[0], "name") == 0);
+    cleanup_func(&cur_func);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    parse_ercode er = sc.parse_func(buf, 4, cur_func, NULL);
+    cur_func = sc.parse_func(buf, 4, er, NULL);
     CHECK(er == E_BAD_SYNTAX);
+    cleanup_func(&cur_func);
     //check bad string 2
     strncpy(buf, bad_test_func_2, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 4, cur_func, NULL);
-    CHECK(er == E_LACK_TOKENS);
-    //check bad string 3
-    strncpy(buf, bad_test_func_3, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    er = sc.parse_func(buf, 4, cur_func, NULL);
-    CHECK(er == E_LACK_TOKENS);
+    cur_func = sc.parse_func(buf, 4, er, NULL);
+    CHECK(er == E_BAD_SYNTAX);
+    cleanup_func(&cur_func);
 }
 
 TEST_CASE("Test Object Trees") {
     //declare variables
     char buf[BUF_SIZE];
-    cgs_func cur_func;
     ObjectStack test_stack;
     Object* cur_obj;object_type cur_type;
     parse_ercode er;
@@ -258,55 +435,69 @@ TEST_CASE("Test Object Trees") {
     //setup a bunch of strings describing objects
     const char* root_obj_str = "Composite(eps = 3.5)";
     const char* l_str = "union()";
-    const char* ll_str = "Box([0,0,0], [1,1,1])";
-    const char* lr_str = "Sphere([2,0,0], 1)";
+    const char* ll_str = "Box(vec(0,0,0), vec(1,1,1))";
+    const char* lr_str = "Sphere(vec(2,0,0), 1)";
     const char* r_str = "intersect()";
-    const char* rl_str = "Box([0,0,0], [1,1,1])";
-    const char* rr_str = "Cylinder([2,0,0], 1, 1)";
+    const char* rl_str = "Box(vec(0,0,0), vec(1,1,1))";
+    const char* rr_str = "Cylinder(vec(2,0,0), 1, 1)";
 
     Scene sc;
     //Insert root object
     strncpy(buf, root_obj_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cgs_func cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert object 1
     strncpy(buf, l_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert left union object
     strncpy(buf, ll_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert right union object
     strncpy(buf, lr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert object 2
     strncpy(buf, r_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert left union object
     strncpy(buf, rl_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
     //Insert right union object
     strncpy(buf, rr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), cur_func, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
     test_stack.emplace_obj(cur_obj, cur_type);
+    cleanup_func(&cur_func);
 
     //get all composite objects in the tree
     CompositeObject* root = test_stack.get_root();
@@ -343,10 +534,18 @@ TEST_CASE("Test File Parsing") {
     CHECK(data_vec.size() > 0);
     CHECK(data_vec[0]->has_metadata("name"));
     CHECK(data_vec[0]->has_metadata("entry"));
-    std::string name_str = data_vec[0]->fetch_metadata("name");
-    std::string entry_str = data_vec[0]->fetch_metadata("entry");
-    CHECK(name_str == "foo");
-    CHECK(entry_str == "bar,(arr),[blah]");
+    CHECK(data_vec[0]->has_metadata("num"));
+    Value name_val = data_vec[0]->fetch_metadata("name");
+    Value ntry_val = data_vec[0]->fetch_metadata("entry");
+    Value num_val = data_vec[0]->fetch_metadata("num");
+    CHECK(name_val.type == VAL_STR);
+    CHECK(ntry_val.type == VAL_STR);
+    CHECK(num_val.type == VAL_NUM);
+    CHECK(name_val.val.s != NULL);
+    CHECK(ntry_val.val.s != NULL);
+    CHECK(strcmp(name_val.to_c_str(), "foo") == 0);
+    CHECK(strcmp(ntry_val.to_c_str(), "bar,(arr),[blah]") == 0);
+    CHECK(num_val.to_float() == 3);
 
     //test geometric information
     std::vector<CompositeObject*> roots_vec = s.get_roots();
@@ -354,13 +553,13 @@ TEST_CASE("Test File Parsing") {
     CompositeObject* root = roots_vec[0];
 
     CHECK(root != NULL);
-    CompositeObject* comp_l = (CompositeObject*)(root->get_child_l());
-    CompositeObject* comp_r = (CompositeObject*)(root->get_child_r());
-    CompositeObject* comp_rl = (CompositeObject*)(comp_r->get_child_l());
     //check that all are not NULL and that types are correct
     CHECK(root->get_child_type_l() == CGS_COMPOSITE);
     CHECK(root->get_child_type_r() == CGS_COMPOSITE);
+    CompositeObject* comp_l = (CompositeObject*)(root->get_child_l());
+    CompositeObject* comp_r = (CompositeObject*)(root->get_child_r());
     CHECK(comp_r->get_child_type_l() == CGS_COMPOSITE);
+    CompositeObject* comp_rl = (CompositeObject*)(comp_r->get_child_l());
     CHECK(comp_l != NULL);
     CHECK(comp_r != NULL);
     CHECK(comp_rl != NULL);
@@ -378,7 +577,7 @@ TEST_CASE("Test File Parsing") {
     CHECK(comp_rl->get_child_l() != NULL);
     CHECK(comp_rl->get_child_type_l() == CGS_BOX);
     CHECK(comp_rl->get_child_r() != NULL);
-    CHECK(comp_rl->get_child_type_r() == CGS_BOX);
+    CHECK(comp_rl->get_child_type_r() == CGS_PLANE);
     CHECK(comp_r->get_child_r() != NULL);
     CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
 }
@@ -389,12 +588,78 @@ TEST_CASE("Test Geometric Inclusion") {
     CHECK(er == E_SUCCESS);
     CompositeObject* root = s.get_roots()[0];
 
-    CHECK(root->in(Eigen::Vector3d(4.5,4.5,4.5)) == 1);
-    CHECK(root->in(Eigen::Vector3d(4.5,4.1,6)) == 1);
-    CHECK(root->in(Eigen::Vector3d(6.5,4.5,4.1)) == 1);
-    CHECK(root->in(Eigen::Vector3d(7.1,5.1,5.1)) == 0);
-    CHECK(root->in(Eigen::Vector3d(5.5,4.5,4.5)) == 0);
-    CHECK(root->in(Eigen::Vector3d(5.5,4.1,8.5)) == 0);
+    CHECK(root->in(Eigen::Vector3d(.45,.45,.45)) == 1);
+    CHECK(root->in(Eigen::Vector3d(.45,.41,.6)) == 1);
+    CHECK(root->in(Eigen::Vector3d(.65,.45,.41)) == 1);
+    CHECK(root->in(Eigen::Vector3d(.71,.51,.51)) == 0);
+    CHECK(root->in(Eigen::Vector3d(.55,.45,.45)) == 0);
+    CHECK(root->in(Eigen::Vector3d(.55,.41,.85)) == 0);
+}
+
+TEST_CASE("Test volumes") {
+    //initialize random state
+    _uint state = lcg(lcg(TEST_SEED));
+    double x, y, z;
+    //initialize the camera for viewing the volumes
+    /*evec3 cam_pos(CAM_X,CAM_Y,CAM_Z);
+    evec3 y_comp(0,0,1);
+    evec3 x_comp = -cam_pos.cross(y_comp);
+    emat3 view_mat;
+    view_mat << x_comp/x_comp.norm(), y_comp, -cam_pos/cam_pos.norm();*/
+    //test volumes by sampling from a cube with side lengths unit 1 and testing the fraction that are included
+    evec3 center(0.5, 0.5, 0.5);
+    evec3 corner_1(1, 1, 0);
+    evec3 corner_2(0, 1, 1);
+    evec3 corner_3(1, 0, 1);
+    Sphere test_sphere(center, 0.5);
+    Cylinder test_cyl(center, 0.5, 0.5, 0.5);
+    Plane test_plane(corner_1, corner_2, corner_3);
+    double sphere_frac = 0;
+    double plane_frac = 0;
+    double cyl_frac = 0;
+    //these are matrices specifying the intensity of each pixel in grayscale
+    _uint8 sphere_arr[IM_RES*IM_RES];
+    _uint8 plane_arr[IM_RES*IM_RES];
+    _uint8 cyl_arr[IM_RES*IM_RES];
+    for (size_t i = 0; i < IM_RES*IM_RES; ++i) { sphere_arr[i]=0;plane_arr[i]=0;cyl_arr[i]=0; }
+    //sample random points
+    for (size_t i = 0; i < TEST_N; ++i) {
+	state = lcg(state);
+	x = (double)state / LCG_MOD;
+	state = lcg(state);
+	y = (double)state / LCG_MOD;
+	state = lcg(state);
+	z = (double)state / LCG_MOD;
+	state = lcg(state);
+	//initialize a point from the random values and compute it's position projected onto the view matrix. The z-buffer will act as color intensity
+	evec3 r(x, y, z);
+	/*evec3 view_r = view_mat*(r - cam_pos);
+	size_t ind = (IM_RES/2+floor(view_r.x()*IM_RES))+IM_RES*(IM_RES/2+floor(view_r.y()*IM_RES));
+	_uint8 depth = 64+floor(128*view_r.z());*/
+	if (test_sphere.in(r)) {
+	    sphere_frac += 1.0/TEST_N;
+	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	}
+	if (test_plane.in(r)) {
+	    plane_frac += 1.0/TEST_N;
+	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	}
+	if (test_cyl.in(r)) {
+	    cyl_frac += 1.0/TEST_N;
+	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	}
+    }
+    /*FILE* fp_sphere = fopen("/tmp/sphere.pgm");
+    FILE* fp_sphere = fopen("/tmp/plane.pgm");
+    FILE* fp_sphere = fopen("/tmp/plane.pgm");*/
+
+    double v_sphere = 1.33333*M_PI*0.125;
+    double v_plane = 5.0/6;
+    double v_cyl = M_PI*0.125;
+    
+    CHECK(abs(v_sphere - sphere_frac)/v_sphere < EPSILON);
+    CHECK(abs(v_plane - plane_frac)/v_plane < EPSILON);
+    CHECK(abs(v_cyl - cyl_frac)/v_cyl < EPSILON);
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {
@@ -414,12 +679,12 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     cgs_material_function mat_func(root);
 
     //check locations
-    meep::vec test_loc_1(4.5,4.5,4.5);
-    meep::vec test_loc_2(4.5,4.1,6);
-    meep::vec test_loc_3(6.5,4.5,4.1);
-    meep::vec test_loc_4(7.1,5.1,5.1);
-    meep::vec test_loc_5(5.5,4.5,4.5);
-    meep::vec test_loc_6(5.5,4.1,8.5);
+    meep::vec test_loc_1(.45,.45,.45);
+    meep::vec test_loc_2(.45,.41,.6);
+    meep::vec test_loc_3(.65,.45,.45);
+    meep::vec test_loc_4(.71,.51,.51);
+    meep::vec test_loc_5(.55,.45,.45);
+    meep::vec test_loc_6(.55,.41,.85);
     CHECK(mat_func.in_bound(test_loc_1) == 3.5);
     CHECK(mat_func.in_bound(test_loc_2) == 3.5);
     CHECK(mat_func.in_bound(test_loc_3) == 3.5);
@@ -460,13 +725,20 @@ TEST_CASE("Test reading of configuration files") {
 	Settings args;
 	//parse commandline arguments
 	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0" };
-	//gcc doesn't like using string literals as c-strings, ugh
+	//gcc doesn't like using string literals as c-strings, ugh.
 	int n_args = sizeof(sim_argv_cpp)/sizeof(std::string);
+	//need to create two lists since parse_args modifies the list in place. The second list is only used so that we know which addresses to free.
 	char** sim_argv_c = (char**)malloc(sizeof(char*)*n_args);
-	for (_uint i = 0; i < n_args; ++i) sim_argv_c[i] = strdup(sim_argv_cpp[i].c_str());
+	char** post_sim_argv_c = (char**)malloc(sizeof(char*)*n_args);
+	for (_uint i = 0; i < n_args; ++i) {
+	    sim_argv_c[i] = strdup(sim_argv_cpp[i].c_str());
+	    post_sim_argv_c[i] = sim_argv_c[i];
+	}
 
 	//finally we can parse the command line arguments
-	int ret = parse_args(&args, &n_args, sim_argv_c);
+	int post_n_args = n_args;
+	int ret = parse_args(&args, &post_n_args, sim_argv_c);
+	CHECK(post_n_args == 1);
 
 	//this is used when calling parse_args, so it should be checked before everything else
 	CHECK(args.conf_fname != NULL);
@@ -493,7 +765,7 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.post_source_t == 1.0);
 
 	//deallocate memory
-	for (_uint i = 0; i < n_args; ++i) free(sim_argv_c[i]);
+	for (_uint i = 0; i < n_args; ++i) free(post_sim_argv_c[i]);
 	free(sim_argv_c);
 	cleanup_settings(&args);
     }
@@ -521,8 +793,10 @@ TEST_CASE("Test geometry file reading") {
     SUBCASE("Test reading of susceptibilities") {
 	CHECK(er == E_SUCCESS);
 	CompositeObject* root = geometry.problem.get_roots()[0];
-	char* dat = strdup(root->fetch_metadata("susceptibilities").c_str());
-	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat, (int*)(&er));
+	char* dat = strdup(root->fetch_metadata("susceptibilities").to_c_str());
+	Value dat_val = make_val_str(dat);
+	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat_val, (int*)(&er));
+	cleanup_val(&dat_val);
 	free(dat);
 	CHECK(sups.size() == 2);
 	CHECK(sups[0].omega_0 == 1.0);
@@ -686,9 +960,11 @@ TEST_CASE("Test running with a very small system") {
     H5::Group grp = file.openGroup("info");
     size_t n_c_pts, n_l_pts, n_f_pts, n_t_pts;
     _ftype* t_bounds = (_ftype*)read_h5_array_raw(grp, H5_float_type, sizeof(_ftype), "time_bounds", &n_t_pts);
-    CHECK(n_t_pts == 2);
+    CHECK(n_t_pts == 3);
     CHECK(t_bounds[0] == 0.0);
     CHECK(t_bounds[1] > 0.0);
+    CHECK(t_bounds[2] > 0.0);
+    CHECK(t_bounds[2] < t_bounds[1]);
     free(t_bounds);
     //read the cluster data
     hsize_t* clust_data = (hsize_t*)read_h5_array_raw(grp, H5::PredType::NATIVE_HSIZE, sizeof(hsize_t), "n_clusters", &n_c_pts);

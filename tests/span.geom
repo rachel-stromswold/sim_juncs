@@ -1,8 +1,8 @@
-data(type = field_source, envelope = "Gaussian(Ey, 1.333333, 3.0, 0.2, 5.0, 7.0)") {
+data(type = "field_source", envelope = "Gaussian(\"Ey\", 1.333333, 3.0, 0.2, 5.0, 7.0)") {
     Box([0,0,2], [4,4,2]);
 }
 
-data(type = monitor, spacing = 0.1) {
+data(type = "monitor", spacing = 0.1) {
     Box([1,1,1], [3,3,1])
 }
 
