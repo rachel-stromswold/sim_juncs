@@ -122,6 +122,38 @@ TEST_CASE("Test Fourier transforms") {
     cleanup_data_arr(&dat);
 }
 
+TEST_CASE("Test line reading") {
+    FILE* fp = fopen("tests/test_lines.geom", "r");
+    char* buf = NULL;
+    size_t bsize = 0;
+    size_t lineno = 1;
+    CHECK(lineno == 1);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "This should be a line") == 0);
+    CHECK(lineno == 2);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "so should this") == 0);
+    CHECK(lineno == 3);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "    The line should end with curly {"/*}*/) == 0);
+    CHECK(lineno == 4);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "    This line should include curly{"/*}*/) == 0);
+    CHECK(lineno == 7);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, /*{*/"    }") == 0);
+    CHECK(lineno == 7);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, /*{*/"}") == 0);
+    CHECK(lineno == 8);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "This should be one line") == 0);
+    CHECK(lineno == 9);
+    CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
+    CHECK(strcmp(buf, "last_test()") == 0);
+    free(buf);
+}
+
 TEST_CASE("Check that numbers are written correctly") {
     char buf[BUF_SIZE];
     //simple numbers
@@ -159,7 +191,7 @@ TEST_CASE("Check that numbers are written correctly") {
 
 TEST_CASE("Test value parsing") {
     char buf[BUF_SIZE];
-    Scene sc;
+    context sc;
     parse_ercode er = E_SUCCESS;
     Value tmp_val;
 
@@ -291,7 +323,7 @@ TEST_CASE("Test function parsing") {
     const char* bad_test_func_1 = "foo ( a , b , c";
     const char* bad_test_func_2 = "foo ( \"a\" , \"b\" , \"c\"";
 
-    Scene sc;
+    context sc;
     parse_ercode er;
     //check string 1
     strncpy(buf, test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
@@ -412,7 +444,7 @@ TEST_CASE("Test Object Trees") {
     Scene sc;
     //Insert root object
     strncpy(buf, root_obj_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cgs_func cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    cgs_func cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
     CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
@@ -420,7 +452,7 @@ TEST_CASE("Test Object Trees") {
     cleanup_func(&cur_func);
     //Insert object 1
     strncpy(buf, l_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
     CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
@@ -428,7 +460,7 @@ TEST_CASE("Test Object Trees") {
     cleanup_func(&cur_func);
     //Insert left union object
     strncpy(buf, ll_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
     CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
@@ -436,7 +468,7 @@ TEST_CASE("Test Object Trees") {
     cleanup_func(&cur_func);
     //Insert right union object
     strncpy(buf, lr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
     CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
@@ -444,7 +476,7 @@ TEST_CASE("Test Object Trees") {
     cleanup_func(&cur_func);
     //Insert object 2
     strncpy(buf, r_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
     CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
@@ -452,7 +484,7 @@ TEST_CASE("Test Object Trees") {
     cleanup_func(&cur_func);
     //Insert left union object
     strncpy(buf, rl_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
     CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
@@ -460,7 +492,7 @@ TEST_CASE("Test Object Trees") {
     cleanup_func(&cur_func);
     //Insert right union object
     strncpy(buf, rr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
+    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
     CHECK(er == E_SUCCESS);
     er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
     CHECK(er == E_SUCCESS);
@@ -521,13 +553,13 @@ TEST_CASE("Test File Parsing") {
     CompositeObject* root = roots_vec[0];
 
     CHECK(root != NULL);
-    CompositeObject* comp_l = (CompositeObject*)(root->get_child_l());
-    CompositeObject* comp_r = (CompositeObject*)(root->get_child_r());
-    CompositeObject* comp_rl = (CompositeObject*)(comp_r->get_child_l());
     //check that all are not NULL and that types are correct
     CHECK(root->get_child_type_l() == CGS_COMPOSITE);
     CHECK(root->get_child_type_r() == CGS_COMPOSITE);
+    CompositeObject* comp_l = (CompositeObject*)(root->get_child_l());
+    CompositeObject* comp_r = (CompositeObject*)(root->get_child_r());
     CHECK(comp_r->get_child_type_l() == CGS_COMPOSITE);
+    CompositeObject* comp_rl = (CompositeObject*)(comp_r->get_child_l());
     CHECK(comp_l != NULL);
     CHECK(comp_r != NULL);
     CHECK(comp_rl != NULL);
@@ -545,7 +577,7 @@ TEST_CASE("Test File Parsing") {
     CHECK(comp_rl->get_child_l() != NULL);
     CHECK(comp_rl->get_child_type_l() == CGS_BOX);
     CHECK(comp_rl->get_child_r() != NULL);
-    CHECK(comp_rl->get_child_type_r() == CGS_BOX);
+    CHECK(comp_rl->get_child_type_r() == CGS_PLANE);
     CHECK(comp_r->get_child_r() != NULL);
     CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
 }
@@ -556,12 +588,78 @@ TEST_CASE("Test Geometric Inclusion") {
     CHECK(er == E_SUCCESS);
     CompositeObject* root = s.get_roots()[0];
 
-    CHECK(root->in(Eigen::Vector3d(4.5,4.5,4.5)) == 1);
-    CHECK(root->in(Eigen::Vector3d(4.5,4.1,6)) == 1);
-    CHECK(root->in(Eigen::Vector3d(6.5,4.5,4.1)) == 1);
-    CHECK(root->in(Eigen::Vector3d(7.1,5.1,5.1)) == 0);
-    CHECK(root->in(Eigen::Vector3d(5.5,4.5,4.5)) == 0);
-    CHECK(root->in(Eigen::Vector3d(5.5,4.1,8.5)) == 0);
+    CHECK(root->in(Eigen::Vector3d(.45,.45,.45)) == 1);
+    CHECK(root->in(Eigen::Vector3d(.45,.41,.6)) == 1);
+    CHECK(root->in(Eigen::Vector3d(.65,.45,.41)) == 1);
+    CHECK(root->in(Eigen::Vector3d(.71,.51,.51)) == 0);
+    CHECK(root->in(Eigen::Vector3d(.55,.45,.45)) == 0);
+    CHECK(root->in(Eigen::Vector3d(.55,.41,.85)) == 0);
+}
+
+TEST_CASE("Test volumes") {
+    //initialize random state
+    _uint state = lcg(lcg(TEST_SEED));
+    double x, y, z;
+    //initialize the camera for viewing the volumes
+    /*evec3 cam_pos(CAM_X,CAM_Y,CAM_Z);
+    evec3 y_comp(0,0,1);
+    evec3 x_comp = -cam_pos.cross(y_comp);
+    emat3 view_mat;
+    view_mat << x_comp/x_comp.norm(), y_comp, -cam_pos/cam_pos.norm();*/
+    //test volumes by sampling from a cube with side lengths unit 1 and testing the fraction that are included
+    evec3 center(0.5, 0.5, 0.5);
+    evec3 corner_1(1, 1, 0);
+    evec3 corner_2(0, 1, 1);
+    evec3 corner_3(1, 0, 1);
+    Sphere test_sphere(center, 0.5);
+    Cylinder test_cyl(center, 0.5, 0.5, 0.5);
+    Plane test_plane(corner_1, corner_2, corner_3);
+    double sphere_frac = 0;
+    double plane_frac = 0;
+    double cyl_frac = 0;
+    //these are matrices specifying the intensity of each pixel in grayscale
+    _uint8 sphere_arr[IM_RES*IM_RES];
+    _uint8 plane_arr[IM_RES*IM_RES];
+    _uint8 cyl_arr[IM_RES*IM_RES];
+    for (size_t i = 0; i < IM_RES*IM_RES; ++i) { sphere_arr[i]=0;plane_arr[i]=0;cyl_arr[i]=0; }
+    //sample random points
+    for (size_t i = 0; i < TEST_N; ++i) {
+	state = lcg(state);
+	x = (double)state / LCG_MOD;
+	state = lcg(state);
+	y = (double)state / LCG_MOD;
+	state = lcg(state);
+	z = (double)state / LCG_MOD;
+	state = lcg(state);
+	//initialize a point from the random values and compute it's position projected onto the view matrix. The z-buffer will act as color intensity
+	evec3 r(x, y, z);
+	/*evec3 view_r = view_mat*(r - cam_pos);
+	size_t ind = (IM_RES/2+floor(view_r.x()*IM_RES))+IM_RES*(IM_RES/2+floor(view_r.y()*IM_RES));
+	_uint8 depth = 64+floor(128*view_r.z());*/
+	if (test_sphere.in(r)) {
+	    sphere_frac += 1.0/TEST_N;
+	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	}
+	if (test_plane.in(r)) {
+	    plane_frac += 1.0/TEST_N;
+	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	}
+	if (test_cyl.in(r)) {
+	    cyl_frac += 1.0/TEST_N;
+	    //if (depth > sphere_arr[ind]) sphere_arr[ind] = depth;
+	}
+    }
+    /*FILE* fp_sphere = fopen("/tmp/sphere.pgm");
+    FILE* fp_sphere = fopen("/tmp/plane.pgm");
+    FILE* fp_sphere = fopen("/tmp/plane.pgm");*/
+
+    double v_sphere = 1.33333*M_PI*0.125;
+    double v_plane = 5.0/6;
+    double v_cyl = M_PI*0.125;
+    
+    CHECK(abs(v_sphere - sphere_frac)/v_sphere < EPSILON);
+    CHECK(abs(v_plane - plane_frac)/v_plane < EPSILON);
+    CHECK(abs(v_cyl - cyl_frac)/v_cyl < EPSILON);
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {
@@ -581,12 +679,12 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     cgs_material_function mat_func(root);
 
     //check locations
-    meep::vec test_loc_1(4.5,4.5,4.5);
-    meep::vec test_loc_2(4.5,4.1,6);
-    meep::vec test_loc_3(6.5,4.5,4.1);
-    meep::vec test_loc_4(7.1,5.1,5.1);
-    meep::vec test_loc_5(5.5,4.5,4.5);
-    meep::vec test_loc_6(5.5,4.1,8.5);
+    meep::vec test_loc_1(.45,.45,.45);
+    meep::vec test_loc_2(.45,.41,.6);
+    meep::vec test_loc_3(.65,.45,.45);
+    meep::vec test_loc_4(.71,.51,.51);
+    meep::vec test_loc_5(.55,.45,.45);
+    meep::vec test_loc_6(.55,.41,.85);
     CHECK(mat_func.in_bound(test_loc_1) == 3.5);
     CHECK(mat_func.in_bound(test_loc_2) == 3.5);
     CHECK(mat_func.in_bound(test_loc_3) == 3.5);

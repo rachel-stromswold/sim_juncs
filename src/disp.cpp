@@ -271,7 +271,7 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
     //read the specification for the pulse as a function
     char* spec = strdup( spec_str.c_str() );
     parse_ercode tmp_er;
-    cgs_func env_func = problem.parse_func(spec, -1, tmp_er, NULL);
+    cgs_func env_func = problem.get_context().parse_func(spec, -1, tmp_er, NULL);
 
     //figure out the field component that the user wants to add (Default to electric field polarized in x direction)
     component = meep::Ex;

@@ -74,6 +74,38 @@ int Box::in(const evec3& r) {
     return 1 - invert;
 }
 
+/**
+ * The term plane is a bit misleading since we are describing the three dimensional volume. The plane has a fixed orientation defined by the normal vector and an offset. Any point with a component along the normal vector which is less than the offset will be included in the volume.
+ */
+Plane::Plane(evec3& p_normal, double p_offset, int p_invert) : Object(0) {
+    if (p_invert)
+	offset = -p_offset;
+    else
+	offset = p_offset;
+    normal = p_normal / p_normal.norm();
+}
+
+/**
+ * Construct a plane defined by three points. The normal vector is fixed to be (point_2 - point_1)X(point_3 - point_1). Thus, flipping the order of the arguments point_1 and point_2 flips the direction of inclusion.
+ */
+Plane::Plane(evec3& point_1, evec3& point_2, evec3& point_3, int p_invert) : Object(0) {
+    evec3 diff_2 = point_2 - point_1;
+    evec3 diff_3 = point_3 - point_1;
+    normal = diff_2.cross(diff_3);
+    normal /= normal.norm();
+    offset = normal.dot(point_1);
+    if (p_invert)
+	offset *= -1;
+}
+
+int Plane::in(const evec3& r) {
+    double norm_comp = r.dot(normal);
+    if (norm_comp > offset)
+	return 0;
+    else
+	return 1;
+}
+
 Cylinder::Cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, int p_invert) : Object(p_invert) {
     center = p_center;
     height = p_height;
@@ -410,6 +442,7 @@ int CompositeObject::call_child_in(_uint side, const evec3& r) {
     if (child_types[side] == CGS_COMPOSITE) return ((CompositeObject*)children[side])->in(r);
     if (child_types[side] == CGS_SPHERE) return ((Sphere*)children[side])->in(r);
     if (child_types[side] == CGS_BOX) return ((Box*)children[side])->in(r);
+    if (child_types[side] == CGS_PLANE) return ((Plane*)children[side])->in(r);
     if (child_types[side] == CGS_CYLINDER) return ((Cylinder*)children[side])->in(r);
 
     return invert;
@@ -451,14 +484,675 @@ int CompositeObject::in(const evec3& r) {
     return invert;
 }
 
-Value Scene::lookup_val(char* tok, parse_ercode& er) const {
-    std::string cpp_tok(tok);
-    if (named_items.count(cpp_tok) == 0) { Value v;er = E_BAD_TOKEN;return v; }
-    er = E_SUCCESS;
-    return named_items.at(cpp_tok);
+/**
+ * Find the first index of the character c that isn't nested inside a block
+ */
+char* strchr_block(char* str, char c) {
+    CGS_Stack<size_t> blk_stk;
+    for (size_t i = 0; str[i] != 0; ++i) {
+	if (str[i] == c && blk_stk.is_empty()) {
+	    return str+i;
+	}
+	if (str[i] == '('/*)*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*(*/')') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '['/*]*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*[*/']') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '{'/*}*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*{*/'}') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '\"'/*"*/) {
+	    //quotes are more complicated
+	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\"')
+		blk_stk.pop(NULL);
+	    else
+		blk_stk.push(i);
+	} else if (str[i] == '\''/*"*/) {
+	    //quotes are more complicated
+	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\'')
+		blk_stk.pop(NULL);
+	    else
+		blk_stk.push(i);
+	}
+    }
+    return NULL;
 }
 
-Value Scene::parse_value(char* str, parse_ercode& er) const {
+/**
+ * Convert a string separated by the character sep into a list of strings. For instance, if str == "arg1, arg2" and sep == ',' then the output will be a list of the form ["arg1", "arg2"]. If no sep character is found then the list will have one element which contains the whole string.
+ * param str: string to parse into a list
+ * param sep: separating character to use.
+ * param listlen: location to save the length of the returned list to. Note that this pointer MUST be valid. It is not acceptable to call this function with listlen = NULL. (The returned list is not null terminated so this behavior ensures that callers are appropriately able to identify the length of the returned string.)
+ * returns: list of strings separated by commas. This should be freed with a call to DTG_free(). In the event of an error, NULL is returned instead.
+ * NOTE: The input string str is modified and the returned value uses memory allocated for str. Thus, the caller must ensure that str has a lifetime at least as long as the used string. Users should not try to call free() on any of the strings in the list, only the list itself.
+ */
+char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
+    er = E_SUCCESS;
+
+    char** ret = NULL;/*(char**)malloc(sizeof(char*), &tmp_err);*/
+    //we don't want to include separators that are in nested environments i.e. if the input is [[a,b],c] we should return "[a,b]","c" not "[a","b]","c"
+    CGS_Stack<type_ind_pair> blk_stk;
+    type_ind_pair tmp;
+
+    //by default we ignore whitespace, only use it if we are in a block enclosed by quotes
+    char* saveptr = str;
+    size_t off = 0;
+    size_t j = 0;
+    size_t i = 0;
+    bool verbatim = false;
+
+    for (; str[i] != 0; ++i) {
+	//if this is a separator then add the entry to the list
+	if (str[i] == sep && blk_stk.is_empty()) {
+	    ret = (char**)realloc(ret, sizeof(char*)*(off+1));
+
+	    //append the element to the list
+	    ret[off++] = saveptr;
+	    //null terminate this string and increment j
+	    str[j++] = 0;
+	    saveptr = str + j;
+	} else {
+	    if (str[i] == '\\') {
+		//check for escape sequences
+		++i;
+		bool placed_escape = false;
+		switch (str[i]) {
+		case 'n': str[j++] = '\n';placed_escape = true;break;
+		case 't': str[j++] = '\t';placed_escape = true;break;
+		case '\\': str[j++] = '\\';placed_escape = true;break;
+		case '\"': str[j++] = '\"';placed_escape = true;break;
+		default: er = E_BAD_SYNTAX;
+		}
+		if (placed_escape) continue;
+	    } else if (str[i] == '\"') {
+		tmp = blk_stk.peek();
+		if (blk_stk.is_empty() || tmp.t != BLK_QUOTE) {
+		    blk_stk.push(type_ind_pair(BLK_QUOTE, i));
+		    verbatim = true;
+		} else {
+		    blk_stk.pop(&tmp);
+		    verbatim = false;
+		}
+	    } else if (str[i] == '['/*]*/) {
+		blk_stk.push(type_ind_pair(BLK_SQUARE, i));
+	    } else if (str[i] == /*[*/']') {
+		//don't fail if we reach the end of a block. This just means we've reached the end of the list
+		if (blk_stk.pop(&tmp) != E_SUCCESS) break;
+		if (tmp.t != BLK_SQUARE) { free(ret);er=E_BAD_SYNTAX;return NULL; }
+	    } else if (str[i] == '('/*)*/) {
+		blk_stk.push(type_ind_pair(BLK_PAREN, i));
+	    } else if (str[i] == /*(*/')') {
+		if (blk_stk.pop(&tmp) != E_SUCCESS) break;
+		if (tmp.t != BLK_PAREN) { free(ret);er=E_BAD_SYNTAX;return NULL; }
+	    } else if (str[i] == '{'/*}*/) {
+		blk_stk.push(type_ind_pair(BLK_CURLY, i));
+	    } else if (str[i] == /*{*/'}') {
+		if (blk_stk.pop(&tmp) != E_SUCCESS) break;
+		if (tmp.t != BLK_CURLY) { free(ret);er=E_BAD_SYNTAX;return NULL; }
+	    }
+	    if (verbatim || (str[i] != ' ' && str[i] != '\t' && str[i] != '\n')) {
+		//if this isn't whitespace then just copy the character
+		str[j++] = str[i];
+	    }
+	}
+    }
+    //make sure that there weren't any unterminated blocks
+    if (!blk_stk.is_empty()) {
+	free(ret);
+	er = E_BAD_SYNTAX;
+	return NULL;
+    }
+
+    //make sure the string is null terminated
+    //if (str[i] != 0) str[j] = 0;
+    str[j] = 0;
+    ret = (char**)realloc(ret, sizeof(char*)*(off+2));
+    //add the last element to the list, but only if something was actually written, then set the length if requested
+    if (j != 0) ret[off++] = saveptr;
+    if (listlen) *listlen = off;
+    ret[off] = NULL;
+    return ret;
+}
+
+/**
+ * Read a string of the format [x, y, z] into an Eigen::Vector3.
+ * returns: 0 on success or an error code
+ * 	-1: insufficient tokens
+ * 	-2: one of the tokens supplied was invalid
+ */
+Value context::parse_list(char* str, parse_ercode& er) const {
+    Value sto;
+    //find the start and the end of the vector
+    char* start = strchr(str, '[');
+    //make sure that the string is null terminated
+    char* end = strchr_block(start+1, ']');
+    if (!end) { er = E_BAD_SYNTAX;return sto; }
+    *end = 0;
+
+    //read the coordinates separated by spaces
+    size_t n_els;
+    char** list_els = csv_to_list(start+1, ',', &n_els, er);
+    if (er != E_SUCCESS) { free(list_els);return sto; }
+    Value* buf = (Value*)calloc(n_els, sizeof(Value));
+    for (size_t i = 0; list_els[i] && i < n_els; ++i) {
+	buf[i] = parse_value(list_els[i], er);
+	if (er != E_SUCCESS) { free(list_els);free(buf);return sto; }
+    }
+    //cleanup and reset the string
+    *end = ']';
+    free(list_els);
+    //set number of elements and type
+    sto.type = VAL_LIST;
+    sto.n_els = n_els;
+    sto.val.l = buf;
+    er = E_SUCCESS;
+    return sto;
+}
+
+/**
+ * Based on the declaration syntax produce the appropriate geometric shape and store the result in ptr. Ptr must not be initialized before a call to this function to avoid a memory leak.
+ * returns: 0 on success or an error code
+ */
+parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const {
+    *ptr = NULL;
+    parse_ercode er = E_SUCCESS;
+
+    if (!f.name) return E_BAD_TOKEN;
+    //switch between all potential types
+    if (strcmp(f.name, "Box") == 0) {
+	if (f.n_args < 2) return E_LACK_TOKENS;
+	//if we have enough tokens make sure we have both elements as vectors
+	Value corn_1 = f.args[0].cast_to(VAL_3VEC, er);
+	if (er != E_SUCCESS) return er;
+	Value corn_2 = f.args[1].cast_to(VAL_3VEC, er);
+	if (er != E_SUCCESS) return er;
+	//make the box
+	if (ptr) *ptr = new Box(*(corn_1.val.v), *(corn_2.val.v), p_invert);
+	if (type) *type = CGS_BOX;
+	//cleanup
+	cleanup_val(&corn_1);
+	cleanup_val(&corn_2);
+    } else if (strcmp(f.name, "Plane") == 0) {
+	if (f.n_args < 2) return E_LACK_TOKENS;
+	if (f.n_args < 3) {
+	    //this means we have a normal vector and an offset
+	    Value corn_1 = f.args[0].cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS || f.args[1].type != VAL_NUM) return E_BAD_VALUE;
+	    //make the plane
+	    if (ptr) *ptr = new Plane(*(corn_1.val.v), f.args[1].val.x);
+	    if (type) *type = CGS_PLANE;
+	    cleanup_val(&corn_1);
+	} else {
+	    //this means we have three points defining the plane
+	    Value corn_1 = f.args[0].cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS) return er;
+	    Value corn_2 = f.args[1].cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS) return er;
+	    Value corn_3 = f.args[2].cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS) return er;
+	    //make the plane
+	    if (ptr) *ptr = new Plane(*(corn_1.val.v), *(corn_2.val.v), *(corn_3.val.v));
+	    if (type) *type = CGS_PLANE;
+	    cleanup_val(&corn_1);
+	    cleanup_val(&corn_2);
+	    cleanup_val(&corn_3);
+	}
+    } else if (strcmp(f.name, "Sphere") == 0) {
+	if (f.n_args < 2) return E_LACK_TOKENS;
+	//if we have enough tokens make sure we have both elements as vectors
+	Value cent = f.args[0].cast_to(VAL_3VEC, er);
+	if (er != E_SUCCESS || f.args[1].type != VAL_NUM) return E_BAD_VALUE;
+	double rad = f.args[1].val.x;
+	if (ptr) *ptr = new Sphere(*(cent.val.v), rad, p_invert);
+	if (type) *type = CGS_SPHERE;
+	//cleanup
+	cleanup_val(&cent);
+    } else if (strcmp(f.name, "Cylinder") == 0) {
+	if (f.n_args < 3) return E_LACK_TOKENS;
+	Value cent = f.args[0].cast_to(VAL_3VEC, er);
+	if (er != E_SUCCESS || f.args[1].type != VAL_NUM || f.args[2].type != VAL_NUM) return E_BAD_VALUE;
+	double h = f.args[1].val.x;
+	double r1 = f.args[2].val.x;
+	//by default assume that the radii are the same
+	double r2 = r1;
+	if (f.n_args > 3) {
+	    if (f.args[3].type != VAL_NUM) return E_BAD_VALUE;
+	    r2 = f.args[3].val.x;
+	}
+	if (ptr) *ptr = new Cylinder(*(cent.val.v), h, r1, r2, p_invert);
+	if (type) *type = CGS_CYLINDER;
+	//cleanup
+	cleanup_val(&cent);
+    } else if (strcmp(f.name, "Composite") == 0) {
+	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
+	if (type) *type = CGS_ROOT;
+    } else if (strcmp(f.name, "union") == 0) {
+	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
+	if (type) *type = CGS_COMPOSITE;
+    } else if (strcmp(f.name, "intersect") == 0) {
+	if (ptr) *ptr = new CompositeObject(CGS_INTERSECT, f, p_invert);
+	if (type) *type = CGS_COMPOSITE;
+    } else if (strcmp(f.name, "difference") == 0) {
+	if (ptr) *ptr = new CompositeObject(CGS_DIFFERENCE, f, p_invert);
+	if (type) *type = CGS_COMPOSITE;
+    } else if (strcmp(f.name, "data") == 0) {
+	if (ptr) *ptr = new CompositeObject(CGS_CMB_NOOP, f, p_invert);
+	if (type) *type = CGS_DATA;
+    } else {
+	if (ptr) *ptr = NULL;
+	if (type) *type = CGS_UNDEF;
+    }
+
+    return E_SUCCESS;
+}
+
+/**
+ * Produce an appropriate transformation matrix
+ */
+parse_ercode Scene::make_transformation(const cgs_func& f, emat3& res) const {
+    parse_ercode er = E_SUCCESS;
+
+    if (!f.name) return E_BAD_TOKEN;
+    //switch between all potential types
+    if (strcmp(f.name, "rotate") == 0) {
+	if (f.n_args < 2) return E_LACK_TOKENS;
+	if (f.args[0].type != VAL_NUM || f.args[1].type != VAL_3VEC) return E_BAD_VALUE;
+	double angle = f.args[0].val.x;
+	res = Eigen::AngleAxisd(angle, *(f.args[1].val.v));
+    } else if (strcmp(f.name, "scale") == 0) {
+	if (f.n_args < 1) return E_LACK_TOKENS;
+	evec3 scale;
+	if (f.args[0].type == VAL_3VEC) {
+	    scale = *(f.args[0].val.v);
+	} else if (f.args[0].type == VAL_NUM) {
+	    double val = f.args[0].val.x;
+	    scale.x() = val;
+	    scale.y() = val;
+	    scale.z() = val;
+	}
+	res = scale.asDiagonal();
+    }
+
+    return E_SUCCESS;
+}
+
+/**
+ * Given the string starting at token, and the index of an open paren parse the result into a cgs_func struct.
+ * token: a c-string which is modified in place that contains the function
+ * open_par_ind: the location of the open parenthesis
+ * f: the cgs_func that information should be saved to
+ * end: If not NULL, a pointer to the first character after the end of the string is stored here. If an error occurred during parsing end will be set to NULL.
+ * returns: an errorcode if an invalid string was supplied.
+ */
+cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, char** end) const {
+    cgs_func f;
+
+    //by default we want to indicate that we didn't get to the end
+    if (end) *end = NULL;
+    f.n_args = 0;
+    //infer the location of the open paren index if the user didn't specify it
+    if (open_par_ind < 0 || token[open_par_ind] != '('/*)*/) {
+	char* par_char = strchr(token, '('/*)*/);
+	//make sure there actually is an open paren
+	if (par_char == NULL) { er = E_BAD_TOKEN;return f; }
+	open_par_ind = par_char - token;
+    }
+
+    //break the string up at the parenthesis and remove surrounding whitespace
+    token[open_par_ind] = 0;
+    f.name = CGS_trim_whitespace(token, NULL);
+
+    //now remove whitespace from the ends of the string
+    char* arg_str = token+open_par_ind+1;
+    //make sure that the string is null terminated
+    char* term_ptr = strchr_block(arg_str, /*(*/')');
+    if (!term_ptr) { er = E_BAD_SYNTAX;return f; }
+    *term_ptr = 0;
+    if (end) *end = term_ptr+1;
+ 
+    //read the coordinates separated by spaces
+    char** list_els = csv_to_list(arg_str, ',', &(f.n_args), er);
+    if (er != E_SUCCESS) { free(list_els);return f; }
+    //make sure that we don't go out of bounds, TODO: let functions accept arbitrarily many arguments?
+    if (f.n_args >= ARGS_BUF_SIZE) {
+	er = E_NOMEM;
+	free(list_els);
+	return f;
+    }
+    for (size_t i = 0; list_els[i] && i < f.n_args; ++i) {
+	//handle named arguments
+	char* eq_loc = strchr(list_els[i], '=');
+	if (eq_loc) {
+	    f.arg_names[i] = list_els[i];
+	    *eq_loc = 0;
+	    list_els[i] = eq_loc+1;
+	} else {
+	    f.arg_names[i] = NULL;
+	}
+	f.args[i] = parse_value(list_els[i], er);
+	if (er != E_SUCCESS) { free(list_els);return f; }
+    }
+    //cleanup and reset the string
+    //*term_ptr = /*(*/')';
+    free(list_els);
+    return f;
+}
+
+template <typename T>
+parse_ercode CGS_Stack<T>::grow(size_t new_size) {
+    size_t old_size = buf_len;
+    buf_len = new_size;
+
+    T* tmp_buf = (T*)realloc(buf, sizeof(T)*buf_len);
+    if (tmp_buf) {
+	buf = tmp_buf;
+    } else {
+	buf_len = old_size;
+	return E_NOMEM;
+    }
+
+    return E_SUCCESS;
+}
+
+template <typename T>
+CGS_Stack<T>::CGS_Stack() {
+    stack_ptr = 0;
+    buf_len = ARGS_BUF_SIZE;
+    buf = (T*)malloc(sizeof(T)*buf_len);
+    //check that allocation was successful
+    if (!buf) {
+	buf = NULL;
+	buf_len = 0;
+	stack_ptr = 0;
+    }
+}
+
+template <typename T>
+CGS_Stack<T>::~CGS_Stack<T>() {
+    stack_ptr = 0;
+    buf_len = 0;
+
+    if (buf) {
+	free(buf);
+	buf = NULL;
+    }
+}
+
+//swap
+template <typename T>
+void CGS_Stack<T>::swap(CGS_Stack<T>& o) {
+    size_t tmp = buf_len;
+    buf_len = o.buf_len;
+    o.buf_len = tmp;
+    tmp = stack_ptr;
+    stack_ptr = o.stack_ptr;
+    o.stack_ptr = tmp;
+    T* tmp_buf = buf;
+    buf = o.buf;
+    o.buf = tmp_buf;
+}
+
+//copy constructor, assumes that the '=' operator does something sane
+template <typename T>
+CGS_Stack<T>::CGS_Stack(const CGS_Stack<T>& o) {
+    stack_ptr = o.stack_ptr;
+    //to save memory we'll only allocate however many entries the old object had
+    buf_len = stack_ptr;
+    buf = (T*)malloc(sizeof(T)*buf_len);
+    if (!buf) {
+	buf = NULL;
+	buf_len = 0;
+	stack_ptr = 0;
+    }
+
+    //copy the entries from the old object stack
+    for (_uint i = 0; i < stack_ptr; ++i) buf[i] = o.buf[i];
+}
+
+//move constructor
+template <typename T>
+CGS_Stack<T>::CGS_Stack(CGS_Stack<T>&& o) {
+    stack_ptr = o.stack_ptr;
+    buf_len = o.buf_len;
+    buf = o.buf;
+    //invalidate the object that just got moved
+    o.stack_ptr = 0;
+    o.buf_len = 0;
+    o.buf = NULL;
+}
+
+//assignment operator
+template <typename T>
+CGS_Stack<T>& CGS_Stack<T>::operator=(CGS_Stack<T> o) {
+    swap(o);
+    return *this;
+}
+
+/**
+ * Push a side-object pair onto the stack.
+ * returns: An error code if one occurred or E_SUCCESS if the operation was successful. It is possible for this function to fail if there wasn't sufficient space to push the object onto the stack.
+ */
+template <typename T>
+parse_ercode CGS_Stack<T>::push(T val) {
+    //we might need to allocate more memory
+    parse_ercode res = E_SUCCESS;
+    if (stack_ptr == buf_len) res = grow(2*buf_len);
+    if (res == E_SUCCESS) buf[stack_ptr++] = val;
+
+    return res;
+}
+
+/**
+ * Pop a side-object pair into the values pointed to by side and obj respectively. This function is guaranteed to succeed, but if the stack is empty then SIDE_END will be assigned to side and NULL will be assigned to obj. The caller should check that the returned values are valid.
+ */
+template <typename T>
+parse_ercode CGS_Stack<T>::pop(T* ptr) {
+    //check if there is anything that can be popped
+    if (stack_ptr == 0) return E_EMPTY_STACK;
+    //assign the return values
+    if (ptr) *ptr = buf[stack_ptr-1];
+    //decrement the stack pointer
+    --stack_ptr;
+
+    return E_SUCCESS;
+}
+
+/**
+ * Reset the stack to be empty
+ */
+template <typename T>
+void CGS_Stack<T>::reset() { stack_ptr = 0; }
+
+/**
+ * Check wheter an entry matching key is already somewhere in the stack
+ */
+template <typename T>
+bool CGS_Stack<T>::has(const T& key) {
+    for (_uint i = 0; i < stack_ptr; ++i) {
+	if (buf[i] == key) return true;
+    }
+    return false;
+}
+
+/**
+ * Returns a copy of the object at the top of the stack. If the stack is empty then the object casted from 0 is returned.
+ */
+template <typename T>
+T CGS_Stack<T>::peek(size_t ind) {
+    if (stack_ptr >= ind && ind > 0)
+	return buf[stack_ptr - ind];
+    return (T)0;
+}
+
+/**
+ * Insert an object onto the stack obeying the desired tree structure.
+ */
+parse_ercode ObjectStack::emplace_obj(Object* obj, object_type p_type) {
+    if (stack_ptr == 0) {
+	if (p_type == CGS_COMPOSITE || p_type == CGS_ROOT || p_type == CGS_DATA) {
+	    side_obj_pair cur(0, (CompositeObject*)obj);
+	    return push(cur);
+	} else {
+	    return E_EMPTY_STACK;
+	}
+    } else {
+	size_t ind = stack_ptr - 1;
+	if (buf[ind].side < 2) {
+	    buf[ind].obj->add_child(buf[ind].side, obj, p_type);
+	    buf[ind].side += 1;
+	} else {
+	    //if we're at a leaf then we need to walk up the tree until we find a location where we can place the object
+	    while (buf[ind].side > 1) {
+		//if the stack pointer is at the root then this isn't a valid binary operation
+		if (ind == 0) return E_NOT_BINARY;
+		--ind;
+	    }
+	    buf[ind].obj->add_child(buf[ind].side, obj, p_type);
+	    buf[ind].side += 1;
+	    //we have to update the stack pointer appropriatly
+	    stack_ptr = ind + 1;
+	}
+
+	//if it's a composite object then we'll need to add its children, so push it onto the stack
+	if (p_type == CGS_COMPOSITE || p_type == CGS_ROOT) {
+	    side_obj_pair cur(0, (CompositeObject*)obj);
+	    return push(cur);
+	}
+    }
+
+    return E_SUCCESS;
+}
+
+_uint ObjectStack::look_side() {
+    if (stack_ptr == 0) return SIDE_UNDEF;
+    return buf[stack_ptr - 1].side;
+}
+
+CompositeObject* ObjectStack::look_obj() {
+    if (stack_ptr == 0) return NULL;
+    return buf[stack_ptr].obj;
+}
+
+CompositeObject* ObjectStack::get_root() {
+    if (stack_ptr == 0) return NULL;
+    return buf[0].obj;
+}
+
+parse_ercode Scene::fail_exit(parse_ercode er, FILE* fp) {
+    fclose(fp);
+    return er;
+}
+
+/**
+ * This acts similar to getline, but stops at a semicolon, newline (unless preceeded by a \), {, or }.
+ * bufptr: a pointer to which the buffer is saved. If bufptr is NULL than a new buffer is allocated through malloc()
+ * n: a pointer to a size_t with the number of characters in the buffer pointed to by bufptr. The call will return do nothing and return -1 if n is null but *bufptr is not.
+ * fp: file pointer to read from
+ * linecount: a pointer to an integer specifying the number of new line characters read.
+ * Returns: -2 if an error occured, -1 if the end of the file was reached, or the number of characters read (including null termination) if successful
+ */
+int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
+    //dereference pointers and interpret them correctly
+    size_t n_lines = 0;
+    if (lineno) n_lines = *lineno;
+    size_t size = *n;
+    char* buf = *bufptr;
+    if (buf) {
+	if (size == 0) return -2;
+    } else {
+	size = BUF_SIZE;
+	buf = (char*)malloc(sizeof(char)*size);
+    }
+
+    int res = fgetc(fp);
+    size_t i = 0;
+    for (;; ++i) {
+	if (i >= size) {
+	    size *= 2;
+	    buf = (char*)realloc(buf, sizeof(char)*size);
+	}
+	if (res == EOF) {
+	    buf[i] = 0;
+	    *n = size;
+	    *bufptr = buf;
+	    if (lineno) *lineno = n_lines;
+	    return -1;
+	} else if (res == ';') {
+	    buf[i] = 0;
+	    //only count one line end
+	    res = fgetc(fp);
+	    if (res == '\n')
+		++n_lines;
+	    else
+		fseek(fp, -1, SEEK_CUR);
+	    break;
+	} else if (res == '{' || res == '}') {
+	    buf[i] = (char)res;
+	    res = (int)';';
+	} else if (res == '\n') {
+	    if (i == 0 || buf[i-1] != '\\') {
+		long cur_pos = ftell(fp);
+		int inc = 2;
+		//we give this case it's own special logic because we want to roll the next open brace or semicolon onto this line
+		while (res != EOF) {
+		    //read until we hit an open curly brace or a semicolon or a non-whitespace character. If the character is non-whitespace return to the inital state. Otherwise write the semicolon/curly brace at the end of the current line
+		    res = fgetc(fp);
+		    if (res == '{'/*}*/) {
+			buf[i] = (char)res;
+			res = (int)';';
+			break;
+		    } else if (res == '\n') {
+			n_lines += inc;//increment by 2 for the first newline we find
+			inc = 1;
+		    } else if (res != ' ' && res != '\t') {
+			fseek(fp, cur_pos-1, SEEK_SET);//minus 1 to ensure the newline gets read when parsing the semicolon
+			res = ';';
+			--i;
+			break;
+		    }
+		}
+	    } else {
+		i -= 2;
+		res = fgetc(fp);
+	    }
+	} else {
+	    buf[i] = (char)res;
+	    res = fgetc(fp);
+	}
+    }
+    *n = size;
+    *bufptr = buf;
+    if (lineno) *lineno = n_lines;
+    return (int)(i+1);
+}
+
+Value context::lookup(const char* str) const {
+    //make sure that the stack isn't empty before iterating
+    Value ret;
+    ret.type = VAL_UNDEF;
+    ret.val.x = 0;
+    if (stack_ptr == 0) return ret;
+    //iterate to find the item highest on the stack with a matching name
+    for (size_t i = stack_ptr; i >= 0; --i) {
+	if (strcmp(buf[i].name, str) == 0) return buf[i].val;
+    }
+    //return a default undefined value if nothing was found
+    return ret;
+}
+/**
+ * remove the top n items from the stack
+ */
+parse_ercode context::pop_n(size_t n) {
+    if (n > stack_ptr)
+	return E_EMPTY_STACK;
+    stack_ptr -= n;
+    return E_SUCCESS;
+}
+Value context::parse_value(char* str, parse_ercode& er) const {
     Value sto;
     er = E_SUCCESS;
 
@@ -624,13 +1318,14 @@ Value Scene::parse_value(char* str, parse_ercode& er) const {
 	//if there isn't a valid parenthetical expression, then we should interpret this as a value string
 	if (first_open_ind < 0 || last_close_ind < 0) {
 	    str = CGS_trim_whitespace(str, NULL);
-	    sto = lookup_val(str, er);
-	    if (er != E_SUCCESS) {
+	    sto = lookup(str);
+	    if (sto.type == VAL_UNDEF) {
 		//try interpreting as a number
 		errno = 0;
 		sto.val.x = strtod(str, NULL);
 		if (errno) {
-		    er = E_BAD_TOKEN;return sto;
+		    er = E_NOT_DEFINED;
+		    return sto;
 		}
 		er = E_SUCCESS;
 		sto.type = VAL_NUM;
@@ -684,552 +1379,91 @@ Value Scene::parse_value(char* str, parse_ercode& er) const {
     return sto;
 }
 
-/**
- * Find the first index of the character c that isn't nested inside a block
- */
-char* strchr_block(char* str, char c) {
-    CGS_Stack<size_t> blk_stk;
-    for (size_t i = 0; str[i] != 0; ++i) {
-	if (str[i] == c && blk_stk.is_empty()) {
-	    return str+i;
+user_func::user_func(cgs_func sig, char** bufptr, size_t* n, FILE* fp) {
+    call_sig = copy_func(sig);
+    //setup a buffer for code lines
+    size_t cur_buf_size = FUNC_BUF_SIZE;
+    code_lines = (char**)malloc(sizeof(char*)*cur_buf_size);
+    //initialize tracking variables
+    n_lines = 0;
+    int nest_level = 0;
+    int n_chars = read_cgs_line(bufptr, n, fp, &n_lines);
+    //iterate until we hit an error, or the end of the function (n_chars=-1 or nest_level=-1)
+    while (n_chars >= 0 && nest_level >= 0) {
+	//expand the buffer if necessary
+	if (n_lines == cur_buf_size) {
+	    cur_buf_size *= 2;
+	    code_lines = (char**)realloc(code_lines, sizeof(char*)*cur_buf_size);
 	}
-	if (str[i] == '('/*)*/) {
-	    blk_stk.push(i);
-	} else if (str[i] == /*(*/')') {
-	    blk_stk.pop(NULL);
-	} else if (str[i] == '['/*]*/) {
-	    blk_stk.push(i);
-	} else if (str[i] == /*[*/']') {
-	    blk_stk.pop(NULL);
-	} else if (str[i] == '{'/*}*/) {
-	    blk_stk.push(i);
-	} else if (str[i] == /*{*/'}') {
-	    blk_stk.pop(NULL);
-	} else if (str[i] == '\"'/*"*/) {
-	    //quotes are more complicated
-	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\"')
-		blk_stk.pop(NULL);
-	    else
-		blk_stk.push(i);
-	} else if (str[i] == '\''/*"*/) {
-	    //quotes are more complicated
-	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\'')
-		blk_stk.pop(NULL);
-	    else
-		blk_stk.push(i);
+	char* cur_line = (char*)malloc(sizeof(char)*n_chars);
+	char* buf = *bufptr;
+	//copy the string and check to see if there was an open or close brace read
+	for (size_t j = 0; j < n_chars; ++j) {
+	    cur_line[j] = buf[j];
+	    if (buf[j] == '{')
+		++nest_level;
+	    else if (buf[j] == '}')
+		--nest_level;
 	}
+	cur_line[n_chars-1] = 0;
+	code_lines[n_lines++] = CGS_trim_whitespace(cur_line, NULL);
+	n_chars = read_cgs_line(bufptr, n, fp, &n_lines);
     }
-    return NULL;
 }
-
-/**
- * Convert a string separated by the character sep into a list of strings. For instance, if str == "arg1, arg2" and sep == ',' then the output will be a list of the form ["arg1", "arg2"]. If no sep character is found then the list will have one element which contains the whole string.
- * param str: string to parse into a list
- * param sep: separating character to use.
- * param listlen: location to save the length of the returned list to. Note that this pointer MUST be valid. It is not acceptable to call this function with listlen = NULL. (The returned list is not null terminated so this behavior ensures that callers are appropriately able to identify the length of the returned string.)
- * returns: list of strings separated by commas. This should be freed with a call to DTG_free(). In the event of an error, NULL is returned instead.
- * NOTE: The input string str is modified and the returned value uses memory allocated for str. Thus, the caller must ensure that str has a lifetime at least as long as the used string. Users should not try to call free() on any of the strings in the list, only the list itself.
- */
-char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
+user_func::~user_func() {
+    cleanup_func(&call_sig);
+    for (size_t j = 0; j < n_lines; ++j) free(code_lines[j]);
+    free(code_lines);
+}
+user_func::user_func(const user_func& o) {
+    call_sig = copy_func(o.call_sig);
+    n_lines = o.n_lines;
+    code_lines = (char**)malloc(sizeof(char*)*n_lines);
+    for (size_t j = 0; j < n_lines; ++j) code_lines[j] = strdup(o.code_lines[j]);
+}
+user_func::user_func(user_func&& o) {
+    call_sig = o.call_sig;
+    n_lines = o.n_lines;
+    code_lines = o.code_lines;
+    o.call_sig.name = NULL;
+    o.call_sig.n_args = 0;
+    o.n_lines = 0;
+    o.code_lines = NULL;
+}
+Value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
     er = E_SUCCESS;
-
-    char** ret = NULL;/*(char**)malloc(sizeof(char*), &tmp_err);*/
-    //we don't want to include separators that are in nested environments i.e. if the input is [[a,b],c] we should return "[a,b]","c" not "[a","b]","c"
-    CGS_Stack<type_ind_pair> blk_stk;
-    type_ind_pair tmp;
-
-    //by default we ignore whitespace, only use it if we are in a block enclosed by quotes
-    char* saveptr = str;
-    size_t off = 0;
-    size_t j = 0;
-    size_t i = 0;
-    bool verbatim = false;
-
-    for (; str[i] != 0; ++i) {
-	//if this is a separator then add the entry to the list
-	if (str[i] == sep && blk_stk.is_empty()) {
-	    ret = (char**)realloc(ret, sizeof(char*)*(off+1));
-
-	    //append the element to the list
-	    ret[off++] = saveptr;
-	    //null terminate this string and increment j
-	    str[j++] = 0;
-	    saveptr = str + j;
-	} else {
-	    if (str[i] == '\\') {
-		//check for escape sequences
-		++i;
-		bool placed_escape = false;
-		switch (str[i]) {
-		case 'n': str[j++] = '\n';placed_escape = true;break;
-		case 't': str[j++] = '\t';placed_escape = true;break;
-		case '\\': str[j++] = '\\';placed_escape = true;break;
-		case '\"': str[j++] = '\"';placed_escape = true;break;
-		default: er = E_BAD_SYNTAX;
-		}
-		if (placed_escape) continue;
-	    } else if (str[i] == '\"') {
-		tmp = blk_stk.peek();
-		if (blk_stk.is_empty() || tmp.t != BLK_QUOTE) {
-		    blk_stk.push(type_ind_pair(BLK_QUOTE, i));
-		    verbatim = true;
-		} else {
-		    blk_stk.pop(&tmp);
-		    verbatim = false;
-		}
-	    } else if (str[i] == '['/*]*/) {
-		blk_stk.push(type_ind_pair(BLK_SQUARE, i));
-	    } else if (str[i] == /*[*/']') {
-		//don't fail if we reach the end of a block. This just means we've reached the end of the list
-		if (blk_stk.pop(&tmp) != E_SUCCESS) break;
-		if (tmp.t != BLK_SQUARE) { free(ret);er=E_BAD_SYNTAX;return NULL; }
-	    } else if (str[i] == '('/*)*/) {
-		blk_stk.push(type_ind_pair(BLK_PAREN, i));
-	    } else if (str[i] == /*(*/')') {
-		if (blk_stk.pop(&tmp) != E_SUCCESS) break;
-		if (tmp.t != BLK_PAREN) { free(ret);er=E_BAD_SYNTAX;return NULL; }
-	    } else if (str[i] == '{'/*}*/) {
-		blk_stk.push(type_ind_pair(BLK_CURLY, i));
-	    } else if (str[i] == /*{*/'}') {
-		if (blk_stk.pop(&tmp) != E_SUCCESS) break;
-		if (tmp.t != BLK_CURLY) { free(ret);er=E_BAD_SYNTAX;return NULL; }
+    std::unordered_map<std::string, Value> local_vars;
+    size_t line = 0;
+    Value bad_val;
+    while (line < n_lines) {
+	if (strncmp("return", code_lines[line], strlen("return")) == 0) {
+	    char* tmp_buf = CGS_trim_whitespace(code_lines[line]+strlen("return")+1, NULL);
+	    Value v = c.parse_value(tmp_buf, er);
+	    if (er != E_SUCCESS) {
+		std::string tmp(tmp_buf);
+		if (local_vars.count(tmp) > 0)
+		    return local_vars[tmp];
+		else
+		    return bad_val;
+	    } else {
+		return v;
 	    }
-	    if (verbatim || (str[i] != ' ' && str[i] != '\t' && str[i] != '\n')) {
-		//if this isn't whitespace then just copy the character
-		str[j++] = str[i];
-	    }
+	} else if (strncmp("if", code_lines[line], strlen("if")) == 0){
+	    size_t len = 0;
+	    char* tmp_buf = CGS_trim_whitespace(code_lines[line]+strlen("if")+1, &len);
 	}
     }
-    //make sure that there weren't any unterminated blocks
-    if (!blk_stk.is_empty()) {
-	free(ret);
-	er = E_BAD_SYNTAX;
-	return NULL;
-    }
-
-    //make sure the string is null terminated
-    //if (str[i] != 0) str[j] = 0;
-    str[j] = 0;
-    ret = (char**)realloc(ret, sizeof(char*)*(off+2));
-    //add the last element to the list, but only if something was actually written, then set the length if requested
-    if (j != 0) ret[off++] = saveptr;
-    if (listlen) *listlen = off;
-    ret[off] = NULL;
-    return ret;
-}
-
-/**
- * Read a string of the format [x, y, z] into an Eigen::Vector3.
- * returns: 0 on success or an error code
- * 	-1: insufficient tokens
- * 	-2: one of the tokens supplied was invalid
- */
-Value Scene::parse_list(char* str, parse_ercode& er) const {
-    Value sto;
-    //find the start and the end of the vector
-    char* start = strchr(str, '[');
-    //make sure that the string is null terminated
-    char* end = strchr_block(start+1, ']');
-    if (!end) { er = E_BAD_SYNTAX;return sto; }
-    *end = 0;
-
-    //read the coordinates separated by spaces
-    size_t n_els;
-    char** list_els = csv_to_list(start+1, ',', &n_els, er);
-    if (er != E_SUCCESS) { free(list_els);return sto; }
-    Value* buf = (Value*)calloc(n_els, sizeof(Value));
-    for (size_t i = 0; list_els[i] && i < n_els; ++i) {
-	buf[i] = parse_value(list_els[i], er);
-	if (er != E_SUCCESS) { free(list_els);free(buf);return sto; }
-    }
-    //cleanup and reset the string
-    *end = ']';
-    free(list_els);
-    //set number of elements and type
-    sto.type = VAL_LIST;
-    sto.n_els = n_els;
-    sto.val.l = buf;
-    er = E_SUCCESS;
-    return sto;
-}
-
-/**
- * Based on the declaration syntax produce the appropriate geometric shape and store the result in ptr. Ptr must not be initialized before a call to this function to avoid a memory leak.
- * returns: 0 on success or an error code
- */
-parse_ercode Scene::make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const {
-    *ptr = NULL;
-    parse_ercode er = E_SUCCESS;
-
-    if (!f.name) return E_BAD_TOKEN;
-    //switch between all potential types
-    if (strcmp(f.name, "Box") == 0) {
-	if (f.n_args < 2) return E_LACK_TOKENS;
-	//if we have enough tokens make sure we have both elements as vectors
-	Value corn_1 = f.args[0].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS) return er;
-	Value corn_2 = f.args[1].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS) return er;
-	//make the box
-	if (ptr) *ptr = new Box(*(corn_1.val.v), *(corn_2.val.v), p_invert);
-	if (type) *type = CGS_BOX;
-	//cleanup
-	cleanup_val(&corn_1);
-	cleanup_val(&corn_2);
-    } else if (strcmp(f.name, "Sphere") == 0) {
-	if (f.n_args < 2) return E_LACK_TOKENS;
-	//if we have enough tokens make sure we have both elements as vectors
-	Value cent = f.args[0].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS || f.args[1].type != VAL_NUM) return E_BAD_VALUE;
-	double rad = f.args[1].val.x;
-	if (ptr) *ptr = new Sphere(*(cent.val.v), rad, p_invert);
-	if (type) *type = CGS_SPHERE;
-	//cleanup
-	cleanup_val(&cent);
-    } else if (strcmp(f.name, "Cylinder") == 0) {
-	if (f.n_args < 3) return E_LACK_TOKENS;
-	Value cent = f.args[0].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS || f.args[1].type != VAL_NUM || f.args[2].type != VAL_NUM) return E_BAD_VALUE;
-	double h = f.args[1].val.x;
-	double r1 = f.args[2].val.x;
-	//by default assume that the radii are the same
-	double r2 = r1;
-	if (f.n_args > 3) {
-	    if (f.args[3].type != VAL_NUM) return E_BAD_VALUE;
-	    r2 = f.args[3].val.x;
-	}
-	if (ptr) *ptr = new Cylinder(*(cent.val.v), h, r1, r2, p_invert);
-	if (type) *type = CGS_CYLINDER;
-	//cleanup
-	cleanup_val(&cent);
-    } else if (strcmp(f.name, "Composite") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
-	if (type) *type = CGS_ROOT;
-    } else if (strcmp(f.name, "union") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_UNION, f, p_invert);
-	if (type) *type = CGS_COMPOSITE;
-    } else if (strcmp(f.name, "intersect") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_INTERSECT, f, p_invert);
-	if (type) *type = CGS_COMPOSITE;
-    } else if (strcmp(f.name, "difference") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_DIFFERENCE, f, p_invert);
-	if (type) *type = CGS_COMPOSITE;
-    } else if (strcmp(f.name, "data") == 0) {
-	if (ptr) *ptr = new CompositeObject(CGS_CMB_NOOP, f, p_invert);
-	if (type) *type = CGS_DATA;
-    } else {
-	if (ptr) *ptr = NULL;
-	if (type) *type = CGS_UNDEF;
-    }
-
-    return E_SUCCESS;
-}
-
-/**
- * Produce an appropriate transformation matrix
- */
-parse_ercode Scene::make_transformation(const cgs_func& f, emat3& res) const {
-    parse_ercode er = E_SUCCESS;
-
-    if (!f.name) return E_BAD_TOKEN;
-    //switch between all potential types
-    if (strcmp(f.name, "rotate") == 0) {
-	if (f.n_args < 2) return E_LACK_TOKENS;
-	if (f.args[0].type != VAL_NUM || f.args[1].type != VAL_3VEC) return E_BAD_VALUE;
-	double angle = f.args[0].val.x;
-	res = Eigen::AngleAxisd(angle, *(f.args[1].val.v));
-    } else if (strcmp(f.name, "scale") == 0) {
-	if (f.n_args < 1) return E_LACK_TOKENS;
-	evec3 scale;
-	if (f.args[0].type == VAL_3VEC) {
-	    scale = *(f.args[0].val.v);
-	} else if (f.args[0].type == VAL_NUM) {
-	    double val = f.args[0].val.x;
-	    scale.x() = val;
-	    scale.y() = val;
-	    scale.z() = val;
-	}
-	res = scale.asDiagonal();
-    }
-
-    return E_SUCCESS;
-}
-
-/**
- * Given the string starting at token, and the index of an open paren parse the result into a cgs_func struct.
- * token: a c-string which is modified in place that contains the function
- * open_par_ind: the location of the open parenthesis
- * f: the cgs_func that information should be saved to
- * end: If not NULL, a pointer to the first character after the end of the string is stored here. If an error occurred during parsing end will be set to NULL.
- * returns: an errorcode if an invalid string was supplied.
- */
-cgs_func Scene::parse_func(char* token, long open_par_ind, parse_ercode& er, char** end) const {
-    cgs_func f;
-
-    //by default we want to indicate that we didn't get to the end
-    if (end) *end = NULL;
-    f.n_args = 0;
-    //infer the location of the open paren index if the user didn't specify it
-    if (open_par_ind < 0 || token[open_par_ind] != '('/*)*/) {
-	char* par_char = strchr(token, '('/*)*/);
-	//make sure there actually is an open paren
-	if (par_char == NULL) { er = E_BAD_TOKEN;return f; }
-	open_par_ind = par_char - token;
-    }
-
-    //break the string up at the parenthesis and remove surrounding whitespace
-    token[open_par_ind] = 0;
-    f.name = CGS_trim_whitespace(token, NULL);
-
-    //now remove whitespace from the ends of the string
-    char* arg_str = token+open_par_ind+1;
-    //make sure that the string is null terminated
-    char* term_ptr = strchr_block(arg_str, /*(*/')');
-    if (!term_ptr) { er = E_BAD_SYNTAX;return f; }
-    *term_ptr = 0;
-    if (end) *end = term_ptr+1;
- 
-    //read the coordinates separated by spaces
-    char** list_els = csv_to_list(arg_str, ',', &(f.n_args), er);
-    if (er != E_SUCCESS) { free(list_els);return f; }
-    //make sure that we don't go out of bounds, TODO: let functions accept arbitrarily many arguments?
-    if (f.n_args >= ARGS_BUF_SIZE) {
-	er = E_NOMEM;
-	free(list_els);
-	return f;
-    }
-    for (size_t i = 0; list_els[i] && i < f.n_args; ++i) {
-	//handle named arguments
-	char* eq_loc = strchr(list_els[i], '=');
-	if (eq_loc) {
-	    f.arg_names[i] = list_els[i];
-	    *eq_loc = 0;
-	    list_els[i] = eq_loc+1;
-	} else {
-	    f.arg_names[i] = NULL;
-	}
-	f.args[i] = parse_value(list_els[i], er);
-	if (er != E_SUCCESS) { free(list_els);return f; }
-    }
-    //cleanup and reset the string
-    //*term_ptr = /*(*/')';
-    free(list_els);
-    return f;
-}
-
-template <typename T>
-parse_ercode CGS_Stack<T>::grow(size_t new_size) {
-    size_t old_size = buf_len;
-    buf_len = new_size;
-
-    T* tmp_buf = (T*)realloc(buf, sizeof(T)*buf_len);
-    if (tmp_buf) {
-	buf = tmp_buf;
-    } else {
-	buf_len = old_size;
-	return E_NOMEM;
-    }
-
-    return E_SUCCESS;
-}
-
-template <typename T>
-CGS_Stack<T>::CGS_Stack() {
-    stack_ptr = 0;
-    buf_len = ARGS_BUF_SIZE;
-    buf = (T*)malloc(sizeof(T)*buf_len);
-    //check that allocation was successful
-    if (!buf) {
-	buf = NULL;
-	buf_len = 0;
-	stack_ptr = 0;
-    }
-}
-
-template <typename T>
-CGS_Stack<T>::~CGS_Stack<T>() {
-    stack_ptr = 0;
-    buf_len = 0;
-
-    if (buf) {
-	free(buf);
-	buf = NULL;
-    }
-}
-
-//swap
-template <typename T>
-void CGS_Stack<T>::swap(CGS_Stack<T>& o) {
-    size_t tmp = buf_len;
-    buf_len = o.buf_len;
-    o.buf_len = tmp;
-    tmp = stack_ptr;
-    stack_ptr = o.stack_ptr;
-    o.stack_ptr = tmp;
-    T* tmp_buf = buf;
-    buf = o.buf;
-    o.buf = tmp_buf;
-}
-
-//copy constructor, assumes that the '=' operator does something sane
-template <typename T>
-CGS_Stack<T>::CGS_Stack(const CGS_Stack<T>& o) {
-    stack_ptr = o.stack_ptr;
-    //to save memory we'll only allocate however many entries the old object had
-    buf_len = stack_ptr;
-    buf = (T*)malloc(sizeof(T)*buf_len);
-    if (!buf) {
-	buf = NULL;
-	buf_len = 0;
-	stack_ptr = 0;
-    }
-
-    //copy the entries from the old object stack
-    for (_uint i = 0; i < stack_ptr; ++i) buf[i] = o.buf[i];
-}
-
-//move constructor
-template <typename T>
-CGS_Stack<T>::CGS_Stack(CGS_Stack<T>&& o) {
-    stack_ptr = o.stack_ptr;
-    buf_len = o.buf_len;
-    buf = o.buf;
-    //invalidate the object that just got moved
-    o.stack_ptr = 0;
-    o.buf_len = 0;
-    o.buf = NULL;
-}
-
-//assignment operator
-template <typename T>
-CGS_Stack<T>& CGS_Stack<T>::operator=(CGS_Stack<T> o) {
-    swap(*this, o);
-    return *this;
-}
-
-/**
- * Push a side-object pair onto the stack.
- * returns: An error code if one occurred or E_SUCCESS if the operation was successful. It is possible for this function to fail if there wasn't sufficient space to push the object onto the stack.
- */
-template <typename T>
-parse_ercode CGS_Stack<T>::push(T val) {
-    //we might need to allocate more memory
-    parse_ercode res = E_SUCCESS;
-    if (stack_ptr == buf_len) res = grow(2*buf_len);
-    if (res == E_SUCCESS) buf[stack_ptr++] = val;
-
-    return res;
-}
-
-/**
- * Pop a side-object pair into the values pointed to by side and obj respectively. This function is guaranteed to succeed, but if the stack is empty then SIDE_END will be assigned to side and NULL will be assigned to obj. The caller should check that the returned values are valid.
- */
-template <typename T>
-parse_ercode CGS_Stack<T>::pop(T* ptr) {
-    //check if there is anything that can be popped
-    if (stack_ptr == 0) return E_EMPTY_STACK;
-    //assign the return values
-    if (ptr) *ptr = buf[stack_ptr-1];
-    //decrement the stack pointer
-    --stack_ptr;
-
-    return E_SUCCESS;
-}
-
-/**
- * Reset the stack to be empty
- */
-template <typename T>
-void CGS_Stack<T>::reset() { stack_ptr = 0; }
-
-/**
- * Check wheter an entry matching key is already somewhere in the stack
- */
-template <typename T>
-bool CGS_Stack<T>::has(const T& key) {
-    for (_uint i = 0; i < stack_ptr; ++i) {
-	if (buf[i] == key) return true;
-    }
-    return false;
-}
-
-/**
- * Returns a copy of the object at the top of the stack. If the stack is empty then the object casted from 0 is returned.
- */
-template <typename T>
-T CGS_Stack<T>::peek(size_t ind) {
-    if (stack_ptr >= ind && ind > 0)
-	return buf[stack_ptr - ind];
-    return (T)0;
-}
-
-/**
- * Insert an object onto the stack obeying the desired tree structure.
- */
-parse_ercode ObjectStack::emplace_obj(Object* obj, object_type p_type) {
-    if (stack_ptr == 0) {
-	if (p_type == CGS_COMPOSITE || p_type == CGS_ROOT || p_type == CGS_DATA) {
-	    side_obj_pair cur(0, (CompositeObject*)obj);
-	    return push(cur);
-	} else {
-	    return E_EMPTY_STACK;
-	}
-    } else {
-	size_t ind = stack_ptr - 1;
-	if (buf[ind].side < 2) {
-	    buf[ind].obj->add_child(buf[ind].side, obj, p_type);
-	    buf[ind].side += 1;
-	} else {
-	    //if we're at a leaf then we need to walk up the tree until we find a location where we can place the object
-	    while (buf[ind].side > 1) {
-		//if the stack pointer is at the root then this isn't a valid binary operation
-		if (ind == 0) return E_NOT_BINARY;
-		--ind;
-	    }
-	    buf[ind].obj->add_child(buf[ind].side, obj, p_type);
-	    buf[ind].side += 1;
-	    //we have to update the stack pointer appropriatly
-	    stack_ptr = ind + 1;
-	}
-
-	//if it's a composite object then we'll need to add its children, so push it onto the stack
-	if (p_type == CGS_COMPOSITE || p_type == CGS_ROOT) {
-	    side_obj_pair cur(0, (CompositeObject*)obj);
-	    return push(cur);
-	}
-    }
-
-    return E_SUCCESS;
-}
-
-_uint ObjectStack::look_side() {
-    if (stack_ptr == 0) return SIDE_UNDEF;
-    return buf[stack_ptr - 1].side;
-}
-
-CompositeObject* ObjectStack::look_obj() {
-    if (stack_ptr == 0) return NULL;
-    return buf[stack_ptr].obj;
-}
-
-CompositeObject* ObjectStack::get_root() {
-    if (stack_ptr == 0) return NULL;
-    return buf[0].obj;
-}
-
-parse_ercode Scene::fail_exit(parse_ercode er, FILE* fp) {
-    fclose(fp);
-    return er;
+    //return an undefined value by default
+    Value ret;ret.type = VAL_UNDEF;ret.val.x = 0;return ret;
 }
 
 parse_ercode Scene::read_file(const char* p_fname) {
     parse_ercode er = E_SUCCESS;
-    char buf[BUF_SIZE];
+    //char buf[BUF_SIZE];
+    char* buf = (char*)malloc(sizeof(char)*BUF_SIZE);
+    size_t buf_size = BUF_SIZE;
     char func_name[BUF_SIZE];
     size_t n_args = 0;
-
-    //we need to store whatever the current token is
-    char* cur_token;
 
     //indicate that no names are stored in all of the specified fields
     func_name[0] = 0;
@@ -1250,14 +1484,14 @@ parse_ercode Scene::read_file(const char* p_fname) {
         fp = fopen(p_fname, "r");
     }
     if (fp) {
-	size_t lineno = 1;
-	size_t line_len = 0;
+	size_t lineno = 1;size_t next_lineno = 1;
+	int line_len = read_cgs_line(&buf, &buf_size, fp, &next_lineno);
 	char last_char = 0;
 	//iterate over each line in the file
-	while (fgets(buf, BUF_SIZE, fp)) {
-	    char* red_str = CGS_trim_whitespace(buf, &line_len);
-	    cur_token = buf;
-	    for (size_t i = 0; i < line_len; ++i) {
+	//while (fgets(buf, BUF_SIZE, fp)) {//}
+	while (line_len >= 0) {
+	    //char* red_str = CGS_trim_whitespace(buf, &line_len);
+	    for (int i = 0; i < line_len && buf[i]; ++i) {
 		//check the most recent block pushed onto the stack
 		block_type cur_type = BLK_UNDEF;
 		if (blk_stack.size() > 0) cur_type = blk_stack.peek();
@@ -1267,10 +1501,10 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			//initialize a new cgs_func with the appropriate arguments
 			cgs_func cur_func;
 			char* endptr;
-			cur_func = parse_func(cur_token, i, er, &endptr);
+			cur_func = named_items.parse_func(buf, i, er, &endptr);
 			switch (er) {
 			    case E_BAD_TOKEN:
-				printf("Error on line %d: Invalid function name \"%s\"\n", lineno, cur_token);
+				printf("Error on line %d: Invalid function name \"%s\"\n", lineno, buf);
 				cleanup_func(&cur_func);
 				return fail_exit(er, fp);
 			    case E_BAD_SYNTAX:
@@ -1278,6 +1512,12 @@ parse_ercode Scene::read_file(const char* p_fname) {
 				cleanup_func(&cur_func);
 				return fail_exit(er, fp);
 			    default: break;
+			}
+			//check to see if this is a user function declaration
+			if (cur_func.name[0] == 'd' && cur_func.name[1] == 'e' && cur_func.name[2] == 'f' && cur_func.name[3] != 0) {
+			    cur_func.name = CGS_trim_whitespace(cur_func.name + 3, NULL);
+
+			    //TODO: finish
 			}
 			//try interpreting the function as a geometric object
 			Object* obj = NULL;
@@ -1350,7 +1590,7 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			char* tok = CGS_trim_whitespace(buf, NULL);
 			size_t val_len;
 			char* val = CGS_trim_whitespace(buf+i+1, &val_len);
-			named_items[std::string(tok)] = make_val_str(val);
+			named_items.emplace(tok, make_val_str(val));
 		    }
 		} else {
 		    //check if we reached the end of a comment or string literal block
@@ -1366,13 +1606,15 @@ parse_ercode Scene::read_file(const char* p_fname) {
 	    if (blk_stack.is_empty()) {
 		tree_pos.reset();
 	    }
-	    ++lineno;
+	    line_len = read_cgs_line(&buf, &buf_size, fp, &next_lineno);
+	    lineno = next_lineno;
 	}
 	fclose(fp);
     } else {
         printf("Error: couldn't open file %s for reading!\n", p_fname);
         return E_NOFILE;
     }
+    free(buf);
 
     return er;
 }
@@ -1400,7 +1642,7 @@ Scene::Scene(Scene&& o) {
     named_items = o.named_items;
     o.roots.clear();
     o.data_objs.clear();
-    o.named_items.clear();
+    o.named_items.reset();
 }
 
 Scene& Scene::operator=(Scene& o) {
