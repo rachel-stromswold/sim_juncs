@@ -25,3 +25,8 @@ cmake .. -DJUNCTION_TYPE=Au_SiO2_box
 
 # running
 Once you've completed the previous steps, call `run.sh -l` inside the build directory. If you want to run jobs on a cluster using slurm call `sbatch run.sh`.
+
+# thank you to
+* meep for supplying FDTD electromagnetic simulations
+* eigen3 for providing utilities for linear algebra and geometry
+

@@ -310,6 +310,8 @@ struct name_val_pair {
     Value val;
 };
 class context : public CGS_Stack<name_val_pair> {
+private:
+    Value do_op(char* tok, size_t ind, parse_ercode& er);
 public:
     //parse_ercode push(_uint side, CompositeObject* obj);
     void emplace(char* p_name, Value val) { name_val_pair inst;inst.name = p_name;inst.val = val;push(inst); }
