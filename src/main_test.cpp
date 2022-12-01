@@ -325,14 +325,14 @@ TEST_CASE("Test value parsing") {
 	    CHECK(element.val.l[2].type == VAL_STR);
 	    CHECK(strcmp(element.val.l[2].val.s, "6") == 0);
 	//test lists interpretations
-	strncpy(buf, "[[VAL*2 for range(2)], [VAL*2-1 for range(1,3)], [VAL for range(1,3,0.5)]]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	strncpy(buf, "[[i*2 for i in range(2)], [i*2-1 for i in range(1,3)], [x for x in range(1,3,0.5)]]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_LIST);
 	CHECK(tmp_val.val.l != NULL);
 	CHECK(tmp_val.n_els == 2);
 	    //check the first sublist
-	    Value element = tmp_val.val.l[0];
+	    element = tmp_val.val.l[0];
 	    CHECK(element.type == VAL_LIST);
 	    CHECK(element.n_els == 2);
 	    CHECK(element.val.l != NULL);

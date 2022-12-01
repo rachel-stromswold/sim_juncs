@@ -7,17 +7,95 @@ bool is_char_sep(char c) {
     if (c == 0 || c == ' ' || c == '\t'  || c == '\n')
 	return true;
     else
-	return false
+	return false;
 }
 
 /**
  * Helper function which looks at the string str at index i and tests whether it is a token with the matching name
  */
-bool is_token(const char* str, size_t i, const char* comp, size_t comp_len) {
-    if (strncmp(str+i, comp, comp_len) != 0) return false;
+bool is_token(const char* str, size_t i, size_t len) {
     if (i > 0 && !is_char_sep(str[i-1])) return false;
-    if (!is_char_sep(str[i+1])) return false;
+    if (!is_char_sep(str[i+len])) return false;
     return true;
+}
+
+/**
+ * Find the first index of the character c that isn't nested inside a block
+ */
+char* strchr_block(char* str, char c) {
+    CGS_Stack<size_t> blk_stk;
+    for (size_t i = 0; str[i] != 0; ++i) {
+	if (str[i] == c && blk_stk.is_empty()) {
+	    return str+i;
+	}
+	if (str[i] == '('/*)*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*(*/')') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '['/*]*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*[*/']') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '{'/*}*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*{*/'}') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '\"'/*"*/) {
+	    //quotes are more complicated
+	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\"')
+		blk_stk.pop(NULL);
+	    else
+		blk_stk.push(i);
+	} else if (str[i] == '\''/*"*/) {
+	    //quotes are more complicated
+	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\'')
+		blk_stk.pop(NULL);
+	    else
+		blk_stk.push(i);
+	}
+    }
+    return NULL;
+}
+
+/**
+ * Find the first instance of a token (i.e. surrounded by whitespace) in the string str which matches comp
+ */
+char* token_block(char* str, const char* comp) {
+    if (!str || !comp) return NULL;
+    CGS_Stack<size_t> blk_stk;
+    for (size_t i = 0; str[i] != 0; ++i) {
+	if (blk_stk.is_empty()) {
+	    size_t j = 0;
+	    while (comp[j] && str[i+j] && str[i+j] == comp[j]) ++j;
+	    if (comp[j] == 0 && is_token(str, i, j)) return str+i;
+	}
+	if (str[i] == '('/*)*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*(*/')') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '['/*]*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*[*/']') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '{'/*}*/) {
+	    blk_stk.push(i);
+	} else if (str[i] == /*{*/'}') {
+	    blk_stk.pop(NULL);
+	} else if (str[i] == '\"'/*"*/) {
+	    //quotes are more complicated
+	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\"')
+		blk_stk.pop(NULL);
+	    else
+		blk_stk.push(i);
+	} else if (str[i] == '\''/*"*/) {
+	    //quotes are more complicated
+	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\'')
+		blk_stk.pop(NULL);
+	    else
+		blk_stk.push(i);
+	}
+    }
+    return NULL;
 }
 
 /** ============================ Object ============================ **/
@@ -507,44 +585,6 @@ int CompositeObject::in(const evec3& r) {
 }
 
 /**
- * Find the first index of the character c that isn't nested inside a block
- */
-char* strchr_block(char* str, char c) {
-    CGS_Stack<size_t> blk_stk;
-    for (size_t i = 0; str[i] != 0; ++i) {
-	if (str[i] == c && blk_stk.is_empty()) {
-	    return str+i;
-	}
-	if (str[i] == '('/*)*/) {
-	    blk_stk.push(i);
-	} else if (str[i] == /*(*/')') {
-	    blk_stk.pop(NULL);
-	} else if (str[i] == '['/*]*/) {
-	    blk_stk.push(i);
-	} else if (str[i] == /*[*/']') {
-	    blk_stk.pop(NULL);
-	} else if (str[i] == '{'/*}*/) {
-	    blk_stk.push(i);
-	} else if (str[i] == /*{*/'}') {
-	    blk_stk.pop(NULL);
-	} else if (str[i] == '\"'/*"*/) {
-	    //quotes are more complicated
-	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\"')
-		blk_stk.pop(NULL);
-	    else
-		blk_stk.push(i);
-	} else if (str[i] == '\''/*"*/) {
-	    //quotes are more complicated
-	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\'')
-		blk_stk.pop(NULL);
-	    else
-		blk_stk.push(i);
-	}
-    }
-    return NULL;
-}
-
-/**
  * Convert a string separated by the character sep into a list of strings. For instance, if str == "arg1, arg2" and sep == ',' then the output will be a list of the form ["arg1", "arg2"]. If no sep character is found then the list will have one element which contains the whole string.
  * param str: string to parse into a list
  * param sep: separating character to use.
@@ -616,7 +656,7 @@ char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
 		if (blk_stk.pop(&tmp) != E_SUCCESS) break;
 		if (tmp.t != BLK_CURLY) { free(ret);er=E_BAD_SYNTAX;return NULL; }
 	    }
-	    if (verbatim || (str[i] != ' ' && str[i] != '\t' && str[i] != '\n')) {
+	    if (!blk_stk.is_empty() || verbatim || (str[i] != ' ' && str[i] != '\t' && str[i] != '\n')) {
 		//if this isn't whitespace then just copy the character
 		str[j++] = str[i];
 	    }
@@ -641,30 +681,12 @@ char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
 }
 
 /**
- * Iterate through the context and assign a new value to the variable with the matching name.
- * name: the name of the variable to set
- * new_val: the value to set the variable to
- * returns: E_SUCCESS if the variable with a matching name was found or E_NOT_DEFINED otherwise
- */
-parse_ercode context::set_value(const char* name, Value new_val) {
-    //make sure that the stack isn't empty before iterating
-    if (stack_ptr == 0) return E_NOT_DEFINED;
-    for (size_t i = stack_ptr-1; i >= 0; --i) {
-	if (strcmp(buf[i].name, name) == 0) {
-	    buf[i].val = new_val;
-	    return E_SUCCESS;
-	}
-    }
-    return E_NOT_DEFINED;
-}
-
-/**
  * Read a string of the format [x, y, z] into an Eigen::Vector3.
  * returns: 0 on success or an error code
  * 	-1: insufficient tokens
  * 	-2: one of the tokens supplied was invalid
  */
-Value context::parse_list(char* str, parse_ercode& er) const {
+Value context::parse_list(char* str, parse_ercode& er) {
     Value sto;
     //find the start and the end of the vector
     char* start = strchr(str, '[');
@@ -675,49 +697,44 @@ Value context::parse_list(char* str, parse_ercode& er) const {
 
     //read the coordinates separated by spaces
     size_t n_els = 0;
-    char** list_els = csv_to_list(start+1, ',', &n_els, er);
-    if (er != E_SUCCESS) { free(list_els);return sto; }
     Value* lbuf;
-    //try using a list interpretation if no root level commas were found
-    if (n_els == 0) {
-	//this is only valid if a string matching "for" was found at the root level
-	char* for_start = strchr_block(start+1, 'f');
-	if (is_token(for_start-1, 1, "for", 3)) {
-	    //now look for a block labeled "in"
-	    char* in_start = strchr_block(for_start+3, 'i');
-	    if (!is_token(in_start, in_start-(for_start+3), "in", 2)) { er = E_BAD_SYNTAX;return sto; }
-	    //the variable name is whatever is in between the "for" and the "in"
-	    in_start[0] = 0;
-	    char* var_name = CGS_trim_whitespace(for_start+3, NULL);
-	    //now parse the list we iterate over
-	    Value it_list = parse_value(in_start+3, er);
-	    if (er != E_SUCCESS || it_list.type != VAL_LIST) { er = E_BAD_VALUE;return sto; }
-	    //we now iterate through the list specified, substituting VAL in the expression with the current value
-	    for_start[0] = 0;
-	    emplace_tmp(var_name, sto);
-	    n_els = it_list.n_els;
-	    lbuf = (Value*)calloc(n_els, sizeof(Value));
-	    for (size_t i = 0; i < it_list.n_els; ++i) {
-		buf[stack_ptr-1].val = it_list.val.l[i];
-		lbuf[i] = parse_value(start+1, er);
-		if (er != E_SUCCESS) { n_els = i;return sto; }
-	    }
-	    //free the memory from the iteration list
-	    cleanup_val(&it_list);
-	} else {
-	    list_els = NULL;
-	    lbuf = NULL;
+    //check if this is a list interpretation
+    char* for_start = token_block(start+1, "for");
+    if (for_start) {
+	//now look for a block labeled "in"
+	char* in_start = token_block(for_start+3, "in");
+	if (!in_start) { er = E_BAD_SYNTAX;return sto; }
+	//the variable name is whatever is in between the "for" and the "in"
+	in_start[0] = 0;
+	char* var_name = CGS_trim_whitespace(for_start+3, NULL);
+	//now parse the list we iterate over
+	Value it_list = parse_value(in_start+3, er);
+	if (er != E_SUCCESS || it_list.type != VAL_LIST) { er = E_BAD_VALUE;return sto; }
+	//we now iterate through the list specified, substituting VAL in the expression with the current value
+	for_start[0] = 0;
+	emplace(var_name, sto);
+	n_els = it_list.n_els;
+	lbuf = (Value*)calloc(n_els, sizeof(Value));
+	for (size_t i = 0; i < it_list.n_els; ++i) {
+	    buf[stack_ptr-1].val = it_list.val.l[i];
+	    lbuf[i] = parse_value(start+1, er);
+	    if (er != E_SUCCESS) { n_els = i;return sto; }
 	}
+	pop(NULL);
+	//free the memory from the iteration list
+	cleanup_val(&it_list);
     } else {
+	char** list_els = csv_to_list(start+1, ',', &n_els, er);
+	if (er != E_SUCCESS) { free(list_els);return sto; }
 	lbuf = (Value*)calloc(n_els, sizeof(Value));
 	for (size_t i = 0; list_els[i] && i < n_els; ++i) {
 	    lbuf[i] = parse_value(list_els[i], er);
 	    if (er != E_SUCCESS) { free(list_els);free(lbuf);return sto; }
 	}
+	free(list_els);
     }
     //cleanup and reset the string
     *end = ']';
-    free(list_els);
     //set number of elements and type
     sto.type = VAL_LIST;
     sto.n_els = n_els;
@@ -861,7 +878,7 @@ parse_ercode Scene::make_transformation(const cgs_func& f, emat3& res) const {
  * end: If not NULL, a pointer to the first character after the end of the string is stored here. If an error occurred during parsing end will be set to NULL.
  * returns: an errorcode if an invalid string was supplied.
  */
-cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, char** end) const {
+cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, char** end) {
     cgs_func f;
 
     //by default we want to indicate that we didn't get to the end
@@ -1203,6 +1220,11 @@ int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
     return (int)(i+1);
 }
 
+/**
+ * Iterate through the context and return a value to the variable with the matching name.
+ * name: the name of the variable to set
+ * returns: the matching value, no deep copies are performed
+ */
 Value context::lookup(const char* str) const {
     //make sure that the stack isn't empty before iterating
     Value ret;
@@ -1210,12 +1232,31 @@ Value context::lookup(const char* str) const {
     ret.val.x = 0;
     if (stack_ptr == 0) return ret;
     //iterate to find the item highest on the stack with a matching name
-    for (size_t i = stack_ptr; i >= 0; --i) {
+    for (size_t i = stack_ptr-1; i > 0; --i) {
 	if (strcmp(buf[i].name, str) == 0) return buf[i].val;
     }
     //return a default undefined value if nothing was found
     return ret;
 }
+
+/**
+ * Iterate through the context and assign a new value to the variable with the matching name.
+ * name: the name of the variable to set
+ * new_val: the value to set the variable to
+ * returns: E_SUCCESS if the variable with a matching name was found or E_NOT_DEFINED otherwise
+ */
+parse_ercode context::set_value(const char* name, Value new_val) {
+    //make sure that the stack isn't empty before iterating
+    if (stack_ptr == 0) return E_NOT_DEFINED;
+    for (size_t i = stack_ptr-1; i > 0; --i) {
+	if (strcmp(buf[i].name, name) == 0) {
+	    buf[i].val = new_val;
+	    return E_SUCCESS;
+	}
+    }
+    return E_NOT_DEFINED;
+}
+
 /**
  * remove the top n items from the stack
  */
@@ -1225,7 +1266,7 @@ parse_ercode context::pop_n(size_t n) {
     stack_ptr -= n;
     return E_SUCCESS;
 }
-Value context::parse_value(char* str, parse_ercode& er) const {
+Value context::parse_value(char* str, parse_ercode& er) {
     Value sto;
     er = E_SUCCESS;
 
@@ -1443,35 +1484,42 @@ Value context::parse_value(char* str, parse_ercode& er) const {
 			    return sto;
 			} else if (tmp_f.n_args == 1) {
 			    if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+			    if (tmp_f.args[0].val.x < 0) { er = E_BAD_VALUE;return sto; }
 			    //interpret the argument as an upper bound starting from 0
 			    sto.type = VAL_LIST;
 			    sto.n_els = (size_t)(tmp_f.args[0].val.x);
 			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
-			    for (size_t i = 0; i < sto.n_els; ++i) sto.val.l[i] = i;
+			    for (size_t i = 0; i < sto.n_els; ++i) sto.val.l[i].val.x = i;
 			} else if (tmp_f.n_args == 2) {
 			    if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
 			    if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
 			    //interpret the argument as an upper bound starting from 0
 			    sto.type = VAL_LIST;
-			    size_t list_start = (size_t)(tmp_f.args[0].val.x);
-			    size_t list_end = (size_t)(tmp_f.args[1].val.x);
+			    int list_start = (int)(tmp_f.args[0].val.x);
+			    int list_end = (int)(tmp_f.args[1].val.x);
 			    if (list_end < list_start) { er = E_BAD_VALUE;return sto; }
 			    sto.n_els = list_end - list_start;
 			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
-			    for (size_t i = list_start; i < list_end; ++i) sto.val.l[i] = i;
+			    size_t j = 0;
+			    for (int i = list_start; i < list_end; ++i) {
+				sto.val.l[j].val.x = i;
+				++j;
+			    }
 			} else {
 			    if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
 			    if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-			    if (tmp_f.args[3].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+			    if (tmp_f.args[2].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
 			    //interpret the argument as an upper bound starting from 0
 			    sto.type = VAL_LIST;
-			    size_t list_start = (size_t)(tmp_f.args[0].val.x);
-			    size_t list_end = (size_t)(tmp_f.args[1].val.x);
-			    if (list_end < list_start) { er = E_BAD_VALUE;return sto; }
-			    sto.n_els = list_end - list_start;
+			    double list_start = tmp_f.args[0].val.x;
+			    double list_end = tmp_f.args[1].val.x;
+			    double inc = tmp_f.args[2].val.x;
+			    if (list_end < list_start || inc == 0) { er = E_BAD_VALUE;return sto; }
+			    sto.n_els = (list_end - list_start) / inc;
 			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
-			    double inc = tmp_f.args[3].val.x;
-			    for (size_t i = list_start; i < list_end; ++i) sto.val.l[i] = i*inc;
+			    for (size_t i = 0; i < sto.n_els; ++i) {
+				sto.val.l[i].val.x = i*inc + list_start;
+			    }
 			}
 			er = E_SUCCESS;
 			return sto;
