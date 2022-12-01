@@ -14,6 +14,9 @@
 #define ARGS_BUF_SIZE 256
 #define FUNC_BUF_SIZE 8
 
+#define DEF_IM_RES	128
+#define IM_DEPTH	255
+
 #define SIDE_END	2
 #define SIDE_UNDEF	3
 
@@ -307,6 +310,8 @@ struct name_val_pair {
     Value val;
 };
 class context : public CGS_Stack<name_val_pair> {
+private:
+    void emplace_tmp(char* p_name, Value val) const { name_val_pair inst;inst.name = p_name;inst.val = val;push(inst); }
 public:
     //parse_ercode push(_uint side, CompositeObject* obj);
     void emplace(char* p_name, Value val) { name_val_pair inst;inst.name = p_name;inst.val = val;push(inst); }
@@ -316,6 +321,7 @@ public:
     cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end) const;
     Value parse_list(char* str, parse_ercode& sto) const;
     void swap(CGS_Stack<name_val_pair>& o) { CGS_Stack<name_val_pair>::swap(o); }
+    parse_ercode set_value(const char* name, Value new_val);
 };
 /**
  * A class for functions defined by the user along with the implementation code

@@ -295,6 +295,70 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.val.l[1].type == VAL_NUM);
 	CHECK(tmp_val.val.l[1].val.x == 1);
 	cleanup_val(&tmp_val);
+	//test lists of lists
+	strncpy(buf, "[[1,2,3], [\"4\", \"5\", \"6\"]]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.val.l != NULL);
+	CHECK(tmp_val.n_els == 2);
+	    //check the first sublist
+	    Value element = tmp_val.val.l[0];
+	    CHECK(element.type == VAL_LIST);
+	    CHECK(element.n_els == 3);
+	    CHECK(element.val.l != NULL);
+	    CHECK(element.val.l[0].type == VAL_NUM);
+	    CHECK(element.val.l[0].val.x == 1);
+	    CHECK(element.val.l[1].type == VAL_NUM);
+	    CHECK(element.val.l[1].val.x == 2);
+	    CHECK(element.val.l[2].type == VAL_NUM);
+	    CHECK(element.val.l[2].val.x == 3);
+	    //check the second sublist
+	    element = tmp_val.val.l[1];
+	    CHECK(element.type == VAL_LIST);
+	    CHECK(element.n_els == 3);
+	    CHECK(element.val.l != NULL);
+	    CHECK(element.val.l[0].type == VAL_STR);
+	    CHECK(strcmp(element.val.l[0].val.s, "4") == 0);
+	    CHECK(element.val.l[1].type == VAL_STR);
+	    CHECK(strcmp(element.val.l[1].val.s, "5") == 0);
+	    CHECK(element.val.l[2].type == VAL_STR);
+	    CHECK(strcmp(element.val.l[2].val.s, "6") == 0);
+	//test lists interpretations
+	strncpy(buf, "[[VAL*2 for range(2)], [VAL*2-1 for range(1,3)], [VAL for range(1,3,0.5)]]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.val.l != NULL);
+	CHECK(tmp_val.n_els == 2);
+	    //check the first sublist
+	    Value element = tmp_val.val.l[0];
+	    CHECK(element.type == VAL_LIST);
+	    CHECK(element.n_els == 2);
+	    CHECK(element.val.l != NULL);
+	    CHECK(element.val.l[0].type == VAL_NUM);
+	    CHECK(element.val.l[0].val.x == 0);
+	    CHECK(element.val.l[1].type == VAL_NUM);
+	    CHECK(element.val.l[1].val.x == 2);
+	    //check the second sublist
+	    element = tmp_val.val.l[1];
+	    CHECK(element.type == VAL_LIST);
+	    CHECK(element.n_els == 2);
+	    CHECK(element.val.l != NULL);
+	    CHECK(element.val.l[0].type == VAL_NUM);
+	    CHECK(element.val.l[0].val.x == 1);
+	    CHECK(element.val.l[1].type == VAL_NUM);
+	    CHECK(element.val.l[1].val.x == 3);
+	    //check the third sublist
+	    element = tmp_val.val.l[1];
+	    CHECK(element.type == VAL_LIST);
+	    CHECK(element.n_els == 2);
+	    CHECK(element.val.l != NULL);
+	    CHECK(element.val.l[0].type == VAL_NUM);
+	    CHECK(element.val.l[0].val.x == 1);
+	    CHECK(element.val.l[1].type == VAL_NUM);
+	    CHECK(element.val.l[1].val.x == 3);
+	cleanup_val(&tmp_val);
     }
     SUBCASE("Reading vectors to values works") {
 	//test one element lists
@@ -602,7 +666,7 @@ TEST_CASE("Test volumes") {
     double x, y, z;
     //initialize the camera for viewing the volumes
     evec3 cam_pos(CAM_X,CAM_Y,CAM_Z);
-    evec3 y_comp(-CAM_X, -CAM_Y, (CAM_X*CAM_X+CAM_Y*CAM_Y)/CAM_Z);
+    evec3 y_comp(-CAM_X*CAM_Z, -CAM_Y*CAM_Z, CAM_X*CAM_X+CAM_Y*CAM_Y);
     evec3 x_comp = -cam_pos.cross(y_comp);
     emat3 view_mat;
     view_mat << x_comp/x_comp.norm(), y_comp/y_comp.norm(), -cam_pos/cam_pos.norm();

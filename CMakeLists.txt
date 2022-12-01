@@ -15,6 +15,9 @@ find_library(meep libmeep.a REQUIRED HINTS $ENV{HOME}/install/lib)
 #set(HDF5_DIR "/home/sstromsw/install/cmake")
 find_package(HDF5 REQUIRED COMPONENTS CXX HL)
 
+find_package(PNG REQUIRED)
+find_package(ZLIB REQUIRED)
+
 #Cmake can't find the location of eigen on the cluster so we specify that manually
 set(Eigen3_DIR "/software/eigen/3.3.7/b1/share/eigen3/cmake")
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
@@ -26,7 +29,7 @@ endif()
 add_executable( ${APP_EXE} src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main.cpp )
 
 #linking
-target_link_libraries(${APP_EXE} PRIVATE Eigen3::Eigen meep ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} ctlgeom)
+target_link_libraries(${APP_EXE} PRIVATE Eigen3::Eigen meep png ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} ctlgeom)
 target_include_directories( ${APP_EXE} PRIVATE ${HDF5_INCLUDE_DIRS})
 target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
 
