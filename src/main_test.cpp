@@ -350,14 +350,18 @@ TEST_CASE("Test value parsing") {
 	    CHECK(element.val.l[1].type == VAL_NUM);
 	    CHECK(element.val.l[1].val.x == 3);
 	    //check the third sublist
-	    element = tmp_val.val.l[1];
+	    element = tmp_val.val.l[2];
 	    CHECK(element.type == VAL_LIST);
-	    CHECK(element.n_els == 2);
+	    CHECK(element.n_els == 4);
 	    CHECK(element.val.l != NULL);
 	    CHECK(element.val.l[0].type == VAL_NUM);
 	    CHECK(element.val.l[0].val.x == 1);
 	    CHECK(element.val.l[1].type == VAL_NUM);
-	    CHECK(element.val.l[1].val.x == 3);
+	    CHECK(element.val.l[1].val.x == 1.5);
+	    CHECK(element.val.l[2].type == VAL_NUM);
+	    CHECK(element.val.l[2].val.x == 2);
+	    CHECK(element.val.l[2].type == VAL_NUM);
+	    CHECK(element.val.l[2].val.x == 2.5);
 	cleanup_val(&tmp_val);
     }
     SUBCASE("Reading vectors to values works") {

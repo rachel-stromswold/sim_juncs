@@ -1226,16 +1226,14 @@ int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
  * returns: the matching value, no deep copies are performed
  */
 Value context::lookup(const char* str) const {
-    //make sure that the stack isn't empty before iterating
-    Value ret;
-    ret.type = VAL_UNDEF;
-    ret.val.x = 0;
-    if (stack_ptr == 0) return ret;
     //iterate to find the item highest on the stack with a matching name
-    for (size_t i = stack_ptr-1; i > 0; --i) {
+    for (long i = stack_ptr-1; i >= 0; --i) {
 	if (strcmp(buf[i].name, str) == 0) return buf[i].val;
     }
     //return a default undefined value if nothing was found
+    Value ret;
+    ret.type = VAL_UNDEF;
+    ret.val.x = 0;
     return ret;
 }
 
@@ -1246,9 +1244,7 @@ Value context::lookup(const char* str) const {
  * returns: E_SUCCESS if the variable with a matching name was found or E_NOT_DEFINED otherwise
  */
 parse_ercode context::set_value(const char* name, Value new_val) {
-    //make sure that the stack isn't empty before iterating
-    if (stack_ptr == 0) return E_NOT_DEFINED;
-    for (size_t i = stack_ptr-1; i > 0; --i) {
+    for (long i = stack_ptr-1; i >= 0; --i) {
 	if (strcmp(buf[i].name, name) == 0) {
 	    buf[i].val = new_val;
 	    return E_SUCCESS;
@@ -1266,6 +1262,95 @@ parse_ercode context::pop_n(size_t n) {
     stack_ptr -= n;
     return E_SUCCESS;
 }
+/**
+ * Execute the mathematical operation in the string str at the location op_ind
+ */
+Value context::do_op(char* str, size_t i, parse_ercode& er) {
+    Value sto;
+    sto.type = VAL_UNDEF;
+    sto.val.x = 0;
+    sto.n_els = 0;
+    //Store the operation before setting it to zero
+    char term_char = str[i];
+    str[i] = 0;
+    //parse right and left values
+    Value tmp_l = parse_value(str, er);
+    if (er != E_SUCCESS) return sto;
+    Value tmp_r = parse_value(str+i+1, er);
+    if (er != E_SUCCESS) return sto;
+    sto.type = VAL_NUM;
+
+    //handle equality comparisons
+    if (term_char == '=') {
+	if (tmp_l.type != tmp_r.type) {
+	    sto.val.x = 0;
+	} else if (tmp_l.type == VAL_STR) {
+	    if (tmp_l.size() == tmp_r.size() && strcmp(tmp_l.get_val().s, tmp_l.get_val().s) == 0)
+		sto.val.x = 1;
+	    else
+		sto.val.x = 0;
+	} else if (tmp_l.type == VAL_NUM) {
+	    sto.val.x = 1 - (tmp_l.val.x - tmp_r.val.x);
+	}
+	++i;
+    } else if (term_char == '>') {
+	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (str[i+1] == '=') {
+	    sto.val.x = (tmp_l.val.x >= tmp_r.val.x)? 1: 0;
+	    ++i;
+	} else {
+	    sto.val.x = (tmp_l.val.x > tmp_r.val.x)? 1: 0;
+	}
+    } else if (term_char == '<') {
+	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (str[i+1] == '=') {
+	    sto.val.x = (tmp_l.val.x <= tmp_r.val.x)? 1: 0;
+	    ++i;
+	} else {
+	    sto.val.x = (tmp_l.val.x < tmp_r.val.x)? 1: 0;
+	}
+    } else if (term_char == '+' && (i == 0 || str[i-1] != 'e')) {
+	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {	
+	    sto.val.x = tmp_l.val.x + tmp_r.val.x;
+	} else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
+	    sto.type = VAL_MAT;
+	    sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m + *tmp_r.val.m);
+	} else if (tmp_l.type == VAL_STR) {
+	    //TODO: implement string concatenation
+	}
+    } else if (term_char == '-') {
+	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
+	    sto.val.x = tmp_l.val.x - tmp_r.val.x;
+	} else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
+	    sto.type = VAL_MAT;
+	    sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m - *tmp_r.val.m);
+	}
+    } else if (term_char == '*') {
+	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {	
+	    sto.val.x = tmp_l.val.x * tmp_r.val.x;
+	} else if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_MAT) {	
+	    sto.type = VAL_MAT;
+	    sto.val.m = new Eigen::MatrixXd(tmp_l.val.x * *tmp_r.val.m);
+	} else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
+	    sto.type = VAL_MAT;
+	    sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m * *tmp_r.val.m);
+	}
+    } else if (term_char == '/') {
+	if (tmp_r.val.x == 0) { er = E_NAN;return sto; }//TODO: return a nan?
+	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
+	    sto.val.x = tmp_l.val.x / tmp_r.val.x;
+	} else if (tmp_r.type == VAL_NUM && tmp_l.type == VAL_MAT) {	
+	    sto.type = VAL_MAT;
+	    sto.val.m = new Eigen::MatrixXd(*tmp_r.val.m / tmp_r.val.x);
+	}
+    } else if (term_char == '^') {
+	if (tmp_r.val.x == 0 || tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_NAN;return sto; }//TODO: return a nan?
+	sto.type = VAL_NUM;
+	sto.val.x = pow(tmp_l.val.x, tmp_r.val.x);
+    }
+    str[i] = term_char;
+    return sto;
+}
 Value context::parse_value(char* str, parse_ercode& er) {
     Value sto;
     er = E_SUCCESS;
@@ -1280,13 +1365,10 @@ Value context::parse_value(char* str, parse_ercode& er) {
 
     //keep track of the nesting level within parenthetical statements
     int nest_level = 0;
-    int found_valid_op = 0;//boolean
 
-    //boolean (if true, then '+' and '-' operators are interpreted as signs instead of operations. We set to true to ensure this behaviour is performed for the first character
-    int ignore_op = 1;
-
-    //first try to find base scope addition and subtraction operations
-    Value tmp_l, tmp_r;
+    //keep track of the precedence of the orders of operation (lower means executed later) ">,=,>=,==,<=,<"=4 "+,-"=3, "*,/"=2, "**"=1
+    char op_prec = 0;
+    size_t op_loc = 0;
     for (_uint i = 0; str[i] != 0; ++i) {
 	if (str[i] == '['/*]*/) {
 	    blk_stk.push({BLK_SQUARE, i});
@@ -1327,97 +1409,22 @@ Value context::parse_value(char* str, parse_ercode& er) {
 	}
 
 	if (nest_level == 0) {
-	    //we need to store whether this was a valid operator separately in order to properly handle parenthetical groups. This valid_op can take on three values FLAG_NORMAL FLAG_OPER and FLAG_AND. The last flag is used to indicate that a logical operation of && or || was obtained. These operations should always be evaluated last (which means they are placed closer to the root of the tree).
-	    int this_valid_op = FLAG_NORMAL;
 	    //keep track of the number of characters used by the operator
 	    int code_n_chars = 1;
 	    //check if we found a numeric operation symbol
-	    if ((str[i] == '=' && str[i+1] == '=')
-	    || str[i] == '>' || str[i] == '<'
-	    || str[i] == '+' || str[i] == '-' || str[i] == '*' || str[i] == '/') {
-		//Store the operation before setting it to zero
-		char term_char = str[i];
-		str[i] = 0;
-		//parse right and left values
-		tmp_l = parse_value(str, er);
-		if (er != E_SUCCESS) return sto;
-		tmp_r = parse_value(str+i+1, er);
-		if (er != E_SUCCESS) return sto;
-		sto.type = VAL_NUM;
+	    if (((str[i] == '=' && str[i+1] == '=') || str[i] == '>' || str[i] == '<') && op_prec < 4) {
+		op_prec = 4;
+		op_loc = i;
+	    } else if (i != 0 && (str[i] == '+' || str[i] == '-') && str[i-1] != 'e' && op_prec < 3) {
 		//remember to recurse after we finish looping
-		found_valid_op = 1;
-
-		//handle equality comparisons
-		if (term_char == '=') {
-		    if (tmp_l.type != tmp_r.type) {
-			sto.val.x = 0;
-		    } else if (tmp_l.type == VAL_STR) {
-			if (tmp_l.size() == tmp_r.size() && strcmp(tmp_l.get_val().s, tmp_l.get_val().s) == 0)
-			    sto.val.x = 1;
-			else
-			    sto.val.x = 0;
-		    } else if (tmp_l.type == VAL_NUM) {
-			sto.val.x = 1 - (tmp_l.val.x - tmp_r.val.x);
-		    }
-		    ++i;
-		} else if (term_char == '>') {
-		    if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-		    if (str[i+1] == '=') {
-			sto.val.x = (tmp_l.val.x >= tmp_r.val.x)? 1: 0;
-			++i;
-		    } else {
-			sto.val.x = (tmp_l.val.x > tmp_r.val.x)? 1: 0;
-		    }
-		} else if (term_char == '<') {
-		    if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-		    if (str[i+1] == '=') {
-			sto.val.x = (tmp_l.val.x <= tmp_r.val.x)? 1: 0;
-			++i;
-		    } else {
-			sto.val.x = (tmp_l.val.x < tmp_r.val.x)? 1: 0;
-		    }
-		} else if (term_char == '+' && (i == 0 || str[i-1] != 'e')) {
-		    if (i == 0 || str[i-1] == 'e') {
-			found_valid_op = 0;
-			str[i] = term_char;
-		    } else if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {	
-			sto.val.x = tmp_l.val.x + tmp_r.val.x;
-		    } else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
-			sto.type = VAL_MAT;
-			sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m + *tmp_r.val.m);
-		    } else if (tmp_l.type == VAL_STR) {
-			//TODO: implement string concatenation
-		    }
-		} else if (term_char == '-') {
-		    //if this is a sign or exponent, then reset the string
-		    if (i == 0 || str[i-1] == 'e') {
-			found_valid_op = 0;
-			str[i] = term_char;
-		    } else if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
-			sto.val.x = tmp_l.val.x - tmp_r.val.x;
-		    } else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
-			sto.type = VAL_MAT;
-			sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m - *tmp_r.val.m);
-		    }
-		} else if (term_char == '*') {
-		    if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {	
-			sto.val.x = tmp_l.val.x + tmp_r.val.x;
-		    } else if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_MAT) {	
-			sto.type = VAL_MAT;
-			sto.val.m = new Eigen::MatrixXd(tmp_l.val.x * *tmp_r.val.m);
-		    } else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
-			sto.type = VAL_MAT;
-			sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m * *tmp_r.val.m);
-		    }
-		} else if (term_char == '/') {
-		    if (tmp_r.val.x == 0) { er = E_NAN;return sto; }//TODO: return a nan?
-		    if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
-			sto.val.x = tmp_l.val.x / tmp_r.val.x;
-		    } else if (tmp_r.type == VAL_NUM && tmp_l.type == VAL_MAT) {	
-			sto.type = VAL_MAT;
-			sto.val.m = new Eigen::MatrixXd(*tmp_r.val.m / tmp_r.val.x);
-		    }
-		}
+		op_prec = 3;
+		op_loc = i;
+	    } else if (str[i] == '^' && op_prec < 2) {
+		op_prec = 2;
+		op_loc = i;
+	    } else if ((str[i] == '*' || str[i] == '/') && op_prec < 1) {
+		op_prec = 1;
+		op_loc = i;
 	    }
 	}
     }
@@ -1428,7 +1435,7 @@ Value context::parse_value(char* str, parse_ercode& er) {
     }
 
     //last try removing parenthesis
-    if (!found_valid_op) {
+    if (op_prec <= 0) {
 	//if there isn't a valid parenthetical expression, then we should interpret this as a value string
 	if (first_open_ind < 0 || last_close_ind < 0) {
 	    str = CGS_trim_whitespace(str, NULL);
@@ -1489,7 +1496,10 @@ Value context::parse_value(char* str, parse_ercode& er) {
 			    sto.type = VAL_LIST;
 			    sto.n_els = (size_t)(tmp_f.args[0].val.x);
 			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
-			    for (size_t i = 0; i < sto.n_els; ++i) sto.val.l[i].val.x = i;
+			    for (size_t i = 0; i < sto.n_els; ++i) {
+				sto.val.l[i].type = VAL_NUM;
+				sto.val.l[i].val.x = i;
+			    }
 			} else if (tmp_f.n_args == 2) {
 			    if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
 			    if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
@@ -1502,6 +1512,7 @@ Value context::parse_value(char* str, parse_ercode& er) {
 			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
 			    size_t j = 0;
 			    for (int i = list_start; i < list_end; ++i) {
+				sto.val.l[j].type = VAL_NUM;
 				sto.val.l[j].val.x = i;
 				++j;
 			    }
@@ -1518,6 +1529,7 @@ Value context::parse_value(char* str, parse_ercode& er) {
 			    sto.n_els = (list_end - list_start) / inc;
 			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
 			    for (size_t i = 0; i < sto.n_els; ++i) {
+				sto.val.l[i].type = VAL_NUM;
 				sto.val.l[i].val.x = i*inc + list_start;
 			    }
 			}
@@ -1534,6 +1546,9 @@ Value context::parse_value(char* str, parse_ercode& er) {
 	    str = CGS_trim_whitespace(str+first_open_ind+1, NULL);
 	    sto = parse_value(str, er);
 	}
+    } else {
+	sto = do_op(str, op_loc, er);
+	if (er != E_SUCCESS) { sto.type=VAL_UNDEF;return sto; }
     }
     return sto;
 }
