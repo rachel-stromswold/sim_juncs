@@ -140,6 +140,7 @@ public:
     void add_volume_source(meep::component c, const meep::src_time &src, const Box& vol, std::complex<double> amp = 1.0);
     void run(const char* fname_prefix);
     void save_field_times(const char* fname_prefix);
+    void write_settings(FILE* fp);
 
     double fs_to_meep_time(double t) const { return t*0.299792458*um_scale; }
     double meep_time_to_fs(double t) const { return t/(0.299792458*um_scale); }

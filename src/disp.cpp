@@ -565,6 +565,7 @@ void bound_geom::parse_monitors(CompositeObject* comp) {
 	    printf("Location type is not string\n");
 	}
 	char* loc_str = strdup(tmp_val.to_c_str());
+    printf("loc_str: %s\n", loc_str);
 	//break up the string by end parens
 	char* save_str;
 	char* tok = NULL;
@@ -779,7 +780,8 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     std::vector<CompositeObject*> data = problem.get_data();
     for (size_t i = 0; i < data.size(); ++i) {
 	if (data[i]->has_metadata("type")) {
-	    if (data[i]->fetch_metadata("type") == "field_source") {
+        Value type = data[i]->fetch_metadata("type");
+	    if (type.type == VAL_STR && strcmp(type.val.s, "field_source") == 0) {
 		//figure out the volume for the field source
 		const Object* l_child = data[i]->get_child_l();
 		const Object* r_child = data[i]->get_child_r();
@@ -832,26 +834,20 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    printf("Error: only boxes are currently supported for field volumes");
 		    if (ercode) *ercode = E_BAD_VALUE;
 		}
-	    } else if (data[i]->fetch_metadata("type") == "monitor") {
+	    } else if (type.type == VAL_STR && strcmp(type.val.s, "monitor") == 0) {
+        printf("found a monitor! ");
 		parse_monitors(data[i]);
 		monitor_clusters.push_back(monitor_locs.size());
 	    }
 	}
     }
-    printf("source end time: %f, total simulation time: %f\n", fields.last_source_time(), ttot);
-
+    write_settings(stdout);
     dump_span = s.field_dump_span;
 }
 
 bound_geom::~bound_geom() {
     if (strct) delete strct;
 }
-
-/*std::vector<meep::vec> bound_geom::get_monitor_locs() {
-    std::vector<meep::vec> ret(n_locs);
-    for(size_t i = 0; i < n_locs; ++i) ret[i] = monitor_locs[i];
-    return ret;
-}*/
 
 /**
  * Add a point source specified by src at the location source_loc.
@@ -1088,4 +1084,39 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	}
     }
     free(tmp_vecs);
+}
+
+void bound_geom::write_settings(FILE* fp) {
+    fprintf(fp, "source end time = %f\ntotal simulation time = %f\n", fields.last_source_time(), ttot);
+    //print information about sources
+    fprintf(fp, "sources {\n\tn = %d\n", sources.size());
+    size_t jj = 0;
+    for (auto it = sources.begin(); it != sources.end(); ++it) {
+        fprintf(fp, "\tsource_%d {\n", jj);
+        if (it->type == SRC_GAUSSIAN)
+            fprintf(fp, "\t\ttype = Gaussian\n");
+        else
+            fprintf(fp, "\t\ttype = continuous\n");
+        fprintf(fp, "\t\tcomponent = %d\n", it->component);
+        fprintf(fp, "\t\tvacuum wavelength = %f (meep length)\n", it->wavelen);
+        fprintf(fp, "\t\tpulse length = %f (meep time)\n", it->width);
+        fprintf(fp, "\t\tstart time = %f\n", it->start_time);
+        fprintf(fp, "\t\tend time = %f\n", it->end_time);
+        fprintf(fp, "\t\tphase = %f\n", it->phase);
+        fprintf(fp, "\t\tamplitude = %f\n\t}", it->amplitude);
+        ++jj;
+    }
+    fprintf(fp, "}\n");
+    //print information about monitor locations
+    fprintf(fp, "monitor_clusters {\n\tn = %d\n", monitor_clusters.size());
+    jj = 0;
+    for (auto it = monitor_clusters.begin(); it != monitor_clusters.end(); ++it) {
+        size_t end_ind = *it;
+        fprintf(fp, "\t%s%d {\n\t\tn = %d\n", CLUSTER_NAME, std::distance(monitor_clusters.begin(), it), end_ind-jj);
+        for (; jj < end_ind; ++jj) {
+            fprintf(fp, "\t\t(%f, %f, %f)\n", monitor_locs[jj].x(), monitor_locs[jj].y(), monitor_locs[jj].z());
+        }
+        fprintf(fp, "\t}\n");
+    }
+    fprintf(fp, "}\n");
 }
