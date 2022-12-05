@@ -316,34 +316,43 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 			amplitude = 1;
 			start_time = 0;
 			cutoff = DEFAULT_WIDTH_N;
-			//read the phase if supplied
+			//read the phase if specified
 			if (env_func.n_args > 3) {
 			    if (env_func.args[3].get_type() == VAL_NUM)
-				start_time = env_func.args[3].get_val().x;
+				phase = env_func.args[3].get_val().x;
+			    else
+				tmp_er = E_BAD_TOKEN;
+			    if (errno) tmp_er = E_BAD_TOKEN;
+			}
+			//read the start time if supplied
+			if (env_func.n_args > 4) {
+			    if (env_func.args[4].get_type() == VAL_NUM)
+				start_time = env_func.args[4].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the cutoff if supplied
-			if (env_func.n_args > 4) {
-			    if (env_func.args[4].get_type() == VAL_NUM)
-				cutoff = env_func.args[4].get_val().x;
+			if (env_func.n_args > 5) {
+			    if (env_func.args[5].get_type() == VAL_NUM)
+				cutoff = env_func.args[5].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the amplitude if supplied
-			if (env_func.n_args > 5) {
-			    if (env_func.args[5].get_type() == VAL_NUM)
-				amplitude = env_func.args[5].get_val().x;
+			if (env_func.n_args > 6) {
+			    if (env_func.args[6].get_type() == VAL_NUM)
+				amplitude = env_func.args[6].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
-		    end_time = start_time + 2*cutoff*width;
+			end_time = start_time + 2*cutoff*width;
 		    }
 		} else if (strcmp(env_func.name, "continuous") == 0) {
 		    type = SRC_CONTINUOUS;
+		    phase = 0;
 		    if (env_func.n_args < 3) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
@@ -561,99 +570,23 @@ void bound_geom::parse_monitors(CompositeObject* comp) {
     //only continue if the user specified locations
     if (comp->has_metadata("locations")) {
 	Value tmp_val = comp->fetch_metadata("locations");
-	if (tmp_val.get_type() != VAL_STR) {
-	    printf("Location type is not string\n");
-	}
-	char* loc_str = strdup(tmp_val.to_c_str());
-    printf("loc_str: %s\n", loc_str);
-	//break up the string by end parens
-	char* save_str;
-	char* tok = NULL;
-	//find the first entry
-	char* cur_entry = strchr(loc_str, '(');
-	char* end = strchr(loc_str, ')');
-
-	double x = 0.0; double y = 0.0; double z = 0.0;
-
-	//initialize the array of monitor locs and deallocate memory if necessary
-	size_t cur_size = 2*SMALL_BUF_SIZE;
-	//only proceed if we have pointers to the start and end of the current entry
-	while (cur_entry && end) {
-	    x = 0.0;
-	    y = 0.0;
-	    z = 0.0;
-	    //the open paren must occur before the end paren
-	    if (cur_entry > end) {
-		printf("Error: Invalid locations string %s\n", tmp_val.get_val().s);
-		break;
-	    }
-
-	    //null terminate the parenthesis and tokenize by commas
-	    end[0] = 0;
-	    //read the x value
-	    tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
-	    x = strtod(tok, NULL);
-	    if (errno) {
-		printf("Error: Invalid token: %s", tok);
-		errno = 0;
-		break;
-	    }
-	    //read the y value
-	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	    if (!tok) {
-		printf("Error: Invalid locations string %s\n", tmp_val.get_val().s);
-		break;
-	    }
-	    y = strtod(tok, NULL);
-	    if (errno) {
-		printf("Error: Invalid token: %s", tok);
-		break;
-	    }
-	    //read the z value
-	    tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	    if (!tok) {
-		printf("Error: Invalid locations string %s\n", tmp_val.get_val().s);
-		break;
-	    }
-	    z = strtod(tok, NULL);
-	    if (errno) {
-		printf("Error: Invalid token: %s", tok);
-		break;
-	    }
-
-	    //construct the meep vector in place inside the buffer
-	    monitor_locs.push_back(meep::vec(x, y, z));
-
-	    //advance to the next entry
-	    if (end[1] == 0) break;
-	    cur_entry = strchr(end+1, '(');
-	    if (!cur_entry) break;
-	    end = strchr(cur_entry, ')');
-	}
-	free(loc_str);
-    } else if (comp->has_metadata("spacing") && comp->fetch_metadata("spacing").get_type() == VAL_NUM) {
-	double spacing = comp->fetch_metadata("spacing").to_float();
-	//users may also specify monitor locations by providing a Box object and a spacing between each grid point
-	const Object* l_child = comp->get_child_l();
-	if (l_child && comp->get_child_type_l() == CGS_BOX) {
-	    evec3 center = ((Box*)l_child)->get_center();
-	    evec3 offset = ((Box*)l_child)->get_offset();
-	    //fix the box such that each offset is positive
-	    if (offset.x() < 0) offset.x() = -1*offset.x();
-	    if (offset.y() < 0) offset.y() = -1*offset.y();
-	    if (offset.z() < 0) offset.z() = -1*offset.z();
-	    //find the two corners of the box
-	    evec3 min = center - offset;
-	    evec3 max = center + offset;
-	    //iterate over the volume with step size=spacing
-	    for (double x = min.x(); x <= max.x(); x += spacing) {
-		for (double y = min.y(); y <= max.y(); y += spacing) {
-		    for (double z = min.y(); z <= max.z(); z += spacing) {
-			monitor_locs.push_back(meep::vec(x, y, z));
-		    }
+	if (tmp_val.get_type() != VAL_LIST) {
+	    printf("Location type is not a list! ignoring\n");
+	} else {
+	    parse_ercode er = E_SUCCESS;
+	    size_t init_size = monitor_locs.size();
+	    monitor_locs.reserve(init_size + tmp_val.n_els);
+	    for (size_t i = 0; i < tmp_val.n_els; ++i) {
+		Value vec_cast = tmp_val.val.l[i].cast_to(VAL_3VEC, er);
+		//if this was unsuccessful only include monitors up to this point
+		if (er != E_SUCCESS) {
+		    monitor_locs.resize(init_size+i);
+		    break;
 		}
+		monitor_locs.push_back( meep::vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z()) );
+		cleanup_val(&vec_cast);
 	    }
-	} 
+	}
     }
 }
 

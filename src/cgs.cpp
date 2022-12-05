@@ -285,7 +285,7 @@ Value copy_val(const Value o) {
 	for (size_t i = 0; i < o.n_els; ++i) ret.val.s[i] = o.val.s[i];
     } else if (o.type == VAL_LIST) {
 	ret.val.l = (Value*)calloc(o.n_els, sizeof(Value));
-	for (size_t i = 0; i < o.n_els; ++i) ret.val.l[i] = o.val.l[i];
+	for (size_t i = 0; i < o.n_els; ++i) ret.val.l[i] = copy_val(o.val.l[i]);
     } else if (o.type == VAL_MAT) {
 	ret.val.m = new Eigen::MatrixXd(*(o.val.m));
     } else if (o.type == VAL_3VEC) {
@@ -373,7 +373,9 @@ Value Value::cast_to(valtype t, parse_ercode& er) const {
     return ret;
 }
 void cleanup_func(cgs_func* f) {
-    for (size_t i = 0; i < f->n_args; ++i) cleanup_val(f->args + i);
+    if (f) {
+	for (size_t i = 0; i < f->n_args; ++i) cleanup_val(f->args + i);
+    }
 }
 cgs_func copy_func(const cgs_func o) {
     cgs_func f;
@@ -441,6 +443,7 @@ CompositeObject::CompositeObject(combine_type p_cmb, const cgs_func& spec, int p
 		    tok = CGS_trim_whitespace(tok, NULL);val = CGS_trim_whitespace(val, NULL);
 		    std::string tok_cpp(tok);std::string val_cpp(val);
 		    metadata[tok_cpp] = val_cpp;
+		    free(tok);free(val);
 		}
 	    }*/
 	    std::string tok_cpp(spec.arg_names[i]);
@@ -699,16 +702,23 @@ Value context::parse_list(char* str, parse_ercode& er) {
     size_t n_els = 0;
     Value* lbuf;
     //check if this is a list interpretation
-    char* for_start = token_block(start+1, "for");
+    char* for_start = token_block(start+1, KEY_FOR);
+    size_t expr_len = 0;
     if (for_start) {
 	//now look for a block labeled "in"
-	char* in_start = token_block(for_start+3, "in");
+	char* in_start = token_block(for_start+KEY_FOR_LEN, "in");
 	if (!in_start) { er = E_BAD_SYNTAX;return sto; }
+	//the expression is the content before the for statement
+	expr_len = for_start-(start+1);
 	//the variable name is whatever is in between the "for" and the "in"
 	in_start[0] = 0;
-	char* var_name = CGS_trim_whitespace(for_start+3, NULL);
+	char* var_name = CGS_trim_whitespace(for_start+KEY_FOR_LEN, &n_els);
+	var_name = strndup(var_name, n_els+1);
+	for_start[KEY_FOR_LEN+1+n_els] = ' ';
 	//now parse the list we iterate over
-	Value it_list = parse_value(in_start+3, er);
+	char* list_expr = strdup(in_start+KEY_IN_LEN);
+	Value it_list = parse_value(list_expr, er);
+	free(list_expr);
 	if (er != E_SUCCESS || it_list.type != VAL_LIST) { er = E_BAD_VALUE;return sto; }
 	//we now iterate through the list specified, substituting VAL in the expression with the current value
 	for_start[0] = 0;
@@ -716,13 +726,20 @@ Value context::parse_list(char* str, parse_ercode& er) {
 	n_els = it_list.n_els;
 	lbuf = (Value*)calloc(n_els, sizeof(Value));
 	for (size_t i = 0; i < it_list.n_els; ++i) {
-	    buf[stack_ptr-1].val = it_list.val.l[i];
-	    lbuf[i] = parse_value(start+1, er);
+	    set_value(var_name, it_list.val.l[i]);
+	    char* expr_name = strndup(start+1, expr_len);
+	    lbuf[i] = parse_value(expr_name, er);
+	    free(expr_name);
 	    if (er != E_SUCCESS) { n_els = i;return sto; }
 	}
 	pop(NULL);
+	//reset the string so that it can be parsed again
+	for_start[0] = 'f';
+	in_start[0] = 'i';
 	//free the memory from the iteration list
 	cleanup_val(&it_list);
+	//free(expr_name);
+	free(var_name);
     } else {
 	char** list_els = csv_to_list(start+1, ',', &n_els, er);
 	if (er != E_SUCCESS) { free(list_els);return sto; }
@@ -926,6 +943,7 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
 	f.args[i] = parse_value(list_els[i], er);
 	if (er != E_SUCCESS) { free(list_els);return f; }
     }
+
     //cleanup and reset the string
     //*term_ptr = /*(*/')';
     free(list_els);
@@ -1263,6 +1281,134 @@ parse_ercode context::pop_n(size_t n) {
     return E_SUCCESS;
 }
 /**
+ * Make a vector argument with the x,y, and z coordinates supplied
+ */
+Value make_vec(cgs_func tmp_f, parse_ercode& er) {
+    Value sto;sto.type = VAL_UNDEF;
+    if (tmp_f.n_args < 3) { er = E_LACK_TOKENS;return sto; }
+    if (tmp_f.args[0].type != VAL_NUM || tmp_f.args[1].type != VAL_NUM || tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return sto; }
+    sto.type = VAL_3VEC;
+    sto.val.v = new evec3(tmp_f.args[0].val.x, tmp_f.args[1].val.x, tmp_f.args[2].val.x);
+    sto.n_els = 3;
+    er = E_SUCCESS;
+    return sto;
+}
+/**
+ * Make a range following python syntax. If one argument is supplied then a list with tmp_f.args[0] elements is created starting at index 0 and going up to (but not including) tmp_f.args[0]. If two arguments are supplied then the range is from (tmp_f.args[0], tmp_f.args[1]). If three arguments are supplied then the range (tmp_f.args[0], tmp_f.args[1]) is still returned, but now the spacing between successive elements is tmp_f.args[2].
+ */
+Value make_range(cgs_func tmp_f, parse_ercode& er) {
+    Value sto;sto.type = VAL_UNDEF;
+    if (tmp_f.n_args == 0) {
+	er = E_LACK_TOKENS;
+	return sto;
+    } else if (tmp_f.n_args == 1) {
+	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_f.args[0].val.x < 0) { er = E_BAD_VALUE;return sto; }
+	//interpret the argument as an upper bound starting from 0
+	sto.type = VAL_LIST;
+	sto.n_els = (size_t)(tmp_f.args[0].val.x);
+	sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
+	for (size_t i = 0; i < sto.n_els; ++i) {
+	    sto.val.l[i].type = VAL_NUM;
+	    sto.val.l[i].val.x = i;
+	}
+    } else if (tmp_f.n_args == 2) {
+	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	//interpret the argument as an upper bound starting from 0
+	sto.type = VAL_LIST;
+	int list_start = (int)(tmp_f.args[0].val.x);
+	int list_end = (int)(tmp_f.args[1].val.x);
+	if (list_end < list_start) { er = E_BAD_VALUE;return sto; }
+	sto.n_els = list_end - list_start;
+	sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
+	size_t j = 0;
+	for (int i = list_start; i < list_end; ++i) {
+	    sto.val.l[j].type = VAL_NUM;
+	    sto.val.l[j].val.x = i;
+	    ++j;
+	}
+    } else {
+	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_f.args[2].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	//interpret the argument as an upper bound starting from 0
+	sto.type = VAL_LIST;
+	double list_start = tmp_f.args[0].val.x;
+	double list_end = tmp_f.args[1].val.x;
+	double inc = tmp_f.args[2].val.x;
+	if (list_end < list_start || inc == 0) { er = E_BAD_VALUE;return sto; }
+	sto.n_els = (list_end - list_start) / inc;
+	sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
+	for (size_t i = 0; i < sto.n_els; ++i) {
+	    sto.val.l[i].type = VAL_NUM;
+	    sto.val.l[i].val.x = i*inc + list_start;
+	}
+    }
+    er = E_SUCCESS;
+    return sto;
+}
+/**
+ * Take a list value and flatten it so that it has numpy dimensions (n) where n is the sum of the length of each list in the base list. Values are copied in order e.g flatten([0,1],[2,3]) -> [0,1,2,3]
+ * cgs_func: the function with arguments passed
+ */
+Value flatten_list(cgs_func tmp_f, parse_ercode& er) {
+    Value sto;sto.type = VAL_UNDEF;
+    if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
+    if (tmp_f.args[0].type != VAL_LIST) { er = E_BAD_VALUE;return sto; }
+    Value cur_list = tmp_f.args[0];
+    size_t cur_st = 0;
+    //this is used for estimating the size of the buffer we need. Take however many elements were needed for this list and assume each sub-list has the same number of elements
+    size_t base_n_els = cur_list.n_els;
+    //start with the number of elements in the lowest order of the list
+    size_t buf_size = cur_list.n_els;
+    sto.val.l = (Value*)malloc(sizeof(Value)*buf_size);
+    //there may potentially be nested lists, we need to be able to find our way back to the parent and the index once we're done
+    CGS_Stack<Value> lists;
+    CGS_Stack<size_t> inds;
+    //just make sure that there's a root level on the stack to be popped out
+    lists.push(cur_list);
+    inds.push(0);
+    size_t start_depth = inds.size();
+    size_t j = 0;
+    do {
+	size_t i = cur_st;
+	start_depth = inds.size();
+	for (; i < cur_list.n_els; ++i) {
+	    if (cur_list.val.l[i].type == VAL_LIST) {
+		lists.push(cur_list);
+		inds.push(i+1);//push + 1 so that we start at the next index instead of reading the list again
+		cur_list = cur_list.val.l[i];
+		cur_st = 0;
+		break;
+	    }
+	    if (j >= buf_size) {
+		//-1 since we already have at least one element. no base_n_els=0 check is needed since that case will ensure the for loop is never evaluated
+		buf_size += (base_n_els-1)*(i+1);
+		Value* tmp_val = (Value*)realloc(sto.val.l, sizeof(Value)*buf_size);
+		if (!tmp_val) {
+		    free(sto.val.l);
+		    cleanup_func(&tmp_f);
+		    sto.type = VAL_UNDEF;
+		    er = E_NOMEM;
+		    return sto;
+		}
+		sto.val.l = tmp_val;
+	    }
+	    sto.val.l[j++] = copy_val(cur_list.val.l[i]);
+	}
+	//if we reached the end of a list without any sublists then we should return back to the parent list
+	if (inds.size() <= start_depth) {
+	    inds.pop(&cur_st);
+	    lists.pop(&cur_list);
+	}
+    } while (!lists.is_empty());
+    sto.type = VAL_LIST;
+    sto.n_els = j;
+    er = E_SUCCESS;
+    return sto;
+}
+/**
  * Execute the mathematical operation in the string str at the location op_ind
  */
 Value context::do_op(char* str, size_t i, parse_ercode& er) {
@@ -1351,6 +1497,7 @@ Value context::do_op(char* str, size_t i, parse_ercode& er) {
     str[i] = term_char;
     return sto;
 }
+
 Value context::parse_value(char* str, parse_ercode& er) {
     Value sto;
     er = E_SUCCESS;
@@ -1369,6 +1516,7 @@ Value context::parse_value(char* str, parse_ercode& er) {
     //keep track of the precedence of the orders of operation (lower means executed later) ">,=,>=,==,<=,<"=4 "+,-"=3, "*,/"=2, "**"=1
     char op_prec = 0;
     size_t op_loc = 0;
+    size_t reset_ind = 0;
     for (_uint i = 0; str[i] != 0; ++i) {
 	if (str[i] == '['/*]*/) {
 	    blk_stk.push({BLK_SQUARE, i});
@@ -1436,9 +1584,9 @@ Value context::parse_value(char* str, parse_ercode& er) {
 
     //last try removing parenthesis
     if (op_prec <= 0) {
-	//if there isn't a valid parenthetical expression, then we should interpret this as a value string
+	//if there isn't a valid parenthetical expression, then we should interpret this as a variable
 	if (first_open_ind < 0 || last_close_ind < 0) {
-	    str = CGS_trim_whitespace(str, NULL);
+	    str = CGS_trim_whitespace(str, &reset_ind);
 	    sto = lookup(str);
 	    if (sto.type == VAL_UNDEF) {
 		//try interpreting as a number
@@ -1451,6 +1599,7 @@ Value context::parse_value(char* str, parse_ercode& er) {
 		er = E_SUCCESS;
 		sto.type = VAL_NUM;
 	    }
+	    str[reset_ind] = ' ';//all whitespace is treated identically so it doesn't matter
 	} else if (str[first_open_ind] == '\"' && str[last_close_ind] == '\"') {
 	    //this is a string
 	    sto.type = VAL_STR;
@@ -1477,74 +1626,26 @@ Value context::parse_value(char* str, parse_ercode& er) {
 		    tmp_f = parse_func(str, first_open_ind, er, &f_end);
 		    if (er != E_SUCCESS) { return sto; }
 		    //TODO: allow user defined functions
+		    er = E_BAD_TOKEN;
 		    if (strcmp(tmp_f.name, "vec") == 0) {
-			if (tmp_f.n_args < 3) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM || tmp_f.args[1].type != VAL_NUM || tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return sto; }
-			sto.type = VAL_3VEC;
-			sto.val.v = new evec3(tmp_f.args[0].val.x, tmp_f.args[1].val.x, tmp_f.args[2].val.x);
-			sto.n_els = 3;
-			er = E_SUCCESS;
-			return sto;
+			sto = make_vec(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "range") == 0) {
-			if (tmp_f.n_args == 0) {
-			    er = E_LACK_TOKENS;
-			    return sto;
-			} else if (tmp_f.n_args == 1) {
-			    if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-			    if (tmp_f.args[0].val.x < 0) { er = E_BAD_VALUE;return sto; }
-			    //interpret the argument as an upper bound starting from 0
-			    sto.type = VAL_LIST;
-			    sto.n_els = (size_t)(tmp_f.args[0].val.x);
-			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
-			    for (size_t i = 0; i < sto.n_els; ++i) {
-				sto.val.l[i].type = VAL_NUM;
-				sto.val.l[i].val.x = i;
-			    }
-			} else if (tmp_f.n_args == 2) {
-			    if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-			    if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-			    //interpret the argument as an upper bound starting from 0
-			    sto.type = VAL_LIST;
-			    int list_start = (int)(tmp_f.args[0].val.x);
-			    int list_end = (int)(tmp_f.args[1].val.x);
-			    if (list_end < list_start) { er = E_BAD_VALUE;return sto; }
-			    sto.n_els = list_end - list_start;
-			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
-			    size_t j = 0;
-			    for (int i = list_start; i < list_end; ++i) {
-				sto.val.l[j].type = VAL_NUM;
-				sto.val.l[j].val.x = i;
-				++j;
-			    }
-			} else {
-			    if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-			    if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-			    if (tmp_f.args[2].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-			    //interpret the argument as an upper bound starting from 0
-			    sto.type = VAL_LIST;
-			    double list_start = tmp_f.args[0].val.x;
-			    double list_end = tmp_f.args[1].val.x;
-			    double inc = tmp_f.args[2].val.x;
-			    if (list_end < list_start || inc == 0) { er = E_BAD_VALUE;return sto; }
-			    sto.n_els = (list_end - list_start) / inc;
-			    sto.val.l = (Value*)malloc(sizeof(Value)*sto.n_els);
-			    for (size_t i = 0; i < sto.n_els; ++i) {
-				sto.val.l[i].type = VAL_NUM;
-				sto.val.l[i].val.x = i*inc + list_start;
-			    }
-			}
-			er = E_SUCCESS;
-			return sto;
+			sto = make_range(tmp_f, er);
+		    } else if (strcmp(tmp_f.name, "flatten") == 0) {
+			sto = flatten_list(tmp_f, er);
 		    }
 		    str[last_close_ind+1] = term_char;
-		    er = E_BAD_TOKEN;
+		    cleanup_func(&tmp_f);
 		    return sto;
 		}
 	    }
 	    //otherwise interpret this as a parenthetical expression
 	    str[last_close_ind] = 0;
-	    str = CGS_trim_whitespace(str+first_open_ind+1, NULL);
+	    char* tmp_str = CGS_trim_whitespace(str+first_open_ind+1, &reset_ind);
 	    sto = parse_value(str, er);
+	    tmp_str[reset_ind] = ' ';
+	    str[first_open_ind] = '(';
+	    str[last_close_ind] = ')';
 	}
     } else {
 	sto = do_op(str, op_loc, er);
@@ -1761,10 +1862,14 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			    blk_stack.push(BLK_LITERAL);
 			}
 		    } else if (buf[i] == '=') {
-			char* tok = CGS_trim_whitespace(buf, NULL);
+			size_t tok_len;
+			char* tok = CGS_trim_whitespace(buf, &tok_len);
 			size_t val_len;
 			char* val = CGS_trim_whitespace(buf+i+1, &val_len);
-			named_items.emplace(tok, make_val_str(val));
+			Value v = named_items.parse_value(val, er);
+			if (er == E_SUCCESS) named_items.emplace(tok, v);
+			tok[tok_len] = ' ';
+			val[val_len] = ' ';
 		    }
 		} else {
 		    //check if we reached the end of a comment or string literal block

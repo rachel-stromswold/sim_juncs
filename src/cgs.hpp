@@ -10,6 +10,7 @@
 #include <cstring>
 #include <math.h>
 
+//hints for dynamic buffer sizes
 #define BUF_SIZE 1024
 #define ARGS_BUF_SIZE 256
 #define FUNC_BUF_SIZE 8
@@ -24,6 +25,15 @@
 #define FLAG_OPER	1
 #define FLAG_COMP	2
 #define FLAG_AND	3
+
+//keywords
+#define KEY_FOR		"for"
+#define KEY_FOR_LEN	3
+#define KEY_IN		"in"
+#define KEY_IN_LEN	2
+#define KEY_IF		"if"
+#define KEY_IF_LEN	2
+
 typedef enum {OP_EQ, OP_ADD, OP_SUB, OP_MULT, OP_DIV, OP_NOT, OP_OR, OP_AND, OP_GRT, OP_LST, OP_GEQ, OP_LEQ, N_OPTYPES} Optype_e;
 
 typedef unsigned int _uint;
@@ -91,6 +101,32 @@ inline char* CGS_trim_whitespace(char* str, size_t* len) {
     if (len) *len = last_non - start_ind+1;
     return str+start_ind;
 }
+
+/**
+  * Remove the whitespace surrounding a word and return a copy which must be deallocated by calling free()
+  */
+/*inline char* CGS_trim_whitespace(const char* str, size_t* len) {
+    if (!str) return NULL;
+    size_t start_ind = 0;
+    bool started = false;
+    _uint last_non = 0;
+    for (_uint i = 0; str[i] != 0; ++i) {
+        if (str[i] != ' ' && str[i] != '\t' && str[i] != '\n') {
+            last_non = i;
+            if (!started) {
+                start_ind = i;
+		started = true;
+            }
+        }
+    }
+    _uint ret_len = last_non+2-start_ind;
+    char* ret = (char*)malloc(sizeof(char)*ret_len);
+    if (ret == NULL) return NULL;
+    for (_uint i = start_ind; i <= last_non; ++i) { ret[i-start_ind] = str[i]; }
+    ret[ret_len-1] = 0;
+    if (len) *len = last_non - start_ind+1;
+    return ret;
+}*/
 
 /**
  * This acts similar to getline, but stops at a semicolon, newline (unless preceeded by a \), {, or }.

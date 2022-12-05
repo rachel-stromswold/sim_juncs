@@ -29,4 +29,3 @@ Once you've completed the previous steps, call `run.sh -l` inside the build dire
 # thank you to
 * meep for supplying FDTD electromagnetic simulations
 * eigen3 for providing utilities for linear algebra and geometry
-

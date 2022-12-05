@@ -189,6 +189,74 @@ TEST_CASE("Check that numbers are written correctly") {
     CHECK(strlen(buf) == 2);
 }
 
+TEST_CASE("Test builtin functions") {
+    char buf[BUF_SIZE];
+    Value tmp_val;
+    context sc;
+    parse_ercode er = E_SUCCESS;
+
+    SUBCASE("range()") {
+	strncpy(buf, "range(4)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.n_els == 4);
+	for (size_t i = 0; i < 4; ++i) {
+	    CHECK(tmp_val.val.l[i].type == VAL_NUM);
+	    CHECK(tmp_val.val.l[i].val.x == i);
+	}
+	cleanup_val(&tmp_val);
+	strncpy(buf, "range(1,4)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.n_els == 3);
+	for (size_t i = 0; i < 3; ++i) {
+	    CHECK(tmp_val.val.l[i].type == VAL_NUM);
+	    CHECK(tmp_val.val.l[i].val.x == i+1);
+	}
+	cleanup_val(&tmp_val);
+	strncpy(buf, "range(1,4,0.5)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.n_els == 6);
+	for (size_t i = 0; i < 6; ++i) {
+	    CHECK(tmp_val.val.l[i].type == VAL_NUM);
+	    CHECK(tmp_val.val.l[i].val.x == 0.5*i+1);
+	}
+	cleanup_val(&tmp_val);
+    }
+    SUBCASE("flatten()") {
+	strncpy(buf, "flatten([])", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.n_els == 0);
+	cleanup_val(&tmp_val);
+	strncpy(buf, "flatten([1,2,3])", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.n_els == 3);
+	for (size_t i = 0; i < 3; ++i) {
+	    CHECK(tmp_val.val.l[i].type == VAL_NUM);
+	    CHECK(tmp_val.val.l[i].val.x == i+1);
+	}
+	cleanup_val(&tmp_val);
+	strncpy(buf, "flatten([[1,2,3],[4,5],6])", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.n_els == 6);
+	for (size_t i = 0; i < 6; ++i) {
+	    CHECK(tmp_val.val.l[i].type == VAL_NUM);
+	    CHECK(tmp_val.val.l[i].val.x == i+1);
+	}
+	cleanup_val(&tmp_val);
+    }
+}
+
 TEST_CASE("Test value parsing") {
     char buf[BUF_SIZE];
     context sc;
@@ -302,6 +370,7 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.type == VAL_LIST);
 	CHECK(tmp_val.val.l != NULL);
 	CHECK(tmp_val.n_els == 2);
+	{
 	    //check the first sublist
 	    Value element = tmp_val.val.l[0];
 	    CHECK(element.type == VAL_LIST);
@@ -324,15 +393,18 @@ TEST_CASE("Test value parsing") {
 	    CHECK(strcmp(element.val.l[1].val.s, "5") == 0);
 	    CHECK(element.val.l[2].type == VAL_STR);
 	    CHECK(strcmp(element.val.l[2].val.s, "6") == 0);
+	}
+	cleanup_val(&tmp_val);
 	//test lists interpretations
 	strncpy(buf, "[[i*2 for i in range(2)], [i*2-1 for i in range(1,3)], [x for x in range(1,3,0.5)]]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
 	tmp_val = sc.parse_value(buf, er);
 	CHECK(er == E_SUCCESS);
 	CHECK(tmp_val.type == VAL_LIST);
 	CHECK(tmp_val.val.l != NULL);
-	CHECK(tmp_val.n_els == 2);
+	CHECK(tmp_val.n_els == 3);
+	{
 	    //check the first sublist
-	    element = tmp_val.val.l[0];
+	    Value element = tmp_val.val.l[0];
 	    CHECK(element.type == VAL_LIST);
 	    CHECK(element.n_els == 2);
 	    CHECK(element.val.l != NULL);
@@ -360,8 +432,25 @@ TEST_CASE("Test value parsing") {
 	    CHECK(element.val.l[1].val.x == 1.5);
 	    CHECK(element.val.l[2].type == VAL_NUM);
 	    CHECK(element.val.l[2].val.x == 2);
-	    CHECK(element.val.l[2].type == VAL_NUM);
-	    CHECK(element.val.l[2].val.x == 2.5);
+	    CHECK(element.val.l[3].type == VAL_NUM);
+	    CHECK(element.val.l[3].val.x == 2.5);
+	}
+	cleanup_val(&tmp_val);
+	//test nested list interpretations
+	strncpy(buf, "[[x*y for x in range(1,6)] for y in range(5)]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_LIST);
+	CHECK(tmp_val.val.l != NULL);
+	CHECK(tmp_val.n_els == 5);
+	for (size_t yy = 0; yy < tmp_val.n_els; ++yy) {
+	    CHECK(tmp_val.val.l[yy].type == VAL_LIST);
+	    CHECK(tmp_val.val.l[yy].n_els == 5);
+	    for (size_t xx = 0; xx < tmp_val.val.l[yy].n_els; ++xx) {
+		CHECK(tmp_val.val.l[yy].val.l[xx].type == VAL_NUM);
+		CHECK(tmp_val.val.l[yy].val.l[xx].val.x == (xx+1)*yy);
+	    }
+	}
 	cleanup_val(&tmp_val);
     }
     SUBCASE("Reading vectors to values works") {
@@ -698,7 +787,7 @@ TEST_CASE("Test volumes") {
     _uint8 plane_arr[IM_RES*IM_RES];
     _uint8 cyl_arr[IM_RES*IM_RES];
     _uint8 scene_arr[IM_RES*IM_RES];
-    for (size_t i = 0; i < IM_RES*IM_RES; ++i) { sphere_arr[i]=0xff;plane_arr[i]=0xff;cyl_arr[i]=0xff; }
+    for (size_t i = 0; i < IM_RES*IM_RES; ++i) { sphere_arr[i]=0xff;plane_arr[i]=0xff;cyl_arr[i]=0xff;scene_arr[i]=0xff; }
     //sample random points
     for (size_t i = 0; i < TEST_N; ++i) {
 	state = lcg(state);
@@ -870,6 +959,7 @@ TEST_CASE("Test reading of configuration files") {
 
 	//deallocate memory
 	for (_uint i = 0; i < n_args; ++i) free(post_sim_argv_c[i]);
+	free(post_sim_argv_c);
 	free(sim_argv_c);
 	cleanup_settings(&args);
     }
@@ -924,7 +1014,8 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.component == meep::Ey);
 	CHECK(inf.wavelen == 1.333333);
 	CHECK(inf.width == doctest::Approx(3.0));
-	CHECK(inf.start_time == 0.2);
+	CHECK(inf.phase == 0.2);
+	CHECK(inf.start_time == 5.0);
 	CHECK(inf.end_time == doctest::Approx(30.2));
 	CHECK(inf.amplitude == 7.0);
 
@@ -932,6 +1023,7 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.type == SRC_CONTINUOUS);
 	CHECK(inf.component == meep::Hz);
 	CHECK(inf.wavelen == 1.66);
+	CHECK(inf.phase == 0.0);
 	CHECK(inf.start_time == 0.2);
 	CHECK(inf.end_time == 1.2);
 	CHECK(inf.width == 0.1);
@@ -980,22 +1072,27 @@ TEST_CASE("Test that spans of monitor locations are read correctly") {
 
     //try creating the geometry object
     bound_geom geometry(args, &er);
-    const size_t SPAN = 20;
+    const size_t SPAN = 4;
     CHECK(er == E_SUCCESS);
     //(2/0.1)^2 == 400
-    CHECK(geometry.get_n_monitor_clusters() == 1);
+    CHECK(geometry.get_n_monitor_clusters() == 2);
     std::vector<meep::vec> mon_locs = geometry.get_monitor_locs();
-    CHECK(mon_locs.size() == SPAN*SPAN);
-    double x = 1;
+    CHECK(mon_locs.size() == SPAN + SPAN*SPAN);
+    double y = 1;
     for (_uint i = 0; i < SPAN; ++i) {
-	double y = 1;
+	CHECK(mon_locs[i].x() == doctest::Approx(y));
+	y += 0.5;
+    }
+    y = 1;
+    for (_uint i = 0; i < SPAN; ++i) {
+	double x = 1;
 	for (_uint j = 0; j < SPAN; ++j) {
-	    CHECK(mon_locs[SPAN*i+j].x() == doctest::Approx(x));
-	    CHECK(mon_locs[SPAN*i+j].y() == doctest::Approx(y));
-	    CHECK(mon_locs[SPAN*i+j].z() == doctest::Approx(1));
-	    y += 0.1;
+	    CHECK(mon_locs[SPAN + SPAN*i + j].x() == doctest::Approx(x));
+	    CHECK(mon_locs[SPAN + SPAN*i + j].y() == doctest::Approx(y));
+	    CHECK(mon_locs[SPAN + SPAN*i + j].z() == doctest::Approx(1));
+	    x += 0.5;
 	}
-	x += 0.1;
+	y += 0.5;
     }
 
     cleanup_settings(&args);
