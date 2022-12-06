@@ -267,49 +267,56 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
     return in_bound(r);
 }
 
-source_info::source_info(std::string spec_str, const Scene& problem, parse_ercode* ercode) {
-    //read the specification for the pulse as a function
-    char* spec = strdup( spec_str.c_str() );
-    parse_ercode tmp_er;
-    cgs_func env_func = problem.get_context().parse_func(spec, -1, tmp_er, NULL);
-
-    //figure out the field component that the user wants to add (Default to electric field polarized in x direction)
+source_info::source_info(Value info, parse_ercode* ercode) {
+    //initialize default values
+    type = SRC_GAUSSIAN;
     component = meep::Ex;
-    //all sources require that a component and frequency be specified
-    if (tmp_er == E_SUCCESS) {
-	if (env_func.n_args > 2) {
-	    char* comp_name = NULL;
-	    if (env_func.args[0].get_type() == VAL_STR) comp_name = env_func.args[0].get_val().s;
-	    if (strcmp(comp_name, "Ex") == 0) {
-		component = meep::Ex;
-	    } else if (strcmp(comp_name, "Ey") == 0) {
-		component = meep::Ey;
-	    } else if (strcmp(comp_name, "Ez") == 0) {
-		component = meep::Ez;
-	    } else if (strcmp(comp_name, "Hx") == 0) {
-		component = meep::Hx;
-	    } else if (strcmp(comp_name, "Hy") == 0) {
-		component = meep::Hy;
-	    } else if (strcmp(comp_name, "Hz") == 0) {
-		component = meep::Hz;
+    wavelen = 700.0;
+    width = 1;
+    phase = 0;
+    start_time = 0;
+    end_time = 0;
+    amplitude = 1.0;
+    parse_ercode tmp_er = E_SUCCESS;
+    if (info.type == VAL_LIST) {
+	if (info.n_els > 3) {
+	    //read the component
+	    if (info.val.l[1].type == VAL_STR && info.val.l[1].val.s) {
+		if (strcmp(info.val.l[1].val.s, "Ex") == 0) {
+		    component = meep::Ex;
+		} else if (strcmp(info.val.l[1].val.s, "Ey") == 0) {
+		    component = meep::Ey;
+		} else if (strcmp(info.val.l[1].val.s, "Ez") == 0) {
+		    component = meep::Ez;
+		} else if (strcmp(info.val.l[1].val.s, "Hx") == 0) {
+		    component = meep::Hx;
+		} else if (strcmp(info.val.l[1].val.s, "Hy") == 0) {
+		    component = meep::Hy;
+		} else if (strcmp(info.val.l[1].val.s, "Hz") == 0) {
+		    component = meep::Hz;
+		}
 	    } else {
 		tmp_er = E_BAD_TOKEN;
 	    }
-
+	    //read the wavelength
+	    if (info.val.l[2].get_type() == VAL_NUM) {
+		wavelen = info.val.l[2].get_val().x;
+	    } else {
+		tmp_er = E_BAD_VALUE;
+	    }
+	    //read the type
 	    if (tmp_er == E_SUCCESS) {
-		if (env_func.args[1].get_type() == VAL_NUM) wavelen = env_func.args[1].get_val().x;
-		if (errno) tmp_er = E_BAD_TOKEN;
 		//figure out what to do depending on what type of pulse envelope this is
-		if (strcmp(env_func.name, "gaussian") == 0 || strcmp(env_func.name, "Gaussian") == 0) {
+		if (info.val.l[0].type == VAL_STR && (strcmp(info.val.l[0].val.s, "gaussian") == 0 || strcmp(info.val.l[0].val.s, "Gaussian") == 0)) {
 		    type = SRC_GAUSSIAN;
 		    //set default values for the envelope
 		    start_time = 0;
 		    double cutoff = 5;
-		    if (env_func.n_args < 3) {
+		    if (info.n_els < 4) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
-			if (env_func.args[2].get_type() == VAL_NUM)
-			    width = env_func.args[2].get_val().x;
+			if (info.val.l[3].get_type() == VAL_NUM)
+			    width = info.val.l[3].get_val().x;
 			else
 			    tmp_er = E_BAD_TOKEN;
 			//set default values
@@ -317,70 +324,70 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 			start_time = 0;
 			cutoff = DEFAULT_WIDTH_N;
 			//read the phase if specified
-			if (env_func.n_args > 3) {
-			    if (env_func.args[3].get_type() == VAL_NUM)
-				phase = env_func.args[3].get_val().x;
+			if (info.n_els > 4) {
+			    if (info.val.l[4].get_type() == VAL_NUM)
+				phase = info.val.l[4].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the start time if supplied
-			if (env_func.n_args > 4) {
-			    if (env_func.args[4].get_type() == VAL_NUM)
-				start_time = env_func.args[4].get_val().x;
+			if (info.n_els > 5) {
+			    if (info.val.l[5].get_type() == VAL_NUM)
+				start_time = info.val.l[5].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the cutoff if supplied
-			if (env_func.n_args > 5) {
-			    if (env_func.args[5].get_type() == VAL_NUM)
-				cutoff = env_func.args[5].get_val().x;
+			if (info.n_els > 6) {
+			    if (info.val.l[6].get_type() == VAL_NUM)
+				cutoff = info.val.l[6].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the amplitude if supplied
-			if (env_func.n_args > 6) {
-			    if (env_func.args[6].get_type() == VAL_NUM)
-				amplitude = env_func.args[6].get_val().x;
+			if (info.n_els > 7) {
+			    if (info.val.l[7].get_type() == VAL_NUM)
+				amplitude = info.val.l[7].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			end_time = start_time + 2*cutoff*width;
 		    }
-		} else if (strcmp(env_func.name, "continuous") == 0) {
+		} else if (strcmp(info.val.l[0].val.s, "continuous") == 0) {
 		    type = SRC_CONTINUOUS;
 		    phase = 0;
-		    if (env_func.n_args < 3) {
+		    if (info.n_els < 4) {
 			tmp_er = E_LACK_TOKENS;
 		    } else {
-			if (env_func.args[2].get_type() == VAL_NUM)
-			    start_time = env_func.args[2].get_val().x;
+			if (info.val.l[3].get_type() == VAL_NUM)
+			    start_time = info.val.l[3].get_val().x;
 			else
 			    tmp_er = E_BAD_TOKEN;
 			if (errno) tmp_er = E_BAD_TOKEN;
 			//read the end time if supplied
-			if (env_func.n_args > 3) {
-			    if (env_func.args[3].get_type() == VAL_NUM)
-				end_time = env_func.args[3].get_val().x;
+			if (info.n_els > 4) {
+			    if (info.val.l[4].get_type() == VAL_NUM)
+				end_time = info.val.l[4].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the width if supplied
-			if (env_func.n_args > 4) {
-			    if (env_func.args[4].get_type() == VAL_NUM)
-				width = env_func.args[4].get_val().x;
+			if (info.n_els > 5) {
+			    if (info.val.l[5].get_type() == VAL_NUM)
+				width = info.val.l[5].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
 			}
 			//read the amplitude if supplied
-			if (env_func.n_args > 5) {
-			    if (env_func.args[5].get_type() == VAL_NUM)
-				amplitude = env_func.args[5].get_val().x;
+			if (info.n_els > 6) {
+			    if (info.val.l[6].get_type() == VAL_NUM)
+				amplitude = info.val.l[6].get_val().x;
 			    else
 				tmp_er = E_BAD_TOKEN;
 			    if (errno) tmp_er = E_BAD_TOKEN;
@@ -392,12 +399,9 @@ source_info::source_info(std::string spec_str, const Scene& problem, parse_ercod
 	    tmp_er = E_LACK_TOKENS;
 	}
     }
-    cleanup_func(&env_func);
 
     //set the error code if there was one and the caller wants it
     if (ercode) *ercode = tmp_er;
-
-    free(spec);
 }
 // bandwidth (in frequency units, not angular frequency) of the
 // continuous Fourier transform of the Gaussian source function
@@ -462,111 +466,52 @@ bool gaussian_src_time_phase::is_equal(const src_time &t) const {
  * returns: a vector list of susceptibilities
  * If an error is encountered, a code will be saved to er if it is not NULL
  *  0 on success
- *  -1 null string
- *  -2 invalid or empty string
- *  -3 insufficient memory
+ *  -1 not a list or insufficient arguments
+ *  -2 bad argument supplied
  */
 std::vector<drude_suscept> bound_geom::parse_susceptibilities(Value val, int* er) {
-    char* str = strdup(val.val.s);
     std::vector<drude_suscept> ret;
-    //check that the Settings struct is valid and allocate memory
-    if (!str) {
-	set_ercode(er, -1);
-	return ret;
-    }
-
-    drude_suscept cur_sus;
-
-    //used for strtok_r
-    char* save_str;
-    char* tok;
-    //find the first entry
-    char* cur_entry = strchr(str, '(');
-    char* end = strchr(str, ')');
-
-    //only proceed if we have pointers to the start and end of the current entry
-    while (cur_entry && end) {
-	cur_sus.omega_0 = 0.0;
-	cur_sus.gamma = 0.0;
-	cur_sus.sigma = 0.0;
-	cur_sus.use_denom = 1;
-	//the open paren must occur before the end paren
-	if (cur_entry > end) {
-	    set_ercode(er, -2);
-	    free(str);
-	    return ret;
-	}
-
-	//null terminate the parenthesis and tokenize by commas
-	end[0] = 0;
-	//read the omega value
-	tok = trim_whitespace( strtok_r(cur_entry+1, ",", &save_str), NULL );
-	cur_sus.omega_0 = strtod(tok, NULL);
-	if (errno) {
-	    errno = 0;
-	    set_ercode(er, -2);
-	    free(str);
-	    return ret;
-	}
-	//read the gamma value
-	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	if (!tok) {
-	    set_ercode(er, -2);
-	    free(str);
-	    return ret;
-	}
-	cur_sus.gamma = strtod(tok, NULL);
-	if (errno) {
-	    errno = 0;
-	    set_ercode(er, -2);
-	    free(str);
-	    return ret;
-	}
-	//read the sigma value
-	tok = trim_whitespace( strtok_r(NULL, ",", &save_str), NULL );
-	if (!tok) {
-	    set_ercode(er, -2);
-	    free(str);
-	    return ret;
-	}
-	cur_sus.sigma = strtod(tok, NULL);
-	if (errno) {
-	    errno = 0;
-	    set_ercode(er, -2);
-	    free(str);
-	    return ret;
-	}
-	//read the (optional) use denom flag
-	tok = strtok_r(NULL, ",", &save_str);
-	if (tok) {
-	    tok = trim_whitespace(tok, NULL);
-	    cur_sus.use_denom = strtol(tok, NULL, 10);
-	    if (errno) {
-		errno = 0;
-		cur_sus.use_denom = 1;
-		if (strcmp(tok, "drude") == 0 || strcmp(tok, "true") == 0) cur_sus.use_denom = 0;
+    if (val.type == VAL_LIST) {
+	drude_suscept cur_sus;
+	for (size_t i = 0; i < val.n_els; ++i) {
+	    Value cur = val.val.l[i];
+	    if (cur.type != VAL_LIST || cur.n_els < 2) {
+		if (er) *er = -1;
+		return ret;
 	    }
-	    if (strcmp(tok, "lorentz") == 0 || strcmp(tok, "false") == 0) cur_sus.use_denom = 1;
+	    if (cur.val.l[0].type != VAL_NUM || cur.val.l[1].type != VAL_NUM || cur.val.l[2].type != VAL_NUM) {
+		if (er) *er = -2;
+		return ret;
+	    }
+	    cur_sus.omega_0 = cur.val.l[0].val.x;
+	    cur_sus.gamma = cur.val.l[1].val.x;
+	    cur_sus.sigma = cur.val.l[2].val.x;
+	    cur_sus.use_denom = 1;
+	    //read whether this is a Drude or Lorentz susceptibility
+	    if (cur.n_els > 3) {
+		if (cur.val.l[3].type == VAL_NUM) {
+		    cur_sus.use_denom = (cur.val.l[3].val.x != 0.0);
+		} else if (cur.val.l[3].type == VAL_STR) {
+		    char* tok = cur.val.l[3].val.s;
+		    if (strcmp(tok, "drude") == 0 || strcmp(tok, "true") == 0) cur_sus.use_denom = 0;
+		    if (strcmp(tok, "lorentz") == 0 || strcmp(tok, "false") == 0) cur_sus.use_denom = 1;
+		} else {
+		    if (er) *er = -2;
+		    return ret;
+		}
+	    }
+	    ret.push_back(cur_sus);
 	}
-
-	//save the information
-	ret.push_back(cur_sus);
-
-	//advance to the next entry
-	if (end[1] == 0) break;
-	cur_entry = strchr(end+1, '(');
-	if (!cur_entry) break;
-	end = strchr(cur_entry, ')');
     }
-
-    free(str);
+    if (er) *er = 0;
     return ret;
 }
 
 /**
  * Read a CompositeObject specifying monitor locations into a list of monitor locations
+ * returns: an error code if one was encountered or E_SUCCESS
  */
-void bound_geom::parse_monitors(CompositeObject* comp) {
+parse_ercode bound_geom::parse_monitors(CompositeObject* comp) {
     //only continue if the user specified locations
     if (comp->has_metadata("locations")) {
 	Value tmp_val = comp->fetch_metadata("locations");
@@ -574,20 +519,19 @@ void bound_geom::parse_monitors(CompositeObject* comp) {
 	    printf("Location type is not a list! ignoring\n");
 	} else {
 	    parse_ercode er = E_SUCCESS;
-	    size_t init_size = monitor_locs.size();
-	    monitor_locs.reserve(init_size + tmp_val.n_els);
 	    for (size_t i = 0; i < tmp_val.n_els; ++i) {
+		//see if we can cast to a vector and check for errors
 		Value vec_cast = tmp_val.val.l[i].cast_to(VAL_3VEC, er);
-		//if this was unsuccessful only include monitors up to this point
-		if (er != E_SUCCESS) {
-		    monitor_locs.resize(init_size+i);
-		    break;
-		}
-		monitor_locs.push_back( meep::vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z()) );
+		if (er != E_SUCCESS) return er;
+		//convert to a meep vector and append
+		meep::vec tmp_vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z());
+		printf("%f %f %f\n", tmp_vec.x(), tmp_vec.y(), tmp_vec.z());
+		monitor_locs.push_back(tmp_vec);
 		cleanup_val(&vec_cast);
 	    }
 	}
     }
+    return E_SUCCESS;
 }
 
 double dummy_eps(const meep::vec& r) { return 1.0; }
@@ -734,8 +678,8 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
 
 		    //only continue if a shape for the pulse was specified
-		    if (data[i]->has_metadata("envelope") && data[i]->fetch_metadata("envelope").get_type() == VAL_STR) {
-			source_info cur_info(data[i]->fetch_metadata("envelope").to_c_str(), problem, ercode);
+		    if (data[i]->has_metadata("envelope")) {
+			source_info cur_info(data[i]->fetch_metadata("envelope"), ercode);
 			//create the EM-wave source at the specified location only if everything was read successfully
 			if (*ercode == E_SUCCESS) {
 			    double c_by_a = 0.299792458*s.um_scale;
@@ -768,8 +712,9 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		    if (ercode) *ercode = E_BAD_VALUE;
 		}
 	    } else if (type.type == VAL_STR && strcmp(type.val.s, "monitor") == 0) {
-        printf("found a monitor! ");
-		parse_monitors(data[i]);
+		printf("found a monitor!\n");
+		parse_ercode tmp_er = parse_monitors(data[i]);
+		if (tmp_er != E_SUCCESS) printf("warning: Invalid monitor location encountered! (all monitors must be vectors or lists with three elements)\n");
 		monitor_clusters.push_back(monitor_locs.size());
 	    }
 	}

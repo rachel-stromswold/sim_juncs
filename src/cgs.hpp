@@ -27,11 +27,10 @@
 #define FLAG_AND	3
 
 //keywords
-#define KEY_FOR		"for"
+#define KEY_CLASS_LEN	5
 #define KEY_FOR_LEN	3
-#define KEY_IN		"in"
+#define KEY_DEF_LEN	3
 #define KEY_IN_LEN	2
-#define KEY_IF		"if"
 #define KEY_IF_LEN	2
 
 typedef enum {OP_EQ, OP_ADD, OP_SUB, OP_MULT, OP_DIV, OP_NOT, OP_OR, OP_AND, OP_GRT, OP_LST, OP_GEQ, OP_LEQ, N_OPTYPES} Optype_e;
@@ -218,18 +217,18 @@ public:
 };
 
 class Scene;
-
-typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT} valtype;
+typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_INST} valtype;
 class Value;
 class cgs_func;
+class instance;
 union V {
     char* s;
     double x;
     Value* l;
     evec3* v;
+    instance* i;
     Eigen::MatrixXd* m;
 };
-
 struct Value {
     valtype type;
     V val;
@@ -261,6 +260,7 @@ Value make_val_std_str(std::string s);
 Value make_val_list(const Value* vs, size_t n_vs);
 Value make_val_mat(Eigen::MatrixXd m);
 Value make_val_vec3(evec3 vec);
+cgs_func parse_func_decl(char* str);
 cgs_func copy_func(const cgs_func o);
 void cleanup_func(cgs_func* o);
 void swap(cgs_func* a, cgs_func* b);
@@ -335,22 +335,43 @@ public:
     CompositeObject* look_obj();
     CompositeObject* get_root();
 };
-
 /**
  * A helper class for scene which maintains two parallel stacks used when constructing binary trees. The first specifies the integer code for the side occupied and the second stores pointers to objects. Each index specified in the side array is a "tribit" with 0 specifying the left side, 1 the right and 2 the end end of the stack
  * WARNING: The stack only handles pointers to objects. The caller is responsible for managing the lifetime of each object placed on the stack.
  * NOTE: the context performs a shallow copy of everything pushed onto it and does not perform any cleanup
  */
-struct name_val_pair {
+class name_val_pair {
+private:
     char* name;
     Value val;
+public:
+    void swap(name_val_pair& o);
+    void copy(const name_val_pair& o) { name = strdup(o.name);val = copy_val(o.val); }
+    name_val_pair(const char* p_name, Value p_val) { name = strdup(p_name);val = copy_val(p_val); }
+    name_val_pair(const name_val_pair& o) { copy(o); }
+    name_val_pair(name_val_pair&& o) { name = o.name;val = o.val;o.name = NULL;o.val.type = VAL_UNDEF;o.val.val.x = 0; }
+    ~name_val_pair() {
+	if (name) free(name);
+	if (val.type != VAL_UNDEF) cleanup_val(&val);
+    }
+    name_val_pair& operator=(name_val_pair& o) { swap(o);return *this; }
+    name_val_pair& operator=(const name_val_pair& o) { copy(o);return *this; }
+    bool name_matches(const char* str) const { if (strcmp(str, name) == 0) return true;return false; }
+    Value& get_val() { return val; }
+};
+class instance {
+private:
+    std::vector<name_val_pair> fields;
+    std::string type;
+public:
+    instance(cgs_func decl);
 };
 class context : public CGS_Stack<name_val_pair> {
 private:
     Value do_op(char* tok, size_t ind, parse_ercode& er);
 public:
     //parse_ercode push(_uint side, CompositeObject* obj);
-    void emplace(char* p_name, Value val) { name_val_pair inst;inst.name = p_name;inst.val = val;push(inst); }
+    void emplace(const char* p_name, Value p_val) { name_val_pair inst(p_name, p_val);push(inst); }
     Value lookup(const char* name) const;
     parse_ercode pop_n(size_t n);
     Value parse_value(char* tok, parse_ercode& er);
@@ -402,7 +423,7 @@ public:
  
     parse_ercode make_object(const cgs_func& f, Object** ptr, object_type* type, int p_invert) const;
     parse_ercode make_transformation(const cgs_func& f, emat3& res) const;
-    context get_context() const { return named_items; }
+    context& get_context() { return named_items; }
     //void cleanup_func(cgs_func& f);
 };
 

@@ -987,11 +987,8 @@ TEST_CASE("Test geometry file reading") {
     SUBCASE("Test reading of susceptibilities") {
 	CHECK(er == E_SUCCESS);
 	CompositeObject* root = geometry.problem.get_roots()[0];
-	char* dat = strdup(root->fetch_metadata("susceptibilities").to_c_str());
-	Value dat_val = make_val_str(dat);
-	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(dat_val, (int*)(&er));
-	cleanup_val(&dat_val);
-	free(dat);
+	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(root->fetch_metadata("susceptibilities"), (int*)(&er));
+	CHECK(er == E_SUCCESS);
 	CHECK(sups.size() == 2);
 	CHECK(sups[0].omega_0 == 1.0);
 	CHECK(sups[0].gamma == 0.48);
@@ -1007,7 +1004,7 @@ TEST_CASE("Test geometry file reading") {
 
     SUBCASE("Test reading of field sources") {
 #ifdef DEBUG_INFO
-    std::vector<source_info> sources = geometry.get_sources();
+	std::vector<source_info> sources = geometry.get_sources();
 	CHECK(sources.size() == 2);
 	source_info inf = sources[0];
 	CHECK(inf.type == SRC_GAUSSIAN);

@@ -272,6 +272,8 @@ void cleanup_val(Value* v) {
 	delete v->val.m;
     } else if (v->type == VAL_3VEC && v->val.v) {
 	delete v->val.v;
+    } else if (v->type == VAL_INST && v->val.i) {
+	delete v->val.i;
     }
     v->val.x = 0;
 }
@@ -702,7 +704,7 @@ Value context::parse_list(char* str, parse_ercode& er) {
     size_t n_els = 0;
     Value* lbuf;
     //check if this is a list interpretation
-    char* for_start = token_block(start+1, KEY_FOR);
+    char* for_start = token_block(start+1, "for");
     size_t expr_len = 0;
     if (for_start) {
 	//now look for a block labeled "in"
@@ -941,9 +943,13 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
 	    f.arg_names[i] = NULL;
 	}
 	f.args[i] = parse_value(list_els[i], er);
-	if (er != E_SUCCESS) { free(list_els);return f; }
+	//if the evaluation of the name failed, then use it as a variable name instead
+	if (er != E_SUCCESS) {
+	    f.args[i].type = VAL_UNDEF;
+	    f.arg_names[i] = list_els[i];
+	    er = E_SUCCESS;
+	}
     }
-
     //cleanup and reset the string
     //*term_ptr = /*(*/')';
     free(list_els);
@@ -958,6 +964,9 @@ parse_ercode CGS_Stack<T>::grow(size_t new_size) {
     T* tmp_buf = (T*)realloc(buf, sizeof(T)*buf_len);
     if (tmp_buf) {
 	buf = tmp_buf;
+	char* clear_buf = (char*)(tmp_buf+old_size);
+	size_t clear_len = sizeof(T)*(buf_len-old_size);
+	for (size_t i = 0; i < clear_len; ++i) clear_buf[i] = 0;
     } else {
 	buf_len = old_size;
 	return E_NOMEM;
@@ -970,7 +979,7 @@ template <typename T>
 CGS_Stack<T>::CGS_Stack() {
     stack_ptr = 0;
     buf_len = ARGS_BUF_SIZE;
-    buf = (T*)malloc(sizeof(T)*buf_len);
+    buf = (T*)calloc(buf_len, sizeof(T));
     //check that allocation was successful
     if (!buf) {
 	buf = NULL;
@@ -985,6 +994,7 @@ CGS_Stack<T>::~CGS_Stack<T>() {
     buf_len = 0;
 
     if (buf) {
+	for (_uint i = 0; i < stack_ptr; ++i) buf[i].~T();
 	free(buf);
 	buf = NULL;
     }
@@ -1010,7 +1020,7 @@ CGS_Stack<T>::CGS_Stack(const CGS_Stack<T>& o) {
     stack_ptr = o.stack_ptr;
     //to save memory we'll only allocate however many entries the old object had
     buf_len = stack_ptr;
-    buf = (T*)malloc(sizeof(T)*buf_len);
+    buf = (T*)calloc(buf_len, sizeof(T));
     if (!buf) {
 	buf = NULL;
 	buf_len = 0;
@@ -1238,20 +1248,42 @@ int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
     return (int)(i+1);
 }
 
+void name_val_pair::swap(name_val_pair& o) {
+    char* tmp_name = name;
+    name = o.name;
+    o.name = tmp_name;
+    Value tmp_val = val;
+    val = o.val;
+    o.val = tmp_val;
+}
+instance::instance(cgs_func decl) : type(decl.name) {
+    fields.reserve(decl.n_args);
+    Value def_val;def_val.n_els = 0;def_val.type = VAL_UNDEF;def_val.val.x = 0;
+    for (size_t i = 0; i < decl.n_args; ++i) {
+	//if a default value was supplied, use that. Otherwise use an undefined initial value
+	if (decl.args[i].type != VAL_UNDEF) {
+	    fields.emplace_back(decl.arg_names[i], decl.args[i]);
+	} else {
+	    fields.emplace_back(decl.args[i].val.s, def_val);
+	}
+    }
+}
+
 /**
  * Iterate through the context and return a value to the variable with the matching name.
  * name: the name of the variable to set
  * returns: the matching value, no deep copies are performed
  */
 Value context::lookup(const char* str) const {
-    //iterate to find the item highest on the stack with a matching name
-    for (long i = stack_ptr-1; i >= 0; --i) {
-	if (strcmp(buf[i].name, str) == 0) return buf[i].val;
-    }
-    //return a default undefined value if nothing was found
     Value ret;
     ret.type = VAL_UNDEF;
     ret.val.x = 0;
+    if (stack_ptr == 0) return ret;
+    //iterate to find the item highest on the stack with a matching name
+    for (long i = stack_ptr-1; i >= 0; --i) {
+	if (buf[i].name_matches(str)) return buf[i].get_val();
+    }
+    //return a default undefined value if nothing was found
     return ret;
 }
 
@@ -1261,14 +1293,16 @@ Value context::lookup(const char* str) const {
  * new_val: the value to set the variable to
  * returns: E_SUCCESS if the variable with a matching name was found or E_NOT_DEFINED otherwise
  */
-parse_ercode context::set_value(const char* name, Value new_val) {
+parse_ercode context::set_value(const char* str, Value new_val) {
     for (long i = stack_ptr-1; i >= 0; --i) {
-	if (strcmp(buf[i].name, name) == 0) {
-	    buf[i].val = new_val;
+	if (buf[i].name_matches(str)) {
+	    buf[i].get_val() = new_val;
 	    return E_SUCCESS;
 	}
     }
-    return E_NOT_DEFINED;
+    //if we didn't find the value with the matching name then define it
+    emplace(str, new_val);
+    return E_SUCCESS;
 }
 
 /**
@@ -1772,6 +1806,7 @@ parse_ercode Scene::read_file(const char* p_fname) {
 		if (blk_stack.size() > 0) cur_type = blk_stack.peek();
 		//only interpret as normal code if we aren't in a comment or literal block
 		if (cur_type != BLK_COMMENT && cur_type != BLK_LITERAL) {
+		    //check for function calls
 		    if (buf[i] == '(' && blk_stack.peek() != BLK_LITERAL) {
 			//initialize a new cgs_func with the appropriate arguments
 			cgs_func cur_func;
@@ -1788,11 +1823,18 @@ parse_ercode Scene::read_file(const char* p_fname) {
 				return fail_exit(er, fp);
 			    default: break;
 			}
-			//check to see if this is a user function declaration
-			if (cur_func.name[0] == 'd' && cur_func.name[1] == 'e' && cur_func.name[2] == 'f' && cur_func.name[3] != 0) {
-			    cur_func.name = CGS_trim_whitespace(cur_func.name + 3, NULL);
+			//check for class and function declarations
+			char* dectype_start = token_block(cur_func.name, "def");
+			if (dectype_start) {
+			    cur_func.name = CGS_trim_whitespace(cur_func.name + KEY_DEF_LEN, NULL);
 
 			    //TODO: finish
+			} else if (dectype_start = token_block(cur_func.name, "class")) {
+			    cur_func.name = CGS_trim_whitespace(cur_func.name + KEY_CLASS_LEN, NULL);
+			    Value tmp_val;
+			    tmp_val.type = VAL_INST;
+			    tmp_val.val.i = new instance(cur_func);
+			    tmp_val.n_els = cur_func.n_args;
 			}
 			//try interpreting the function as a geometric object
 			Object* obj = NULL;
@@ -1863,13 +1905,13 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			}
 		    } else if (buf[i] == '=') {
 			size_t tok_len;
+			buf[i] = 0;
 			char* tok = CGS_trim_whitespace(buf, &tok_len);
 			size_t val_len;
 			char* val = CGS_trim_whitespace(buf+i+1, &val_len);
 			Value v = named_items.parse_value(val, er);
-			if (er == E_SUCCESS) named_items.emplace(tok, v);
-			tok[tok_len] = ' ';
-			val[val_len] = ' ';
+			if (er == E_SUCCESS) named_items.set_value(tok, v);
+			cleanup_val(&v);
 		    }
 		} else {
 		    //check if we reached the end of a comment or string literal block
