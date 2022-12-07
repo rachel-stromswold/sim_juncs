@@ -15,13 +15,17 @@ parser.add_argument('--prefix', type=str, help='prefix to use when opening files
 args = parser.parse_args()
 
 with h5py.File(args.fname, "r") as f:
-    point_names = list(f['cluster_0'].keys())[1:]
+    clust_names = []
+    for key in f.keys():
+        if 'cluster' in key:
+            clust_names.append(key)
+    point_names = list(f[clust_names[0]].keys())[1:]
     n_pts = len(point_names)
     n_x_slices = N_COLS
     n_z_slices = n_pts // N_COLS
     #figure out the number of time points by inspecting the first time series
-    n_t_pts = len(f['cluster_0'][point_names[0]]['time'])
-    n_f_pts = len(f['cluster_0'][point_names[0]]['frequency'])
+    n_t_pts = len(f[clust_names[0]][point_names[0]]['time'])
+    n_f_pts = len(f[clust_names[0]][point_names[0]]['frequency'])
     last_time = f['info']['time_bounds'][1]
     #read information about the source
     pulse_width = f['info']['sources'][0]['width']
@@ -34,15 +38,15 @@ with h5py.File(args.fname, "r") as f:
     sample_fours = [[np.zeros(n_f_pts) for j in range(n_x_slices)] for i in range(n_z_slices)]
     #figure out the x locations by iterating over the first row
     for i in range(n_x_slices):
-        x_slices[i] = f['cluster_0']['locations'][i][0]
+        x_slices[i] = f[clust_names[0]]['locations'][i][0]
     #iterate over each point
     for i in range(n_z_slices):
         #figure out the z locations by iterating over the first column
-        z_slices[i] = f['cluster_0']['locations'][N_COLS*i][2]
+        z_slices[i] = f[clust_names[0]]['locations'][N_COLS*i][2]
         for j in range(n_x_slices):
             #iterate over times and take only the real parts
-            sample_fields[i][j] = np.array(f['cluster_0'][point_names[i*N_COLS+j]]['time']['Re'])
-            sample_fours[i][j] = np.array(f['cluster_0'][point_names[i*N_COLS+j]]['frequency']['Re'] + 1j*f['cluster_0'][point_names[i*N_COLS+j]]['frequency']['Re'])
+            sample_fields[i][j] = np.array(f[clust_names[0]][point_names[i*N_COLS+j]]['time']['Re'])
+            sample_fours[i][j] = np.array(f[clust_names[0]][point_names[i*N_COLS+j]]['frequency']['Re'] + 1j*f[clust_names[0]][point_names[i*N_COLS+j]]['frequency']['Re'])
 
 #find the maximum values for each point we consider
 max_t = 0.0

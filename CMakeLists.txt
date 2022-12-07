@@ -1,11 +1,14 @@
 cmake_minimum_required(VERSION 3.3.2)
 project(sim_geom)
 set (CMAKE_CXX_STANDARD 11)
-set(CMAKE_BUILD_TYPE Debug)
 
 #set names for applications
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     set(TEST_EXE test)
+    set(CMAKE_BUILD_TYPE Debug)
+    set(CMAKE_CXX_FLAGS "-Og")
+else()
+    set(CMAKE_CXX_FLAGS "-Os")
 endif()
 set(APP_EXE sim_geom)
 
@@ -67,6 +70,7 @@ configure_file(junctions/${JUNCTION_TYPE}/params.conf params.conf COPYONLY)
 configure_file(scripts/run.sh run.sh COPYONLY)
 configure_file(scripts/utils.py utils.py COPYONLY)
 configure_file(scripts/phases.py phases.py COPYONLY)
+configure_file(scripts/phase_plot.py phase_plot.py COPYONLY)
 configure_file(scripts/set_dims.py set_dims.py COPYONLY)
 configure_file(scripts/time_space.py time_space.py COPYONLY)
 configure_file(scripts/check_enes.py check_enes.py COPYONLY)

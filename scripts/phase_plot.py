@@ -53,15 +53,18 @@ class phase_finder:
         self.geom = utils.Geometry("params.conf", gap_width=width, gap_thick=height)
         #open the h5 file and identify all the clusters
         self.f = h5py.File(fname, "r")
-        self.clust_names = list(self.f.keys())[:-2]
+        self.clust_names = []
+        for key in self.f.keys():
+            if 'cluster' in key:
+                self.clust_names.append(key)
         self.n_clusts = len(self.clust_names)
         #create a numpy array for time points, this will be shared across all points
-        keylist = list(self.f['cluster_0'].keys())
-        n_t_pts = len(self.f['cluster_0'][keylist[1]]['time'])
+        keylist = list(self.f[self.clust_names[0]].keys())
+        n_t_pts = len(self.f[self.clust_names[0]][keylist[1]]['time'])
         self.n_post_skip = n_t_pts // phases.SKIP
         #figure out the extent of the simulation points in the spanned direction
         z_min = min(self.geom.meep_len_to_um(self.geom.l_junc -self.geom.z_center), \
-                self.geom.meep_len_to_um(self.f['cluster_0']['locations'][slice_dir][0]-self.geom.z_center))
+                self.geom.meep_len_to_um(self.f[self.clust_names[0]]['locations'][slice_dir][0]-self.geom.z_center))
         self.x_range = (PAD_FACTOR*z_min, -PAD_FACTOR*z_min)
         #read information to figure out time units and step sizes
         t_min = self.f['info']['time_bounds'][0]
