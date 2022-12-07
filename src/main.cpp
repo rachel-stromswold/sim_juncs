@@ -10,7 +10,7 @@ const double epsilon = 0.01;
 const double n_monitor_spheres = 2;
 
 int main(int argc, char **argv) {
-    Settings args;
+    parse_settings args;
 
     //iterate over user specified arguments for the test program
     int ret = parse_args(&args, &argc, argv);

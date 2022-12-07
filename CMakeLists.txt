@@ -26,7 +26,7 @@ if (${STO_PREC_32} MATCHES "^[Tt]rue")
     add_compile_definitions(STO_PREC_32=1)
 endif()
 #add targets for libraries
-add_executable( ${APP_EXE} src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main.cpp )
+add_executable( ${APP_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main.cpp )
 
 #linking
 target_link_libraries(${APP_EXE} PRIVATE Eigen3::Eigen meep png ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} ctlgeom)
@@ -36,7 +36,7 @@ target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
 #check if we need to build tests
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     #build and link the unit testing executable
-    add_executable( ${TEST_EXE} src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
+    add_executable( ${TEST_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
     target_link_libraries(${TEST_EXE} PRIVATE Eigen3::Eigen meep ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
     target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )

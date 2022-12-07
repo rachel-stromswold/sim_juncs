@@ -80,7 +80,7 @@ cgs_material_function::cgs_material_function(double p_def_ret, _uint p_smooth_n,
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
  */
-cgs_material_function::cgs_material_function(CompositeObject* p_volume, std::string type, double p_def_ret, _uint p_smooth_n, double p_smooth_rad) {
+cgs_material_function::cgs_material_function(composite_object* p_volume, std::string type, double p_def_ret, _uint p_smooth_n, double p_smooth_rad) {
     //set the regions which are used
     n_regions = 1;
     regions = (region_scale_pair*)malloc(sizeof(region_scale_pair));
@@ -88,7 +88,7 @@ cgs_material_function::cgs_material_function(CompositeObject* p_volume, std::str
 	double scale = def_ret;
 	//lookup the scaling constant by reading metadata from the object
 	if (p_volume->has_metadata(type)) {
-	    Value tmp_val = p_volume->fetch_metadata(type);
+	    value tmp_val = p_volume->fetch_metadata(type);
 	    if (tmp_val.get_type() == VAL_NUM) scale = tmp_val.to_float();
 	}
 	regions[0].s = scale;//by default set the scale to whatever the default return value is
@@ -190,11 +190,11 @@ cgs_material_function::~cgs_material_function() {
 }
 
 /**
- * Add the region based on the CompositeObject p_reg.
+ * Add the region based on the composite_object p_reg.
  * p_reg: the composite object specifying the region to add
  * type: lookup the matching metadata key from the composite object and set the scale based on its value.
  */
-void cgs_material_function::add_region(CompositeObject* p_reg, std::string type) {
+void cgs_material_function::add_region(composite_object* p_reg, std::string type) {
     _uint new_n_regions = n_regions+1;
     region_scale_pair* tmp_regs = (region_scale_pair*)realloc(regions, sizeof(region_scale_pair)*new_n_regions);
     //only proceed if allocation of memory was successful
@@ -205,7 +205,7 @@ void cgs_material_function::add_region(CompositeObject* p_reg, std::string type)
 	double scale = def_ret;
 	//lookup the scaling constant by reading metadata from the object
 	if (p_reg->has_metadata(type)) {
-	    Value tmp_val = p_reg->fetch_metadata(type);
+	    value tmp_val = p_reg->fetch_metadata(type);
 	    if (tmp_val.get_type() == VAL_NUM) scale = tmp_val.to_float();
 	}
 	regions[n_regions-1].s = scale;//by default set the scale to whatever the default return value is
@@ -267,7 +267,7 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
     return in_bound(r);
 }
 
-source_info::source_info(Value info, parse_ercode* ercode) {
+source_info::source_info(value info, parse_ercode* ercode) {
     if (ercode) *ercode = E_SUCCESS;
     //initialize default values
     type = SRC_GAUSSIAN;
@@ -463,19 +463,19 @@ bool gaussian_src_time_phase::is_equal(const src_time &t) const {
 }
 
 /**
- * Add the list of susceptibilities to the Settings file s. The string should have the format (omega_0,gamma_0,sigma_0),(omega_1,gamma_1,sigma_1),...
+ * Add the list of susceptibilities to the parse_settings file s. The string should have the format (omega_0,gamma_0,sigma_0),(omega_1,gamma_1,sigma_1),...
  * returns: a vector list of susceptibilities
  * If an error is encountered, a code will be saved to er if it is not NULL
  *  0 on success
  *  -1 not a list or insufficient arguments
  *  -2 bad argument supplied
  */
-std::vector<drude_suscept> bound_geom::parse_susceptibilities(Value val, int* er) {
+std::vector<drude_suscept> bound_geom::parse_susceptibilities(value val, int* er) {
     std::vector<drude_suscept> ret;
     if (val.type == VAL_LIST) {
 	drude_suscept cur_sus;
 	for (size_t i = 0; i < val.n_els; ++i) {
-	    Value cur = val.val.l[i];
+	    value cur = val.val.l[i];
 	    if (cur.type != VAL_LIST || cur.n_els < 2) {
 		if (er) *er = -1;
 		return ret;
@@ -509,20 +509,20 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(Value val, int* er
 }
 
 /**
- * Read a CompositeObject specifying monitor locations into a list of monitor locations
+ * Read a composite_object specifying monitor locations into a list of monitor locations
  * returns: an error code if one was encountered or E_SUCCESS
  */
-parse_ercode bound_geom::parse_monitors(CompositeObject* comp) {
+parse_ercode bound_geom::parse_monitors(composite_object* comp) {
     //only continue if the user specified locations
     if (comp->has_metadata("locations")) {
-	Value tmp_val = comp->fetch_metadata("locations");
+	value tmp_val = comp->fetch_metadata("locations");
 	if (tmp_val.get_type() != VAL_LIST) {
 	    printf("Location type is not a list! ignoring\n");
 	} else {
 	    parse_ercode er = E_SUCCESS;
 	    for (size_t i = 0; i < tmp_val.n_els; ++i) {
 		//see if we can cast to a vector and check for errors
-		Value vec_cast = tmp_val.val.l[i].cast_to(VAL_3VEC, er);
+		value vec_cast = tmp_val.val.l[i].cast_to(VAL_3VEC, er);
 		if (er != E_SUCCESS) return er;
 		//convert to a meep vector and append
 		meep::vec tmp_vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z());
@@ -540,19 +540,19 @@ double dummy_eps(const meep::vec& r) { return 1.0; }
 /**
  * This is a helper function for the bound_geom constructor. Meep doesn't implement copy or move constructors so we have to initialize the structure immediately so that the fields can be initialized in turn.
  */
-meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode) {
+meep::structure* bound_geom::structure_from_settings(const parse_settings& s, scene& problem, parse_ercode* ercode) {
     pml_thickness = s.pml_thickness;
     len = s.len;
 
     //read information about the problem size from the geometry file
-    std::vector<CompositeObject*> data = problem.get_data();
+    std::vector<composite_object*> data = problem.get_data();
     for (size_t i = 0; i < data.size(); ++i) {
 	if (data[i]->has_metadata("pml_thickness")) {
-	    Value tmp_val = data[i]->fetch_metadata("pml_thickness");
+	    value tmp_val = data[i]->fetch_metadata("pml_thickness");
 	    if (tmp_val.get_type() == VAL_NUM) len = tmp_val.val.x;
 	}
 	if (data[i]->has_metadata("length")) {
-	    Value tmp_val = data[i]->fetch_metadata("length");
+	    value tmp_val = data[i]->fetch_metadata("length");
 	    if (tmp_val.get_type() == VAL_NUM) len = tmp_val.val.x;
 	}
     }
@@ -571,7 +571,7 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     }
 
     //iterate over all objects specified in the scene
-    std::vector<CompositeObject*> roots = problem.get_roots();
+    std::vector<composite_object*> roots = problem.get_roots();
     //setup the structure with the infinite frequency dielectric component
     cgs_material_function inf_eps_func(s.ambient_eps, s.smooth_n, s.smooth_rad);
 
@@ -579,28 +579,16 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
     for (size_t i = 0; i < roots.size(); ++i) {
 	//we need to adjust the thickness and conductivity of the sample if it is 2D
 	thicknesses[i] = 1.0;
-	if (roots[i]->has_metadata("make_2d") && roots[i]->fetch_metadata("make_2d") != "false" && roots[i]->fetch_metadata("make_2d") != "0") {
+	if (roots[i]->has_metadata("make_2d") && roots[i]->fetch_metadata("make_2d").val.x != 0) {
 	    thicknesses[i] = THICK_SCALE / s.resolution;
 	    roots[i]->rescale(evec3(1.0, 1.0, thicknesses[i]));
 	}
 	inf_eps_func.add_region(roots[i]);
-	/** ============================ DEBUG ============================ **/
-	meep::vec test_loc_1(0.5,0.5,2);
-	meep::vec test_loc_2(0.1,0.5,6);
-	meep::vec test_loc_3(0.5,0.1,6);
-	meep::vec test_loc_4(8,0.5,6);
-	meep::vec test_loc_5(0.5,8,6);
-	meep::vec test_loc_6(12,0.5,6);
-	meep::vec test_loc_7(0.5,12,6);
-	double ret_1 = inf_eps_func.eps(test_loc_1);
-	double ret_2 = inf_eps_func.eps(test_loc_2);
-	double ret_3 = inf_eps_func.eps(test_loc_3);
-	double ret_4 = inf_eps_func.eps(test_loc_4);
-	double ret_5 = inf_eps_func.eps(test_loc_5);
-	double ret_6 = inf_eps_func.eps(test_loc_6);
-	double ret_7 = inf_eps_func.eps(test_loc_7);
-	printf("%f %f %f %f %f %f %f\n", ret_1, ret_2, ret_3, ret_4, ret_5, ret_6, ret_7);
-	/** ============================ DEBUG ============================ **/
+	//draw the shape of the current structure
+	char root_name[ROOT_BUF_SIZE];
+	snprintf(root_name, ROOT_BUF_SIZE, "%s/root_%d.pgm", s.out_dir, i);
+	evec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
+	roots[i]->draw(root_name, s.len, cam_pos, -cam_pos);
     }
     meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
     //read susceptibilities if they are available
@@ -608,7 +596,7 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
 	std::vector<drude_suscept> cur_sups;
 	int res = 0;
 	if (roots[i]->has_metadata("susceptibilities") && roots[i]->fetch_metadata("susceptibilities").get_type() == VAL_STR) {
-	    Value sup_val = roots[i]->fetch_metadata("susceptibilities");
+	    value sup_val = roots[i]->fetch_metadata("susceptibilities");
 	    cur_sups = parse_susceptibilities(sup_val, &res);
 	}
 	//add frequency dependent susceptibility
@@ -628,11 +616,11 @@ meep::structure* bound_geom::structure_from_settings(const Settings& s, Scene& p
 }
 
 /**
- * Constructor for the bound_geom file. Settings are read from s.
- * s: Settings object to read.
+ * Constructor for the bound_geom file. parse_settings are read from s.
+ * s: parse_settings object to read.
  * ercode: if an error occurs while parsing the .geom file and ercode is not NULL, a code for the error is saved there
  */
-bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
+bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
     problem(s.geom_fname, ercode),
     strct(structure_from_settings(s, problem, ercode)),
     fields(strct)
@@ -655,14 +643,14 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
     post_source_t = s.post_source_t;
 
     //add fields specified in the problem
-    std::vector<CompositeObject*> data = problem.get_data();
+    std::vector<composite_object*> data = problem.get_data();
     for (size_t i = 0; i < data.size(); ++i) {
 	if (data[i]->has_metadata("type")) {
-        Value type = data[i]->fetch_metadata("type");
+        value type = data[i]->fetch_metadata("type");
 	    if (type.type == VAL_STR && strcmp(type.val.s, "field_source") == 0) {
 		//figure out the volume for the field source
-		const Object* l_child = data[i]->get_child_l();
-		const Object* r_child = data[i]->get_child_r();
+		const object* l_child = data[i]->get_child_l();
+		const object* r_child = data[i]->get_child_r();
 		object_type l_type = data[i]->get_child_type_l();
 		//WLOG fix the left child to be the one we care about
 		if (r_child && !l_child) {
@@ -671,8 +659,8 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 		}
 		//make sure that the object is a box so that we can figure out the corner and the offset
 		if (l_type == CGS_BOX) {
-		    evec3 center = ((Box*)l_child)->get_center();
-		    evec3 offset = ((Box*)l_child)->get_offset();
+		    evec3 center = ((box*)l_child)->get_center();
+		    evec3 offset = ((box*)l_child)->get_offset();
 		    double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();
 		    double y_0 = center.y() - offset.y();double y_1 = center.y() + offset.y();
 		    double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
@@ -750,7 +738,7 @@ void bound_geom::add_point_source(meep::component c, const meep::src_time &src, 
  * vol: the region for the source
  * amp: the amplitude of the source
  */
-void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const Box& vol, std::complex<double> amp) {
+void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const box& vol, std::complex<double> amp) {
     evec3 center = vol.get_center();
     evec3 offset = vol.get_offset();
     double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();

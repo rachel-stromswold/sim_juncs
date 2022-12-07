@@ -18,6 +18,11 @@
 
 #define DEFAULT_WIDTH_N 5
 #define THICK_SCALE 1.0
+//for drawing images
+#define ROOT_BUF_SIZE 128
+#define CAM_X	1.5
+#define CAM_Y	1.3
+#define CAM_Z	2.0
 
 #define CLUSTER_NAME "cluster_"
 #define POINT_NAME "point_"
@@ -35,7 +40,7 @@ const H5::DataType H5_float_type = H5::PredType::NATIVE_DOUBLE;
 #endif
 
 typedef struct {
-    CompositeObject* c;
+    composite_object* c;
     double s;
 } region_scale_pair;
 
@@ -56,14 +61,14 @@ class cgs_material_function : public meep::material_function {
 
 public:
     cgs_material_function(double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
-    cgs_material_function(CompositeObject* p_volume, std::string type="eps", double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
+    cgs_material_function(composite_object* p_volume, std::string type="eps", double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
     cgs_material_function(region_scale_pair p_volume, double p_def_ret=1.0, _uint p_smooth_n=1, double p_smooth_rad=DEFAULT_SMOOTH_RAD);
     cgs_material_function(const cgs_material_function& o);
     cgs_material_function(cgs_material_function&& o);
     cgs_material_function& operator=(cgs_material_function&& o);
     ~cgs_material_function();
 
-    void add_region(CompositeObject* p_reg, std::string type="eps");
+    void add_region(composite_object* p_reg, std::string type="eps");
     virtual double chi1p1(meep::field_type ft, const meep::vec &r);
     virtual double eps(const meep::vec &r);
     virtual double mu(const meep::vec &r);
@@ -95,7 +100,7 @@ public:
     //double cutoff;
     double amplitude;
 
-    source_info(Value info, parse_ercode* ercode);
+    source_info(value info, parse_ercode* ercode);
 };
 
 // Gaussian-envelope source with given frequency, width, peak-time, cutoff and phase
@@ -129,7 +134,7 @@ struct sto_vec {
 
 class bound_geom {
 public:
-    bound_geom(const Settings& s, parse_ercode* ercode=NULL);
+    bound_geom(const parse_settings& s, parse_ercode* ercode=NULL);
     ~bound_geom();
     std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
     std::vector<data_arr> get_field_times() { return field_times; }
@@ -137,7 +142,7 @@ public:
     size_t get_n_monitor_clusters() const { return monitor_clusters.size(); }
 
     void add_point_source(meep::component, const meep::src_time &src, const meep::vec &, std::complex<double> amp = 1.0);
-    void add_volume_source(meep::component c, const meep::src_time &src, const Box& vol, std::complex<double> amp = 1.0);
+    void add_volume_source(meep::component c, const meep::src_time &src, const box& vol, std::complex<double> amp = 1.0);
     void run(const char* fname_prefix);
     void save_field_times(const char* fname_prefix);
     void write_settings(FILE* fp);
@@ -145,12 +150,12 @@ public:
     double fs_to_meep_time(double t) const { return t*0.299792458*um_scale; }
     double meep_time_to_fs(double t) const { return t/(0.299792458*um_scale); }
 
-    Scene problem;
+    scene problem;
 
 #ifdef DEBUG_INFO
-    std::vector<drude_suscept> parse_susceptibilities(Value val, int* er);
-    meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
-    parse_ercode parse_monitors(CompositeObject* comp);
+    std::vector<drude_suscept> parse_susceptibilities(value val, int* er);
+    meep::structure* structure_from_settings(const parse_settings& s, scene& problem, parse_ercode* ercode);
+    parse_ercode parse_monitors(composite_object* comp);
 #endif
 
 private:
@@ -181,8 +186,8 @@ private:
 
 #ifndef DEBUG_INFO
     std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
-    meep::structure* structure_from_settings(const Settings& s, Scene& problem, parse_ercode* ercode);
-    parse_ercode parse_monitors(CompositeObject* comp);
+    meep::structure* structure_from_settings(const parse_settings& s, scene& problem, parse_ercode* ercode);
+    parse_ercode parse_monitors(composite_object* comp);
 #endif
 };
 

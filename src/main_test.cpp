@@ -191,7 +191,7 @@ TEST_CASE("Check that numbers are written correctly") {
 
 TEST_CASE("Test builtin functions") {
     char buf[BUF_SIZE];
-    Value tmp_val;
+    value tmp_val;
     context sc;
     parse_ercode er = E_SUCCESS;
 
@@ -261,7 +261,7 @@ TEST_CASE("Test value parsing") {
     char buf[BUF_SIZE];
     context sc;
     parse_ercode er = E_SUCCESS;
-    Value tmp_val;
+    value tmp_val;
 
     SUBCASE("Reading numbers to values works") {
 	//test integers
@@ -372,7 +372,7 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.n_els == 2);
 	{
 	    //check the first sublist
-	    Value element = tmp_val.val.l[0];
+	    value element = tmp_val.val.l[0];
 	    CHECK(element.type == VAL_LIST);
 	    CHECK(element.n_els == 3);
 	    CHECK(element.val.l != NULL);
@@ -404,7 +404,7 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.n_els == 3);
 	{
 	    //check the first sublist
-	    Value element = tmp_val.val.l[0];
+	    value element = tmp_val.val.l[0];
 	    CHECK(element.type == VAL_LIST);
 	    CHECK(element.n_els == 2);
 	    CHECK(element.val.l != NULL);
@@ -473,7 +473,7 @@ TEST_CASE("Test function parsing") {
     const char* test_func_1 = "f()";
     const char* test_func_2 = "f(\"a\", \"b\", \"c\", 4)";
     const char* test_func_3 = "foo(vec(1,2,3),\"a\",\"banana\")";
-    const char* test_func_4 = "foo(1, \"Box(0,1,2,3)\", 4+5)";
+    const char* test_func_4 = "foo(1, \"box(0,1,2,3)\", 4+5)";
     const char* test_func_5 = "foo ( 1 , \"b , c\" )";
     const char* test_func_6 = "f(eps = 3.5)";
     const char* test_func_7 = "f(name = \"bar\")";
@@ -532,7 +532,7 @@ TEST_CASE("Test function parsing") {
     INFO("func arg=", cur_func.args[0].to_float());
     CHECK(cur_func.args[0].to_float() == 1);
     INFO("func arg=", cur_func.args[1].to_c_str());
-    CHECK(strcmp(cur_func.args[1].to_c_str(), "Box(0,1,2,3)") == 0);
+    CHECK(strcmp(cur_func.args[1].to_c_str(), "box(0,1,2,3)") == 0);
     INFO("func arg=", cur_func.args[2].to_float());
     CHECK(cur_func.args[2].to_float() == 9);
     cleanup_func(&cur_func);
@@ -582,11 +582,58 @@ TEST_CASE("Test function parsing") {
     cleanup_func(&cur_func);
 }
 
-TEST_CASE("Test Object Trees") {
+TEST_CASE("Test volumes") {
+    //initialize random state
+    _uint state = lcg(lcg(TEST_SEED));
+    double x, y, z;
+    //test volumes by sampling from a cube with side lengths unit 1 and testing the fraction that are included
+    evec3 center(0.5, 0.5, 0.5);
+    evec3 corner_1(1, 1, 0);
+    evec3 corner_2(0, 1, 1);
+    evec3 corner_3(1, 0, 1);
+    sphere test_sphere(center, 0.5);
+    cylinder test_cyl(center, 0.5, 0.5, 0.5);
+    plane test_plane(corner_1, corner_2, corner_3);
+    double sphere_frac = 0;
+    double plane_frac = 0;
+    double cyl_frac = 0;
+    //sample random points
+    for (size_t i = 0; i < TEST_N; ++i) {
+	state = lcg(state);
+	x = (double)state / LCG_MOD;
+	state = lcg(state);
+	y = (double)state / LCG_MOD;
+	state = lcg(state);
+	z = (double)state / LCG_MOD;
+	state = lcg(state);
+	evec3 r(x, y, z);
+	if (test_sphere.in(r))
+	    sphere_frac += 1.0/TEST_N;
+	if (test_plane.in(r))
+	    plane_frac += 1.0/TEST_N;
+	if (test_cyl.in(r))
+	    cyl_frac += 1.0/TEST_N;
+    }
+    double v_sphere = 1.33333*M_PI*0.125;
+    double v_plane = 5.0/6;
+    double v_cyl = M_PI*0.125;
+    
+    CHECK(abs(v_sphere - sphere_frac)/v_sphere < EPSILON);
+    CHECK(abs(v_plane - plane_frac)/v_plane < EPSILON);
+    CHECK(abs(v_cyl - cyl_frac)/v_cyl < EPSILON);
+    //draw test images
+    evec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
+    evec3 cam_look(-CAM_X, -CAM_Y, -CAM_Z);
+    test_sphere.draw("/tmp/test_sphere.pgm", 1.0, cam_pos, cam_look);
+    test_cyl.draw("/tmp/test_cylinder.pgm", 1.0, cam_pos, cam_look);
+    test_plane.draw("/tmp/test_plane.pgm", 1.0, cam_pos, cam_look);
+}
+
+TEST_CASE("Test object Trees") {
     //declare variables
     char buf[BUF_SIZE];
-    ObjectStack test_stack;
-    Object* cur_obj;object_type cur_type;
+    object_stack test_stack;
+    object* cur_obj;object_type cur_type;
     parse_ercode er;
 
     //setup a bunch of strings describing objects
@@ -598,7 +645,7 @@ TEST_CASE("Test Object Trees") {
     const char* rl_str = "Box(vec(0,0,0), vec(1,1,1))";
     const char* rr_str = "Cylinder(vec(2,0,0), 1, 1)";
 
-    Scene sc;
+    scene sc;
     //Insert root object
     strncpy(buf, root_obj_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cgs_func cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
@@ -657,10 +704,10 @@ TEST_CASE("Test Object Trees") {
     cleanup_func(&cur_func);
 
     //get all composite objects in the tree
-    CompositeObject* root = test_stack.get_root();
+    composite_object* root = test_stack.get_root();
     CHECK(root != NULL);
-    CompositeObject* comp_l = (CompositeObject*)(root->get_child_l());
-    CompositeObject* comp_r = (CompositeObject*)(root->get_child_r());
+    composite_object* comp_l = (composite_object*)(root->get_child_l());
+    composite_object* comp_r = (composite_object*)(root->get_child_r());
     //check that all are not NULL and that types are correct
     CHECK(root->get_child_type_l() == CGS_COMPOSITE);
     CHECK(root->get_child_type_r() == CGS_COMPOSITE);
@@ -684,17 +731,17 @@ TEST_CASE("Test Object Trees") {
 
 TEST_CASE("Test File Parsing") {
     parse_ercode er;
-    Scene s("tests/test.geom", &er);
+    scene s("tests/test.geom", &er);
     CHECK(er == E_SUCCESS);
     //check that metadata works
-    std::vector<CompositeObject*> data_vec = s.get_data();
+    std::vector<composite_object*> data_vec = s.get_data();
     CHECK(data_vec.size() > 0);
     CHECK(data_vec[0]->has_metadata("name"));
     CHECK(data_vec[0]->has_metadata("entry"));
     CHECK(data_vec[0]->has_metadata("num"));
-    Value name_val = data_vec[0]->fetch_metadata("name");
-    Value ntry_val = data_vec[0]->fetch_metadata("entry");
-    Value num_val = data_vec[0]->fetch_metadata("num");
+    value name_val = data_vec[0]->fetch_metadata("name");
+    value ntry_val = data_vec[0]->fetch_metadata("entry");
+    value num_val = data_vec[0]->fetch_metadata("num");
     CHECK(name_val.type == VAL_STR);
     CHECK(ntry_val.type == VAL_STR);
     CHECK(num_val.type == VAL_NUM);
@@ -705,18 +752,18 @@ TEST_CASE("Test File Parsing") {
     CHECK(num_val.to_float() == 3);
 
     //test geometric information
-    std::vector<CompositeObject*> roots_vec = s.get_roots();
+    std::vector<composite_object*> roots_vec = s.get_roots();
     CHECK(roots_vec.size() > 0);
-    CompositeObject* root = roots_vec[0];
+    composite_object* root = roots_vec[0];
 
     CHECK(root != NULL);
     //check that all are not NULL and that types are correct
     CHECK(root->get_child_type_l() == CGS_COMPOSITE);
     CHECK(root->get_child_type_r() == CGS_COMPOSITE);
-    CompositeObject* comp_l = (CompositeObject*)(root->get_child_l());
-    CompositeObject* comp_r = (CompositeObject*)(root->get_child_r());
+    composite_object* comp_l = (composite_object*)(root->get_child_l());
+    composite_object* comp_r = (composite_object*)(root->get_child_r());
     CHECK(comp_r->get_child_type_l() == CGS_COMPOSITE);
-    CompositeObject* comp_rl = (CompositeObject*)(comp_r->get_child_l());
+    composite_object* comp_rl = (composite_object*)(comp_r->get_child_l());
     CHECK(comp_l != NULL);
     CHECK(comp_r != NULL);
     CHECK(comp_rl != NULL);
@@ -741,9 +788,9 @@ TEST_CASE("Test File Parsing") {
 
 TEST_CASE("Test Geometric Inclusion") {
     parse_ercode er;
-    Scene s("tests/test.geom", &er);
+    scene s("tests/test.geom", &er);
     CHECK(er == E_SUCCESS);
-    CompositeObject* root = s.get_roots()[0];
+    composite_object* root = s.get_roots()[0];
 
     CHECK(root->in(Eigen::Vector3d(.45,.45,.45)) == 1);
     CHECK(root->in(Eigen::Vector3d(.45,.41,.6)) == 1);
@@ -751,114 +798,15 @@ TEST_CASE("Test Geometric Inclusion") {
     CHECK(root->in(Eigen::Vector3d(.71,.51,.51)) == 0);
     CHECK(root->in(Eigen::Vector3d(.55,.45,.45)) == 0);
     CHECK(root->in(Eigen::Vector3d(.55,.41,.85)) == 0);
-}
-
-TEST_CASE("Test volumes") {
-    //initialize random state
-    _uint state = lcg(lcg(TEST_SEED));
-    double x, y, z;
-    //initialize the camera for viewing the volumes
-    evec3 cam_pos(CAM_X,CAM_Y,CAM_Z);
-    evec3 y_comp(-CAM_X*CAM_Z, -CAM_Y*CAM_Z, CAM_X*CAM_X+CAM_Y*CAM_Y);
-    evec3 x_comp = -cam_pos.cross(y_comp);
-    emat3 view_mat;
-    view_mat << x_comp/x_comp.norm(), y_comp/y_comp.norm(), -cam_pos/cam_pos.norm();
-    //figure out where the origin gets mapped. We will make this the center of the screen
-    evec3 offset = -view_mat*cam_pos;
-    offset.z() = 0;
-    //test volumes by sampling from a cube with side lengths unit 1 and testing the fraction that are included
-    evec3 center(0.5, 0.5, 0.5);
-    evec3 corner_1(1, 1, 0);
-    evec3 corner_2(0, 1, 1);
-    evec3 corner_3(1, 0, 1);
-    Sphere test_sphere(center, 0.5);
-    Cylinder test_cyl(center, 0.5, 0.5, 0.5);
-    Plane test_plane(corner_1, corner_2, corner_3);
-    double sphere_frac = 0;
-    double plane_frac = 0;
-    double cyl_frac = 0;
-    //now load the scene just so we can draw it
-    parse_ercode er;
-    Scene s("tests/test.geom", &er);
-    CHECK(er == E_SUCCESS);
-    CompositeObject* test_root = s.get_roots()[0];
-    //these are matrices specifying the intensity of each pixel in grayscale
-    _uint8 sphere_arr[IM_RES*IM_RES];
-    _uint8 plane_arr[IM_RES*IM_RES];
-    _uint8 cyl_arr[IM_RES*IM_RES];
-    _uint8 scene_arr[IM_RES*IM_RES];
-    for (size_t i = 0; i < IM_RES*IM_RES; ++i) { sphere_arr[i]=0xff;plane_arr[i]=0xff;cyl_arr[i]=0xff;scene_arr[i]=0xff; }
-    //sample random points
-    for (size_t i = 0; i < TEST_N; ++i) {
-	state = lcg(state);
-	x = (double)state / LCG_MOD;
-	state = lcg(state);
-	y = (double)state / LCG_MOD;
-	state = lcg(state);
-	z = (double)state / LCG_MOD;
-	state = lcg(state);
-	//initialize a point from the random values and compute it's position projected onto the view matrix. The z-buffer will act as color intensity
-	evec3 r(x, y, z);
-	evec3 view_r = view_mat*(r - cam_pos);
-	size_t ind = floor( (1+view_r.x())*IM_RES/2 ) + IM_RES*floor( (1+view_r.y())*IM_RES/2 );
-	if (ind >= IM_RES*IM_RES) ind = 0;
-	_uint8 depth = floor(IM_DPT*view_r.z());
-	if (test_sphere.in(r)) {
-	    sphere_frac += 1.0/TEST_N;
-	    if (depth < sphere_arr[ind]) sphere_arr[ind] = depth;
-	}
-	if (test_plane.in(r)) {
-	    plane_frac += 1.0/TEST_N;
-	    if (depth < plane_arr[ind]) plane_arr[ind] = depth;
-	}
-	if (test_cyl.in(r)) {
-	    cyl_frac += 1.0/TEST_N;
-	    if (depth < cyl_arr[ind]) cyl_arr[ind] = depth;
-	}
-	if (test_root->in(r) && depth < scene_arr[ind]) {
-	    scene_arr[ind] = depth;
-	}
-    }
-    //write pgm files to visualize the geometries being drawn
-    FILE* fp_sphere = fopen("/tmp/sphere.pgm", "w");
-    FILE* fp_plane = fopen("/tmp/plane.pgm", "w");
-    FILE* fp_cyl = fopen("/tmp/cyl.pgm", "w");
-    FILE* fp_scene = fopen("/tmp/scene.pgm", "w");
-    fprintf(fp_sphere, "P2\n%d %d\n%d\n", IM_RES, IM_RES, IM_DPT);
-    fprintf(fp_plane, "P2\n%d %d\n%d\n", IM_RES, IM_RES, IM_DPT);
-    fprintf(fp_cyl, "P2\n%d %d\n%d\n", IM_RES, IM_RES, IM_DPT);
-    fprintf(fp_scene, "P2\n%d %d\n%d\n", IM_RES, IM_RES, IM_DPT);
-    for (size_t yy = 0; yy < IM_RES; ++yy) {
-	for (size_t xx = 0; xx < IM_RES; ++xx) {
-	    size_t ind = yy*IM_RES+xx;
-	    fprintf(fp_sphere, "%d ", sphere_arr[ind]);
-	    fprintf(fp_plane, "%d ", plane_arr[ind]);
-	    fprintf(fp_cyl, "%d ", cyl_arr[ind]);
-	    fprintf(fp_scene, "%d ", scene_arr[ind]);
-	}
-	fprintf(fp_sphere, "\n");
-	fprintf(fp_plane, "\n");
-	fprintf(fp_cyl, "\n");
-	fprintf(fp_scene, "\n");
-    }
-    fclose(fp_sphere);
-    fclose(fp_plane);
-    fclose(fp_cyl);
-    fclose(fp_scene);
-
-    double v_sphere = 1.33333*M_PI*0.125;
-    double v_plane = 5.0/6;
-    double v_cyl = M_PI*0.125;
-    
-    CHECK(abs(v_sphere - sphere_frac)/v_sphere < EPSILON);
-    CHECK(abs(v_plane - plane_frac)/v_plane < EPSILON);
-    CHECK(abs(v_cyl - cyl_frac)/v_cyl < EPSILON);
+    evec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
+    evec3 cam_look(-CAM_X, -CAM_Y, -CAM_Z);
+    root->draw("/tmp/test_composite.pgm", 1.0, cam_pos, cam_look);
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {
     parse_ercode er;
     //load settings from the configuration file
-    Settings args;
+    parse_settings args;
     std::string name = "tests/test.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
@@ -866,9 +814,9 @@ TEST_CASE("Test dispersion material volumentric inclusion") {
     CHECK(ret == 0);
 
     //create the geometry object
-    Scene s("tests/test.geom", &er);
+    scene s("tests/test.geom", &er);
     CHECK(er == E_SUCCESS);
-    CompositeObject* root = s.get_roots()[0];
+    composite_object* root = s.get_roots()[0];
     cgs_material_function mat_func(root);
 
     //check locations
@@ -893,7 +841,7 @@ TEST_CASE("Test reading of configuration files") {
     char* name_dup = strdup(name.c_str());
 
     SUBCASE("Reading just a config file works") {
-	Settings args;
+	parse_settings args;
 	int ret = parse_conf_file(&args, name_dup);
 
 	CHECK(args.n_dims == 3);
@@ -915,7 +863,7 @@ TEST_CASE("Test reading of configuration files") {
     }
 
     SUBCASE("Command line arguments override defaults") {
-	Settings args;
+	parse_settings args;
 	//parse commandline arguments
 	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0" };
 	//gcc doesn't like using string literals as c-strings, ugh.
@@ -970,7 +918,7 @@ TEST_CASE("Test reading of configuration files") {
 TEST_CASE("Test geometry file reading") {
     parse_ercode er;
     //load settings from the configuration file
-    Settings args;
+    parse_settings args;
     std::string name = "tests/test.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
@@ -986,7 +934,7 @@ TEST_CASE("Test geometry file reading") {
 
     SUBCASE("Test reading of susceptibilities") {
 	CHECK(er == E_SUCCESS);
-	CompositeObject* root = geometry.problem.get_roots()[0];
+	composite_object* root = geometry.problem.get_roots()[0];
 	std::vector<drude_suscept> sups = geometry.parse_susceptibilities(root->fetch_metadata("susceptibilities"), (int*)(&er));
 	CHECK(er == E_SUCCESS);
 	CHECK(sups.size() == 2);
@@ -1061,7 +1009,7 @@ TEST_CASE("Test that spans of monitor locations are read correctly") {
     parse_ercode er;
 
     //load settings from the configuration file
-    Settings args;
+    parse_settings args;
     std::string name = "tests/span.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
@@ -1100,7 +1048,7 @@ TEST_CASE("Test running with a very small system") {
     char name_buf[BUF_SIZE];
 
     //load settings from the configuration file
-    Settings args;
+    parse_settings args;
     std::string name = "tests/run.conf";
     char* name_dup = strdup(name.c_str());
     int ret = parse_conf_file(&args, name_dup);
