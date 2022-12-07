@@ -4,11 +4,13 @@ set (CMAKE_CXX_STANDARD 11)
 
 #set names for applications
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
-    set(TEST_EXE test)
     set(CMAKE_BUILD_TYPE Debug)
     set(CMAKE_CXX_FLAGS "-Og")
 else()
     set(CMAKE_CXX_FLAGS "-Os")
+endif()
+if(BUILD_TESTS)
+    set(TEST_EXE test)
 endif()
 set(APP_EXE sim_geom)
 
@@ -37,7 +39,7 @@ target_include_directories( ${APP_EXE} PRIVATE ${HDF5_INCLUDE_DIRS})
 target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
 
 #check if we need to build tests
-if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
+if(BUILD_TESTS)
     #build and link the unit testing executable
     add_executable( ${TEST_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
     target_link_libraries(${TEST_EXE} PRIVATE Eigen3::Eigen meep ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
