@@ -44,7 +44,7 @@ typedef struct {
     double post_source_t = 10.0;
     _uint field_dump_span = 20;
     _uint verbosity = 1;//same as meep
-} Settings;
+} parse_settings;
 
 /**
  * Saves a string with the desired numbers with zeros appended to the front such that the total length of the string is n_digits
@@ -85,7 +85,7 @@ inline void set_ercode(int* sto, int er) {
     if (sto) *sto = er;
 }
 
-inline void cleanup_settings(Settings* s) {
+inline void cleanup_settings(parse_settings* s) {
     if (s->geom_fname) free(s->geom_fname_al);
     if (s->monitor_locs) free(s->monitor_locs);
 }
@@ -113,7 +113,7 @@ inline char* trim_whitespace(char* str, size_t* len) {
 /**
  * Parse a single token value pair and save it to the settings struct
  */
-inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const val, _uint vallen) {
+inline void handle_pair(parse_settings* s, char* const tok, _uint toklen, char* const val, _uint vallen) {
     //remove trailing whitespace from value and token strings
     while (toklen > 0 && (tok[toklen-1] == ' ' || tok[toklen-1] == '\t')) --toklen;
     while (vallen > 0 && (val[vallen-1] == ' ' || val[vallen-1] == '\t')) --vallen;
@@ -153,7 +153,7 @@ inline void handle_pair(Settings* s, char* const tok, _uint toklen, char* const 
 }
 
 //helper function to automatically adjust parameters if necessary
-inline void correct_defaults(Settings* s) {
+inline void correct_defaults(parse_settings* s) {
     double total_len = s->len + 2*s->pml_thickness;
 
     //if a number of grid points was specified, use that
@@ -177,7 +177,7 @@ inline void correct_defaults(Settings* s) {
 /**
  * Parse the .ini style configuration file specified by fname
  */
-inline int parse_conf_file(Settings* s, char* fname) {
+inline int parse_conf_file(parse_settings* s, char* fname) {
     char buf[BUF_SIZE];
     _uint toklen = 0;
     char* tok = NULL;
@@ -225,7 +225,7 @@ inline int parse_conf_file(Settings* s, char* fname) {
 }
 
 //parse arguments used by the test program and remove them from the list so that they may safely be passed to open_mp initialization, returns 0 if no errors were detected and an error code otherwise
-inline int parse_args(Settings* a, int* argc, char ** argv) {
+inline int parse_args(parse_settings* a, int* argc, char ** argv) {
     int n_args = *argc;//dereferencing that pointer all the time is kinda annoying
     if (a) {
 	for (_uint i = 0; i < n_args; ++i) {
