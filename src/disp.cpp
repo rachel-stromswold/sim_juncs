@@ -763,12 +763,15 @@ void bound_geom::run(const char* fname_prefix) {
     printf("Set output directory to %s\n", fname_prefix);
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
 
+    //avoid divisions by zero by defaulting to 1
+    if (dump_span == 0) dump_span = 1;
+
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     size_t n_locs = monitor_locs.size();
     field_times.resize(n_locs);
     n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
     for (_uint j = 0; j < n_locs; ++j) {
-	make_data_arr(&(field_times[j]), n_t_pts);
+	make_data_arr(&(field_times[j]), n_t_pts/dump_span);
     }
 
     //figure out the number of digits before the decimal and after
@@ -777,32 +780,23 @@ void bound_geom::run(const char* fname_prefix) {
     int n_digits_b = (int)ceil(rat)+1;
     char h5_fname[BUF_SIZE];
     strcpy(h5_fname, "ex-");
-
-    //ensure that no field dumps are saved
-    if (dump_span == 0) dump_span = n_t_pts+1;
     //run the simulation
     printf("starting simulations\n");
     for (_uint i = 0; i < n_t_pts; ++i) {
-	//fetch monitor points
-	for (_uint j = 0; j < n_locs; ++j) {
-	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
-	    field_times[j].buf[i].re = val.real();
-	    field_times[j].buf[i].im = val.imag();
-	    if (field_times[j].buf[i].re > 1000) {
-		printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, field_times[j].buf[i].re);
-	    }
-	}
-
-        //open an hdf5 file with a reasonable name
+        //write each of the monitor locations, but only if we've reached a savepoint
         if (i % dump_span == 0) {
-	    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
-	    /*meep::h5file* file = fields.open_h5file(h5_fname);
-	    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
-	    delete file;*/
-	    fields.step();
+	    //fetch monitor points
+	    for (_uint j = 0; j < n_locs; ++j) {
+		std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
+		field_times[j].buf[i].re = val.real();
+		field_times[j].buf[i].im = val.imag();
+		if (field_times[j].buf[i].re > 1000) {
+		    printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, field_times[j].buf[i].re);
+		}
+	    }
 	    printf("    %d%% complete\n", 100*i/n_t_pts);
-	    //we're done with the file
 	}
+	fields.step();
     }
     printf("Simulations completed\n");
 }
@@ -879,7 +873,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     //set the start and end times for the simulation TODO: is the first boundary necessary or can it be left implicit?
     _ftype time_boundaries[3];
     time_boundaries[0] = 0.0;time_boundaries[1] = meep_time_to_fs(ttot);            //start and end of simulation times
-    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])/n_t_pts;   //step size
+    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])*dump_span/n_t_pts;   //step size
     t_info_dataset.write(time_boundaries, H5_float_type);
     //write the number of clusters
     hsize_t n_info_dim[1];
