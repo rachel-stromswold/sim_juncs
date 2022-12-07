@@ -734,7 +734,8 @@ Value context::parse_list(char* str, parse_ercode& er) {
 	    free(expr_name);
 	    if (er != E_SUCCESS) { n_els = i;return sto; }
 	}
-	pop(NULL);
+	name_val_pair tmp;
+	pop(&tmp);
 	//reset the string so that it can be parsed again
 	for_start[0] = 'f';
 	in_start[0] = 'i';
@@ -990,14 +991,13 @@ CGS_Stack<T>::CGS_Stack() {
 
 template <typename T>
 CGS_Stack<T>::~CGS_Stack<T>() {
-    stack_ptr = 0;
-    buf_len = 0;
-
     if (buf) {
 	for (_uint i = 0; i < stack_ptr; ++i) buf[i].~T();
 	free(buf);
 	buf = NULL;
     }
+    stack_ptr = 0;
+    buf_len = 0;
 }
 
 //swap
@@ -1768,14 +1768,7 @@ Value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
 
 parse_ercode Scene::read_file(const char* p_fname) {
     parse_ercode er = E_SUCCESS;
-    //char buf[BUF_SIZE];
-    char* buf = (char*)malloc(sizeof(char)*BUF_SIZE);
-    size_t buf_size = BUF_SIZE;
-    char func_name[BUF_SIZE];
-    size_t n_args = 0;
 
-    //indicate that no names are stored in all of the specified fields
-    func_name[0] = 0;
     //generate the composite object on the fly
     ObjectStack tree_pos;
     CGS_Stack<block_type> blk_stack;
@@ -1793,6 +1786,8 @@ parse_ercode Scene::read_file(const char* p_fname) {
         fp = fopen(p_fname, "r");
     }
     if (fp) {
+	char* buf = (char*)malloc(sizeof(char)*BUF_SIZE);
+	size_t buf_size = BUF_SIZE;
 	size_t lineno = 1;size_t next_lineno = 1;
 	int line_len = read_cgs_line(&buf, &buf_size, fp, &next_lineno);
 	char last_char = 0;
@@ -1815,10 +1810,12 @@ parse_ercode Scene::read_file(const char* p_fname) {
 			switch (er) {
 			    case E_BAD_TOKEN:
 				printf("Error on line %d: Invalid function name \"%s\"\n", lineno, buf);
+				free(buf);
 				cleanup_func(&cur_func);
 				return fail_exit(er, fp);
 			    case E_BAD_SYNTAX:
 				printf("Error on line %d: Invalid syntax\n", lineno);
+				free(buf);
 				cleanup_func(&cur_func);
 				return fail_exit(er, fp);
 			    default: break;
@@ -1930,12 +1927,12 @@ parse_ercode Scene::read_file(const char* p_fname) {
 	    line_len = read_cgs_line(&buf, &buf_size, fp, &next_lineno);
 	    lineno = next_lineno;
 	}
+	free(buf);
 	fclose(fp);
     } else {
         printf("Error: couldn't open file %s for reading!\n", p_fname);
         return E_NOFILE;
     }
-    free(buf);
 
     return er;
 }

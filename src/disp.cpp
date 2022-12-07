@@ -268,6 +268,7 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
 }
 
 source_info::source_info(Value info, parse_ercode* ercode) {
+    if (ercode) *ercode = E_SUCCESS;
     //initialize default values
     type = SRC_GAUSSIAN;
     component = meep::Ex;
@@ -679,6 +680,7 @@ bound_geom::bound_geom(const Settings& s, parse_ercode* ercode) :
 
 		    //only continue if a shape for the pulse was specified
 		    if (data[i]->has_metadata("envelope")) {
+			*ercode = E_SUCCESS;
 			source_info cur_info(data[i]->fetch_metadata("envelope"), ercode);
 			//create the EM-wave source at the specified location only if everything was read successfully
 			if (*ercode == E_SUCCESS) {

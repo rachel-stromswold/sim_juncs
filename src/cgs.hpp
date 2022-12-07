@@ -347,6 +347,7 @@ private:
 public:
     void swap(name_val_pair& o);
     void copy(const name_val_pair& o) { name = strdup(o.name);val = copy_val(o.val); }
+    name_val_pair() { name = NULL;val.type = VAL_UNDEF;val.val.x = 0;val.n_els = 0; }
     name_val_pair(const char* p_name, Value p_val) { name = strdup(p_name);val = copy_val(p_val); }
     name_val_pair(const name_val_pair& o) { copy(o); }
     name_val_pair(name_val_pair&& o) { name = o.name;val = o.val;o.name = NULL;o.val.type = VAL_UNDEF;o.val.val.x = 0; }
