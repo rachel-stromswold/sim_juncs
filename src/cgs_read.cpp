@@ -324,7 +324,7 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	er = E_LACK_TOKENS;
 	return sto;
     } else if (tmp_f.n_args == 1) {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
 	if (tmp_f.args[0].val.x < 0) { er = E_BAD_VALUE;return sto; }
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
@@ -335,8 +335,8 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	    sto.val.l[i].val.x = i;
 	}
     } else if (tmp_f.n_args == 2) {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
 	int list_start = (int)(tmp_f.args[0].val.x);
@@ -351,9 +351,9 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	    ++j;
 	}
     } else {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
-	if (tmp_f.args[2].type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
 	double list_start = tmp_f.args[0].val.x;
@@ -369,6 +369,40 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
     }
     er = E_SUCCESS;
     return sto;
+}
+/**
+ * linspace(a, b, n) Create a list of n equally spaced real numbers starting at a and ending at b. This function must be called with three aguments unlike np.linspace. Note that the value b is included in the list
+ */
+value make_linspace(cgs_func tmp_f, parse_ercode& er) {
+    value sto;
+    if (tmp_f.n_args < 3) {
+        er = E_LACK_TOKENS;
+        return sto;
+    } else {
+        if (tmp_f.args[0].type == VAL_NUM && tmp_f.args[1].type == VAL_NUM && tmp_f.args[2].type == VAL_NUM) {
+            sto.type = VAL_LIST;
+            sto.n_els = (size_t)(tmp_f.args[2].val.x);
+            //prevent divisions by zero
+            if (sto.n_els < 2) {
+                sto.type = VAL_UNDEF;
+                sto.n_els = 0;
+                sto.val.l = NULL;
+                er = E_BAD_VALUE;
+                return sto;
+            }
+            sto.val.l = (value*)malloc(sizeof(value)*sto.n_els);
+            double step = (tmp_f.args[1].val.x - tmp_f.args[0].val.x)/(sto.n_els - 1);
+            for (size_t i = 0; i < sto.n_els; ++i) {
+                sto.val.l[i].type = VAL_NUM;
+                sto.val.l[i].val.x = step*i + tmp_f.args[0].val.x;
+            }
+            er = E_SUCCESS;
+            return sto;
+        } else {
+            er = E_BAD_TYPE;
+            return sto;
+        }    
+    }
 }
 /**
  * Take a list value and flatten it so that it has numpy dimensions (n) where n is the sum of the length of each list in the base list. values are copied in order e.g flatten([0,1],[2,3]) -> [0,1,2,3]
@@ -1128,6 +1162,8 @@ value context::parse_value(char* str, parse_ercode& er) {
 			sto = make_vec(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "range") == 0) {
 			sto = make_range(tmp_f, er);
+		    } else if (strcmp(tmp_f.name, "linspace") == 0) {
+			sto = make_linspace(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "flatten") == 0) {
 			sto = flatten_list(tmp_f, er);
 		    }

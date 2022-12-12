@@ -9,6 +9,23 @@
 const double epsilon = 0.01;
 const double n_monitor_spheres = 2;
 
+/**
+ * insertMember isn't available in all versions of hdf5, and there were some issues that popped up calling it after running the simulations. It's better to fail early if something is wrong
+ */
+int test_h5_funcs() {
+    printf("Now trying HDF5 library files\n");
+    int ret = 1;
+    /*try {
+        H5::CompType fieldtype(sizeof(complex));
+        fieldtype.insertMember("Re", HOFFSET(complex, re), H5_float_type);
+        fieldtype.insertMember("Im", HOFFSET(complex, im), H5_float_type);
+    } catch (...) {
+        printf("insertMember doesn't work!\n");
+        ret = 0;
+    }*/
+    return ret;
+}
+
 int main(int argc, char **argv) {
     parse_settings args;
 
@@ -17,6 +34,7 @@ int main(int argc, char **argv) {
     if (ret) return ret;
     //pass the rest of the arguments to meep_mpi initialization
     meep::initialize mpi(argc, argv);
+
     //load defaults from the configuration file
     char* name;
     //check if a name was supplied via command line argument
@@ -33,8 +51,8 @@ int main(int argc, char **argv) {
     if (ret) return ret;
     correct_defaults(&args);
 
-    double z_center = args.len/2 + args.pml_thickness;
-    double y_loc = z_center;
+    //test hdf5
+    int has_insert_member = test_h5_funcs();
 
     //create the geometry object
     parse_ercode ercode = E_SUCCESS;

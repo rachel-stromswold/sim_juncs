@@ -14,7 +14,7 @@
 #define PREFIX_LEN 3
 
 //meep seems to be confused about how large fields are. On the cluster I consistently saw writes past the official meep bounds. This constant is here to help prevent data clobbering
-#define FIELDS_PAD_SIZE 10
+#define FIELDS_PAD_SIZE 128
 
 #define DEFAULT_WIDTH_N 5
 #define THICK_SCALE 1.0
@@ -170,7 +170,7 @@ private:
     meep::fields fields;
 
     //meep:fields seems to be confused about how long it is, so we add a whole bunch of dummy variables so that it doesn't clobber other variables
-    char dummy_vals[FIELDS_PAD_SIZE];
+    unsigned char dummy_vals[FIELDS_PAD_SIZE];
 
     double um_scale;
     double ttot = 0;

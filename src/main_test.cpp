@@ -226,6 +226,75 @@ TEST_CASE("Test builtin functions") {
 	    CHECK(tmp_val.val.l[i].val.x == 0.5*i+1);
 	}
 	cleanup_val(&tmp_val);
+        //graceful failure cases
+        strncpy(buf, "range()", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_LACK_TOKENS);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "range(\"1\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "range(0.5,\"1\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "range(0.5,1,\"2\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+    }
+    SUBCASE("linspace()") {
+        strncpy(buf, "linspace(1,2,5)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_LIST);
+        CHECK(tmp_val.n_els == 5);
+        for (size_t i = 0; i < 4; ++i) {
+            CHECK(tmp_val.val.l[i].type == VAL_NUM);
+            CHECK(tmp_val.val.l[i].val.x == 1.0+0.25*i);
+        }
+        cleanup_val(&tmp_val);
+        strncpy(buf, "linspace(2,1,5)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_LIST);
+        CHECK(tmp_val.n_els == 5);
+        for (size_t i = 0; i < 4; ++i) {
+            CHECK(tmp_val.val.l[i].type == VAL_NUM);
+            CHECK(tmp_val.val.l[i].val.x == 2.0-0.25*i);
+        }
+        cleanup_val(&tmp_val);
+        //graceful failure cases
+        strncpy(buf, "linspace(2,1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_LACK_TOKENS);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "linspace(2,1,1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_VALUE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "linspace(\"2\",1,1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "linspace(2,\"1\",1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "linspace(2,1,\"1\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
     }
     SUBCASE("flatten()") {
 	strncpy(buf, "flatten([])", BUF_SIZE);buf[BUF_SIZE-1] = 0;
@@ -1080,11 +1149,11 @@ TEST_CASE("Test running with a very small system") {
     H5::CompType fieldtype(sizeof(complex));
     //for some reason linking insertMember breaks on the cluster, we do it manually
     hid_t float_member_id = H5_float_type.getId();
-    snprintf(name_buf, BUF_SIZE, "Re");
-    herr_t ret_val = H5Tinsert(fieldtype.getId(), name_buf, HOFFSET(complex, re), float_member_id);
+    //snprintf(name_buf, BUF_SIZE, "Re");
+    herr_t ret_val = H5Tinsert(fieldtype.getId(), "Re", HOFFSET(complex, re), float_member_id);
     CHECK(ret_val == 0);
-    snprintf(name_buf, BUF_SIZE, "Im");
-    ret_val = H5Tinsert(fieldtype.getId(), name_buf, HOFFSET(complex, im), float_member_id);
+    //snprintf(name_buf, BUF_SIZE, "Im");
+    ret_val = H5Tinsert(fieldtype.getId(), "Im", HOFFSET(complex, im), float_member_id);
     CHECK(ret_val == 0);
     //do the same for location types
     H5::CompType loctype(sizeof(sto_vec));
