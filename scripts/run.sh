@@ -89,3 +89,5 @@ cp "$h5dir"/amps_theory.pdf "$oname"/figures/amps_theory_"$SLURM_ARRAY_TASK_ID".
 cp "$h5dir"/amps.pdf "$oname"/figures/amps_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/phases.pdf "$oname"/figures/phases_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/sigs.pdf "$oname"/figures/sigs_"$SLURM_ARRAY_TASK_ID".pdf
+cp "$h5dir"/root_0.pgm "$oname"/figures/root_0.pgm
+cp "$h5dir"/root_1.pgm "$oname"/figures/root_1.pgm

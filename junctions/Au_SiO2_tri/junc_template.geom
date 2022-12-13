@@ -3,20 +3,20 @@ data(type = "field_source", envelope = ["Gaussian", "Ex", 0.7, 1.0, 1.570796, 0.
     Box([0,0,1], [18,18,1]);
 }
 
-data(type = "monitor", locations = [vec(x, 9.0, $TOP-0.1) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+1.5) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+3.0) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+3.5) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+4.0) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+4.5) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+5.0) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP-0.1) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+1.5) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+3.0) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+3.5) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+4.0) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+4.5) for x in range(-2,8,0.2)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+5.0) for x in range(-2,8,0.2)]) {}
+data(type = "monitor", locations = [vec(x, 9.0, $TOP-0.1) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.0, $TOP+1.5) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.0, $TOP+3.0) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.0, $TOP+3.5) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.0, $TOP+4.0) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.0, $TOP+4.5) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.0, $TOP+5.0) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.2, $TOP-0.1) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.2, $TOP+1.5) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.2, $TOP+3.0) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.2, $TOP+3.5) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.2, $TOP+4.0) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.2, $TOP+4.5) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, 9.2, $TOP+5.0) for x in linspace($LEFT-2,9,20)]) {}
 
 //Au
 //elemental metals from A.D. Rakic et al., Applied Optics, Vol. 37, No. 22, pp. 5271-83 (1998)
