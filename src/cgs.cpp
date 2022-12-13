@@ -4,7 +4,7 @@
 
 object::object(int p_invert) {
     invert = p_invert;
-    trans_mat = emat3::Identity();
+    trans_mat = mat3x3::id();
 }
 
 void object::set_inversion(int p_invert) {
@@ -14,20 +14,22 @@ void object::set_inversion(int p_invert) {
 	invert = 1;
 }
 
-void object::rescale(const evec3& components) {
-    trans_mat = trans_mat*(components.asDiagonal());
+void object::rescale(const vec3& components) {
+    trans_mat = trans_mat*(components.make_diagonal());
 }
 
 uint32_t lcg(uint32_t state) { return state*1664525 + 1013904223; }//LCG PRNG with parameters from Numerical Recipes
-void object::draw(const char* out_fname, double scale, evec3 cam_pos, evec3 cam_look, size_t res, size_t n_samples) {
+void object::draw(const char* out_fname, double scale, vec3 cam_pos, vec3 cam_look, size_t res, size_t n_samples) {
     double x,y,z;
     //initialize random state
     uint32_t state = lcg(lcg(1465432554));
     //cross the look direction with the z direction
-    evec3 x_comp(cam_look.y(), -cam_look.x(), 0);
-    evec3 y_comp = x_comp.cross(cam_look);
-    emat3 view_mat;
-    view_mat << x_comp/x_comp.norm(), y_comp/y_comp.norm(), cam_look/cam_look.norm();
+    vec3 x_comp(cam_look.y(), -cam_look.x(), 0);
+    vec3 y_comp = x_comp.cross(cam_look);
+    mat3x3 view_mat;
+    view_mat.set_row(0, x_comp.normalize());
+    view_mat.set_row(1, y_comp.normalize());
+    view_mat.set_row(2, cam_look.normalize());
     //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
     _uint8 im_arr[res*res];
     for (size_t i = 0; i < res*res; ++i) im_arr[i]=0xff;
@@ -42,8 +44,8 @@ void object::draw(const char* out_fname, double scale, evec3 cam_pos, evec3 cam_
 	z = (double)state / UINT32_MAX;
 	state = lcg(state);
 	//initialize a point from the random values and compute it's position projected onto the view matrix. The z-buffer will act as color intensity
-	evec3 r(x, y, z);
-	evec3 view_r = view_mat*(r*scale - cam_pos);
+	vec3 r(x, y, z);
+	vec3 view_r = view_mat*(r*scale - cam_pos);
 	//figure out the index and depth and store the result into the array
 	size_t ind = floor( (1+view_r.x())*res/2 ) + res*floor( (1+view_r.y())*res/2 );
 	if (ind >= res*res)
@@ -73,25 +75,25 @@ void object::draw(const char* out_fname, double scale, evec3 cam_pos, evec3 cam_
 
 /** ======================================================== sphere ======================================================== **/
 
-sphere::sphere(evec3& p_center, double p_rad, int p_invert) : object(p_invert) {
+sphere::sphere(vec3& p_center, double p_rad, int p_invert) : object(p_invert) {
     center = p_center;
     rad = p_rad;
 }
 
-sphere::sphere(evec3& p_center, evec3& p_rad, int p_invert) : object(p_invert) {
+sphere::sphere(vec3& p_center, vec3& p_rad, int p_invert) : object(p_invert) {
     center = p_center;
     rad = 1;
-    rescale( evec3(1/p_rad.x(), 1/p_rad.y(), 1/p_rad.z()) );
+    rescale( vec3(1/p_rad.x(), 1/p_rad.y(), 1/p_rad.z()) );
 }
 
-int sphere::in(const evec3& r) {
+int sphere::in(const vec3& r) {
     //find the relative offset between the input vector and the center of the box
-    evec3 r_rel = trans_mat*(r - center);
+    vec3 r_rel = trans_mat*(r - center);
     if (r_rel.norm() > rad) return invert;
     return 1 - invert;
 }
 
-box::box(evec3& p_corner_1, evec3& p_corner_2, int p_invert) : object(p_invert) {
+box::box(vec3& p_corner_1, vec3& p_corner_2, int p_invert) : object(p_invert) {
     offset = (p_corner_2 - p_corner_1)/2;
     center = p_corner_1 + offset;
     //wlog, fix the offset to always be positive from the center
@@ -102,9 +104,9 @@ box::box(evec3& p_corner_1, evec3& p_corner_2, int p_invert) : object(p_invert) 
 
 /** ======================================================== box ======================================================== **/
 
-int box::in(const evec3& r) {
+int box::in(const vec3& r) {
     //find the relative offset between the input vector and the center of the box
-    evec3 r_rel = trans_mat*(r - center);
+    vec3 r_rel = trans_mat*(r - center);
     //check if we're outside the bounding box
     if (fabs(r_rel.x()) > offset.x()) {
         return invert;
@@ -122,7 +124,7 @@ int box::in(const evec3& r) {
 /**
  * The term plane is a bit misleading since we are describing the three dimensional volume. The plane has a fixed orientation defined by the normal vector and an offset. Any point with a component along the normal vector which is less than the offset will be included in the volume.
  */
-plane::plane(evec3& p_normal, double p_offset, int p_invert) : object(0) {
+plane::plane(vec3& p_normal, double p_offset, int p_invert) : object(0) {
     if (p_invert)
 	offset = -p_offset;
     else
@@ -133,17 +135,16 @@ plane::plane(evec3& p_normal, double p_offset, int p_invert) : object(0) {
 /**
  * Construct a plane defined by three points. The normal vector is fixed to be (point_2 - point_1)X(point_3 - point_1). Thus, flipping the order of the arguments point_1 and point_2 flips the direction of inclusion.
  */
-plane::plane(evec3& point_1, evec3& point_2, evec3& point_3, int p_invert) : object(0) {
-    evec3 diff_2 = point_2 - point_1;
-    evec3 diff_3 = point_3 - point_1;
-    normal = diff_2.cross(diff_3);
-    normal /= normal.norm();
+plane::plane(vec3& point_1, vec3& point_2, vec3& point_3, int p_invert) : object(0) {
+    vec3 diff_2 = point_2 - point_1;
+    vec3 diff_3 = point_3 - point_1;
+    normal = diff_2.cross(diff_3).normalize();
     offset = normal.dot(point_1);
     if (p_invert)
 	offset *= -1;
 }
 
-int plane::in(const evec3& r) {
+int plane::in(const vec3& r) {
     double norm_comp = r.dot(normal);
     if (norm_comp > offset)
 	return 0;
@@ -153,7 +154,7 @@ int plane::in(const evec3& r) {
 
 /** ======================================================== cylinder ======================================================== **/
 
-cylinder::cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, int p_invert) : object(p_invert) {
+cylinder::cylinder(vec3& p_center, double p_height, double p_r1, double p_r2, int p_invert) : object(p_invert) {
     center = p_center;
     height = p_height;
     r1_sq = p_r1*p_r1;
@@ -161,9 +162,9 @@ cylinder::cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, i
     r2_sq = p_r2*p_r2;
 }
 
-int cylinder::in(const evec3& r) {
+int cylinder::in(const vec3& r) {
     //find the relative offset between the input vector and the center of the box
-    evec3 r_rel = trans_mat*(r - center);
+    vec3 r_rel = trans_mat*(r - center);
     if (r_rel.z() < 0 || r_rel.z() > height) return invert;
     double cent_rad_sq = r_rel.x()*r_rel.x() + r_rel.y()*r_rel.y();
     if (cent_rad_sq*height > (r2_sq - r1_sq)*r_rel.z() + r1_sq_x_h) return invert;
@@ -281,7 +282,7 @@ composite_object::~composite_object() {
     }
 }
 
-int composite_object::call_child_in(_uint side, const evec3& r) {
+int composite_object::call_child_in(_uint side, const vec3& r) {
     if (child_types[side] == CGS_COMPOSITE) return ((composite_object*)children[side])->in(r);
     if (child_types[side] == CGS_SPHERE) return ((sphere*)children[side])->in(r);
     if (child_types[side] == CGS_BOX) return ((box*)children[side])->in(r);
@@ -300,8 +301,8 @@ void composite_object::add_child(_uint side, object* o, object_type p_type) {
     }
 }
 
-int composite_object::in(const evec3& r) {
-    evec3 r_trans = trans_mat*r;
+int composite_object::in(const vec3& r) {
+    vec3 r_trans = trans_mat*r;
     //NOOP items should be ignored
     if (cmb == CGS_CMB_NOOP) return 0;
     //if the right child is null then we don't apply any operations
@@ -427,7 +428,7 @@ parse_ercode scene::make_object(const cgs_func& f, object** ptr, object_type* ty
 /**
  * Produce an appropriate transformation matrix
  */
-parse_ercode scene::make_transformation(const cgs_func& f, emat3& res) const {
+parse_ercode scene::make_transformation(const cgs_func& f, mat3x3& res) const {
     parse_ercode er = E_SUCCESS;
 
     if (!f.name) return E_BAD_TOKEN;
@@ -436,10 +437,10 @@ parse_ercode scene::make_transformation(const cgs_func& f, emat3& res) const {
 	if (f.n_args < 2) return E_LACK_TOKENS;
 	if (f.args[0].type != VAL_NUM || f.args[1].type != VAL_3VEC) return E_BAD_VALUE;
 	double angle = f.args[0].val.x;
-	res = Eigen::AngleAxisd(angle, *(f.args[1].val.v));
+	res = make_rotation(angle, *(f.args[1].val.v));
     } else if (strcmp(f.name, "scale") == 0) {
 	if (f.n_args < 1) return E_LACK_TOKENS;
-	evec3 scale;
+	vec3 scale;
 	if (f.args[0].type == VAL_3VEC) {
 	    scale = *(f.args[0].val.v);
 	} else if (f.args[0].type == VAL_NUM) {
@@ -448,7 +449,7 @@ parse_ercode scene::make_transformation(const cgs_func& f, emat3& res) const {
 	    scale.y() = val;
 	    scale.z() = val;
 	}
-	res = scale.asDiagonal();
+	res = scale.make_diagonal();
     }
 
     return E_SUCCESS;
@@ -538,9 +539,9 @@ parse_ercode scene::read_file(const char* p_fname) {
     composite_object* last_comp = NULL;
     int invert = 0;
     //keep track of transformations
-    stack<emat3> transform_stack;
-    emat3 cur_trans_mat;
-    emat3 next_trans_mat;
+    stack<mat3x3> transform_stack;
+    mat3x3 cur_trans_mat;
+    mat3x3 next_trans_mat;
 
     //open the file for reading and read individual lines. We need to remove whitespace. Handily, we know the line length once we're done.
     FILE* fp = NULL;
@@ -600,7 +601,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 			object_type type;
 			make_object(cur_func, &obj, &type, invert);
 			if (!obj) {
-			    emat3 tmp;
+			    mat3x3 tmp;
 			    //if that failed try interpreting it as an operation (TODO: are there any useful things to put here?)
 			    if (strcmp(cur_func.name, "invert") == 0) {
 				last_type = BLK_INVERT;

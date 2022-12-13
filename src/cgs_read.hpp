@@ -3,11 +3,12 @@
 #ifndef CGS_READ_H
 #define CGS_READ_H
 
-#include <Eigen/Geometry>
-#include <Eigen/Dense>
+#include <stdio.h>
 #include <vector>
+#include <string>
 #include <cstring>
 #include <math.h>
+#include "geometry.hpp"
 
 //hints for dynamic buffer sizes
 #define BUF_SIZE 1024
@@ -21,11 +22,10 @@
 #define KEY_IN_LEN	2
 #define KEY_IF_LEN	2
 
+typedef matrix<3,3> mat3x3;
+
 typedef unsigned int _uint;
 typedef unsigned char _uint8;
-typedef Eigen::Matrix3d emat3;
-typedef Eigen::Vector3d evec3;
-typedef Eigen::Vector4d evec4;
 
 typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED } parse_ercode;
 typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_INST} valtype;
@@ -212,9 +212,9 @@ union V {
     char* s;
     double x;
     value* l;
-    evec3* v;
+    vec3* v;
     instance* i;
-    Eigen::MatrixXd* m;
+    mat3x3* m;
 };
 struct value {
     valtype type;
@@ -245,8 +245,8 @@ struct cgs_func {
 value make_val_str(const char* s);
 value make_val_std_str(std::string s);
 value make_val_list(const value* vs, size_t n_vs);
-value make_val_mat(Eigen::MatrixXd m);
-value make_val_vec3(evec3 vec);
+value make_val_mat(mat3x3 m);
+value make_val_vec3(vec3 vec);
 cgs_func parse_func_decl(char* str);
 cgs_func copy_func(const cgs_func o);
 void cleanup_func(cgs_func* o);

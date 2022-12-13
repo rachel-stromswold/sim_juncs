@@ -11,6 +11,7 @@
 #define POW_N 4
 
 #define EPSILON 0.01
+#define SMALL_TEST_N 10
 #define TEST_N	10000
 
 //from Numerical recipes in C
@@ -25,6 +26,10 @@ typedef unsigned char _uint8;
 
 inline _uint lcg(_uint state) {
     return (state*LCG_MULT + LCG_INC) & LCG_MOD;
+}
+
+inline double floatize(_uint state) {
+    return (double)state / LCG_MOD;
 }
 
 #endif

@@ -310,7 +310,7 @@ value make_vec(cgs_func tmp_f, parse_ercode& er) {
     if (tmp_f.n_args < 3) { er = E_LACK_TOKENS;return sto; }
     if (tmp_f.args[0].type != VAL_NUM || tmp_f.args[1].type != VAL_NUM || tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return sto; }
     sto.type = VAL_3VEC;
-    sto.val.v = new evec3(tmp_f.args[0].val.x, tmp_f.args[1].val.x, tmp_f.args[2].val.x);
+    sto.val.v = new vec3(tmp_f.args[0].val.x, tmp_f.args[1].val.x, tmp_f.args[2].val.x);
     sto.n_els = 3;
     er = E_SUCCESS;
     return sto;
@@ -455,18 +455,18 @@ value make_val_list(const value* vs, size_t n_vs) {
     for (size_t i = 0; i < v.n_els; ++i) v.val.l[i] = vs[i];
     return v;
 }
-value make_val_mat(Eigen::MatrixXd m) {
+value make_val_mat(mat3x3 m) {
     value v;
     v.type = VAL_MAT;
     v.n_els = 1;
-    v.val.m = new Eigen::MatrixXd(m);
+    v.val.m = new mat3x3(m);
     return v;
 }
-value make_val_vec3(evec3 vec) {
+value make_val_vec3(vec3 vec) {
     value v;
     v.type = VAL_3VEC;
     v.n_els = 1;
-    v.val.v = new evec3(vec);
+    v.val.v = new vec3(vec.el[0], vec.el[1], vec.el[2]);
     return v;
 }
 void cleanup_val(value* v) {
@@ -496,9 +496,9 @@ value copy_val(const value o) {
 	ret.val.l = (value*)calloc(o.n_els, sizeof(value));
 	for (size_t i = 0; i < o.n_els; ++i) ret.val.l[i] = copy_val(o.val.l[i]);
     } else if (o.type == VAL_MAT) {
-	ret.val.m = new Eigen::MatrixXd(*(o.val.m));
+	ret.val.m = new mat3x3(*(o.val.m));
     } else if (o.type == VAL_3VEC) {
-	ret.val.v = new evec3(*(o.val.v));
+	ret.val.v = new vec3(o.val.v->el[0], o.val.v->el[1], o.val.v->el[2]);
     } else {
 	ret.val.x = o.val.x;
     }
@@ -561,7 +561,7 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	    if (n_els < 3) { er = E_LACK_TOKENS;return copy_val(*this); }
 	    if (tmp_lst[0].type != VAL_NUM || tmp_lst[1].type != VAL_NUM || tmp_lst[2].type != VAL_NUM) { er = E_BAD_TOKEN;return copy_val(*this); }
 	    //actually change data and free the old
-	    ret.val.v = new evec3(tmp_lst[0].val.x, tmp_lst[1].val.x, tmp_lst[2].val.x);
+	    ret.val.v = new vec3(tmp_lst[0].val.x, tmp_lst[1].val.x, tmp_lst[2].val.x);
 	    ret.n_els = 3;
 	}
     } else if (t == VAL_LIST) {
@@ -571,7 +571,7 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	    for (size_t i = 0; i < ret.n_els; ++i) {
 		ret.val.l[i].type = VAL_NUM;
 		ret.val.l[i].n_els = 1;
-		ret.val.l[i].val.x = (*val.v)(i);
+		ret.val.l[i].val.x = val.v->el[i];
 	    }
 	} else if (type == VAL_MAT) {
 	    //TODO
@@ -945,7 +945,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.x = tmp_l.val.x + tmp_r.val.x;
 	} else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
 	    sto.type = VAL_MAT;
-	    sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m + *tmp_r.val.m);
+	    sto.val.m = new mat3x3(*tmp_l.val.m + *tmp_r.val.m);
 	} else if (tmp_l.type == VAL_STR) {
 	    //TODO: implement string concatenation
 	}
@@ -954,17 +954,17 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.x = tmp_l.val.x - tmp_r.val.x;
 	} else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
 	    sto.type = VAL_MAT;
-	    sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m - *tmp_r.val.m);
+	    sto.val.m = new mat3x3(*tmp_l.val.m - *tmp_r.val.m);
 	}
     } else if (term_char == '*') {
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {	
 	    sto.val.x = tmp_l.val.x * tmp_r.val.x;
 	} else if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_MAT) {	
 	    sto.type = VAL_MAT;
-	    sto.val.m = new Eigen::MatrixXd(tmp_l.val.x * *tmp_r.val.m);
+	    sto.val.m = new mat3x3((*tmp_r.val.m) * tmp_l.val.x);
 	} else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
 	    sto.type = VAL_MAT;
-	    sto.val.m = new Eigen::MatrixXd(*tmp_l.val.m * *tmp_r.val.m);
+	    sto.val.m = new mat3x3((*tmp_l.val.m) * (*tmp_r.val.m));
 	}
     } else if (term_char == '/') {
 	if (tmp_r.val.x == 0) { er = E_NAN;return sto; }//TODO: return a nan?
@@ -972,7 +972,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.x = tmp_l.val.x / tmp_r.val.x;
 	} else if (tmp_r.type == VAL_NUM && tmp_l.type == VAL_MAT) {	
 	    sto.type = VAL_MAT;
-	    sto.val.m = new Eigen::MatrixXd(*tmp_r.val.m / tmp_r.val.x);
+	    sto.val.m = new mat3x3(*tmp_r.val.m / tmp_r.val.x);
 	}
     } else if (term_char == '^') {
 	if (tmp_r.val.x == 0 || tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_NAN;return sto; }//TODO: return a nan?

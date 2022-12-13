@@ -223,10 +223,10 @@ double cgs_material_function::in_bound(const meep::vec &r) {
     double ret = 0;
     for (_uint i = 0; i < n_regions; ++i) {
 	//initialize such that we always include the origin
-	double this_ret = regions[i].c->in(evec3(r_x, r_y, r_z));
+	double this_ret = regions[i].c->in(vec3(r_x, r_y, r_z));
 	if (smooth_pts) {
 	    for (_uint j = 0; j < smooth_n; ++j) {
-		this_ret += regions[i].c->in(evec3(r_x + smooth_pts[3*j], r_y + smooth_pts[3*j+1], r_z + smooth_pts[3*j+2]));
+		this_ret += regions[i].c->in(vec3(r_x + smooth_pts[3*j], r_y + smooth_pts[3*j+1], r_z + smooth_pts[3*j+2]));
 	    }
 	}
 	ret += def_ret + (regions[i].s - def_ret)*this_ret/(smooth_n+1);
@@ -581,14 +581,14 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
 	thicknesses[i] = 1.0;
 	if (roots[i]->has_metadata("make_2d") && roots[i]->fetch_metadata("make_2d").val.x != 0) {
 	    thicknesses[i] = THICK_SCALE / s.resolution;
-	    roots[i]->rescale(evec3(1.0, 1.0, thicknesses[i]));
+	    roots[i]->rescale(vec3(1.0, 1.0, thicknesses[i]));
 	}
 	inf_eps_func.add_region(roots[i]);
 	//draw the shape of the current structure
 	char root_name[ROOT_BUF_SIZE];
 	snprintf(root_name, ROOT_BUF_SIZE, "%s/root_%d.pgm", s.out_dir, i);
-	evec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-	roots[i]->draw(root_name, s.len, cam_pos, -cam_pos);
+	vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
+	roots[i]->draw(root_name, s.len, cam_pos, cam_pos*-1);
     }
     meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
     //read susceptibilities if they are available
@@ -659,8 +659,8 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
 		}
 		//make sure that the object is a box so that we can figure out the corner and the offset
 		if (l_type == CGS_BOX) {
-		    evec3 center = ((box*)l_child)->get_center();
-		    evec3 offset = ((box*)l_child)->get_offset();
+		    vec3 center = ((box*)l_child)->get_center();
+		    vec3 offset = ((box*)l_child)->get_offset();
 		    double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();
 		    double y_0 = center.y() - offset.y();double y_1 = center.y() + offset.y();
 		    double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
@@ -739,8 +739,8 @@ void bound_geom::add_point_source(meep::component c, const meep::src_time &src, 
  * amp: the amplitude of the source
  */
 void bound_geom::add_volume_source(meep::component c, const meep::src_time &src, const box& vol, std::complex<double> amp) {
-    evec3 center = vol.get_center();
-    evec3 offset = vol.get_offset();
+    vec3 center = vol.get_center();
+    vec3 offset = vol.get_offset();
     double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();
     double y_0 = center.y() - offset.y();double y_1 = center.y() + offset.y();
     double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
@@ -792,16 +792,11 @@ void bound_geom::run(const char* fname_prefix) {
 		printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, field_times[j].buf[i].re);
 	    }
 	}
-
-        //open an hdf5 file with a reasonable name
-        if (i % dump_span == 0) {
-	    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
-	    /*meep::h5file* file = fields.open_h5file(h5_fname);
-	    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
-	    delete file;*/
+	try {
 	    fields.step();
-	    printf("    %d%% complete\n", 100*i/n_t_pts);
-	    //we're done with the file
+	} catch (std::runtime_error err) {
+	    std::cout << "error on step " << i << ": " << err.what() << std::endl;
+	    break;
 	}
     }
     printf("Simulations completed\n");
