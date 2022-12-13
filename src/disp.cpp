@@ -771,7 +771,8 @@ void bound_geom::run(const char* fname_prefix) {
     field_times.resize(n_locs);
     n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
     for (_uint j = 0; j < n_locs; ++j) {
-	make_data_arr(&(field_times[j]), n_t_pts/dump_span);
+        field_times[j].reserve( 1+ (n_t_pts/dump_span) );
+        //make_data_arr(&(field_times[j]), n_t_pts/dump_span);
     }
 
     //figure out the number of digits before the decimal and after
@@ -789,10 +790,10 @@ void bound_geom::run(const char* fname_prefix) {
                 //fetch monitor points
                 for (_uint j = 0; j < n_locs; ++j) {
                     std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
-                    field_times[j].buf[i].re = val.real();
-                    field_times[j].buf[i].im = val.imag();
-                    if (field_times[j].buf[i].re > 1000) {
-                        printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, field_times[j].buf[i].re);
+                    complex tmp(val.real(), val.imag());
+                    field_times[j].push_back(tmp);
+                    if (tmp.re > 1000) {
+                        printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, tmp.re);
                     }
                 }
                 printf("    %d%% complete\n", 100*i/n_t_pts);
@@ -849,10 +850,15 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     ret_val = H5Tinsert(srctype.getId(), "amplitude", HOFFSET(source_info, amplitude), float_member_id);
 
     //take the fourier transform for each point
-    std::vector<data_arr> fours(n_locs);
+    std::vector<data_arr> tdom_fields(n_locs);
+    std::vector<data_arr> fdom_fields(n_locs);
     for (_uint j = 0; j < n_locs; ++j) {
-        fours[j] = fft(field_times[j]);
-        f_dim[0] = fours[j].size;
+        //copy the time domain data
+        make_data_arr(&(tdom_fields[j]), field_times[j].size());
+        for (size_t i = 0; i < field_times[j].size(); ++i) tdom_fields[j].buf[i] = field_times[j][i];
+        //take the fourier transform
+        fdom_fields[j] = fft(tdom_fields[j]);
+        f_dim[0] = fdom_fields[j].size;
     }
     H5::DataSpace f_space(1, f_dim);
 
@@ -934,7 +940,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	strncpy(out_name, POINT_NAME, SMALL_BUF_SIZE);
 	for (; i < max_i; ++i) {
         //two is the minimum number of points needed to take np.diff which is used in data analysis
-	    if (field_times[i].size < 2) {
+	    if (tdom_fields[i].size < 2) {
 		printf("Error: monitor location %d has insufficient points\n", i);
 		break;
 	    }
@@ -946,8 +952,8 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	    //write the time and wavelenuency domain data to the file
 	    H5::DataSet t_dataset(cur_group.createDataSet("time", fieldtype, t_space));
 	    H5::DataSet f_dataset(cur_group.createDataSet("frequency", fieldtype, f_space));
-	    t_dataset.write(field_times[i].buf, fieldtype);
-	    f_dataset.write(fours[i].buf, fieldtype);
+	    t_dataset.write(tdom_fields[i].buf, fieldtype);
+	    f_dataset.write(fdom_fields[i].buf, fieldtype);
 	}
     printf("\nfinished writing cluster %d\n", j);
     }

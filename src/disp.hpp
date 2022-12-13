@@ -137,7 +137,7 @@ public:
     bound_geom(const parse_settings& s, parse_ercode* ercode=NULL);
     ~bound_geom();
     std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
-    std::vector<data_arr> get_field_times() { return field_times; }
+    std::vector<std::vector<complex>> get_field_times() { return field_times; }
     std::vector<source_info> get_sources() { return sources; }
     size_t get_n_monitor_clusters() const { return monitor_clusters.size(); }
 
@@ -162,7 +162,7 @@ private:
     std::vector<source_info> sources;
     std::vector<meep::vec> monitor_locs;
     std::vector<size_t> monitor_clusters;
-    std::vector<data_arr> field_times;
+    std::vector<std::vector<complex>> field_times;
 
     //meep objects
     meep::grid_volume vol;

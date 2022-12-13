@@ -1052,7 +1052,7 @@ void* read_h5_array_raw(const H5::Group& grp, const H5::DataType& ctype, size_t 
     *n_entries = 0;
     try {
 	//find the dataspace for real values
-	H5::DataSet dataset = grp.openDataSet(name);
+	H5::DataSet dataset = grp.openDataSet(name.c_str());
 	H5::DataType datatype = dataset.getDataType();
 	H5::DataSpace dataspace = dataset.getSpace();
 	size_t n_pts = dataspace.getSimpleExtentNpoints();
@@ -1136,7 +1136,7 @@ TEST_CASE("Test running with a very small system") {
     //make sure that monitor locations were added
     geometry.run(args.out_dir);
     //fetch the field times
-    std::vector<data_arr> field_times = geometry.get_field_times();
+    std::vector<std::vector<complex>> field_times = geometry.get_field_times();
     CHECK(field_times.size() > 0);
 
     //check that writing hdf5 files works
@@ -1225,10 +1225,10 @@ TEST_CASE("Test running with a very small system") {
 	    CHECK(n_t_pts >= n_f_pts);
 
 	    //check that the stored times match the data in the geometry object
-	    CHECK(n_t_pts == field_times[j].size);
+	    CHECK(n_t_pts == field_times[j].size());
 	    for (_uint k = 0; k < n_t_pts; ++k) {
-		CHECK(t_data[k].re == field_times[j].buf[k].re);
-		CHECK(t_data[k].im == field_times[j].buf[k].im);
+            CHECK(t_data[k].re == field_times[j][k].re);
+            CHECK(t_data[k].im == field_times[j][k].im);
 	    }
 	    free(f_data);
 	    free(t_data);
