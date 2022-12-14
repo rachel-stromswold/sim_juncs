@@ -24,6 +24,7 @@ struct complex {
     _ftype re;
     _ftype im;
 
+    complex(_ftype p_re, _ftype p_im) { re = p_re;im = p_im; }
     complex& operator=(complex o) { re = o.re;im = o.im;return *this; }
     complex& operator=(_ftype o) { re = o;return *this; }
     complex operator+=(complex o) { re += o.re; im += o.im;return *this; }

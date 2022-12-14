@@ -48,7 +48,7 @@ if slice_dir == 'x':
     slice_name = 'z'
 
 class phase_finder:
-    def __init__(self, fname, width, height):
+    def __init__(self, fname, width, height, stop_time=2.5):
         '''read metadata from the h5 file'''
         self.geom = utils.Geometry("params.conf", gap_width=width, gap_thick=height)
         #open the h5 file and identify all the clusters
@@ -60,8 +60,7 @@ class phase_finder:
         self.n_clusts = len(self.clust_names)
         #create a numpy array for time points, this will be shared across all points
         keylist = list(self.f[self.clust_names[0]].keys())
-        n_t_pts = len(self.f[self.clust_names[0]][keylist[1]]['time'])
-        self.n_post_skip = n_t_pts // phases.SKIP
+        self.n_t_pts = len(self.f[self.clust_names[0]][keylist[1]]['time'])
         #figure out the extent of the simulation points in the spanned direction
         z_min = min(self.geom.meep_len_to_um(self.geom.l_junc -self.geom.z_center), \
                 self.geom.meep_len_to_um(self.f[self.clust_names[0]]['locations'][slice_dir][0]-self.geom.z_center))
@@ -69,10 +68,14 @@ class phase_finder:
         #read information to figure out time units and step sizes
         t_min = self.f['info']['time_bounds'][0]
         t_max = self.f['info']['time_bounds'][1]
-        self.dt = (t_max-t_min)/n_t_pts
-        self.t_pts = np.linspace(t_min, t_max, num=n_t_pts)
+        self.dt = (t_max-t_min)/self.n_t_pts
+        self.t_pts = np.linspace(t_min, t_max, num=self.n_t_pts)
+        #if specified truncate until the time specified by stop_time
+        self.stop_ind = int(stop_time/self.dt)
+        if stop_time <= 0:
+            self.stop_ind = len(self.t_pts)
         #this normalizes the square errors to have reasonable units
-        self.sq_er_fact = self.dt*phases.SKIP/(t_max-t_min)
+        self.sq_er_fact = self.dt/(t_max-t_min)
         #figure out a range of incident frequencies
         avg_field_0, avg_sig_0, avg_phase_0 = self.find_avg_vals(self.clust_names[0])
         self.df = 6/(avg_sig_0*N_FREQ_COMPS)
@@ -107,11 +110,15 @@ class phase_finder:
         phase_cor = 0
         for j, pt in enumerate(points):
             v_pts = np.array(self.f[clust][pt]['time']['Re'])
+            #before doing anything else, save a plot of just the time series
+            plt.plot(self.t_pts[:self.stop_ind], v_pts[:self.stop_ind])
+            plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
+            plt.clf()
             # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
             #err_2 = 8*np.max(np.diff(v_pts)**2)
             err_2 = 0.02
             print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
-            res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+            res,res_env = phases.opt_pulse_env(self.t_pts[:self.stop_ind], v_pts[:self.stop_ind], a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
             n_evals += 1
             print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
             #only include this point if the fit was good
@@ -120,13 +127,13 @@ class phase_finder:
                 jj = len(good_zs)-1
                 amp, t_0, sig, omega, cep = phases.get_params(res)
                 amp_arr[0,jj] = amp
-                amp_arr[1,jj] = np.sqrt(res_env.hess_inv[0][0]/(err_2*self.n_post_skip))/2
+                amp_arr[1,jj] = np.sqrt(res_env.hess_inv[0][0]/(err_2*self.n_t_pts))/2
                 t_0_arr[0,jj] = t_0
-                t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/(err_2*self.n_post_skip))
+                t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/(err_2*self.n_t_pts))
                 sig_arr[0,jj] = sig
-                sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig*self.n_post_skip))
+                sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig*self.n_t_pts))
                 phase_arr[0,jj] = cep/np.pi
-                phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi*self.n_post_skip))
+                phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi*self.n_t_pts))
             else:
                 print("bad fit! clust={}, j={}".format(clust,j))
 

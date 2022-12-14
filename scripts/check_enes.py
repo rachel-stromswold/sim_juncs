@@ -13,8 +13,8 @@ field_range = (-1.0, 1.0)
 sq_er_range = (0.0, 0.002)
 #the field times we are interested in
 #field_times = ["1.", "2.", "3.", "4."]
-#field_times = ["16.", "20.", "24.", "28.", "32.", "36."]
-field_times = ["2.", "4.", "6.", "8.", "10.", "12."]
+field_times = ["16.", "20.", "24.", "28.", "32.", "36."]
+#field_times = ["2.", "4.", "6.", "8.", "10.", "12."]
 N_ROWS = 2
 N_COLS = len(field_times)//N_ROWS
 
@@ -25,7 +25,7 @@ MOVIE_CROSS_SECS = 2
 MOVIE_FRAME_SKIP = 1
 
 #parse arguments supplied via command line
-parser = argparse.ArgumentParser(description='Query sky-surveys for redshift data corresponding to a gravitational-wave detection.')
+parser = argparse.ArgumentParser(description='Make plots of the field as a function of position.')
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--compare-prefix', type=str, help='prefix to use when opening files for comparison', default='')
 parser.add_argument('--compare-scaling', type=float, help='Apply a scaling factor to fields obtained from the comparison prefix', default=1)

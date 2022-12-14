@@ -526,7 +526,6 @@ parse_ercode bound_geom::parse_monitors(composite_object* comp) {
 		if (er != E_SUCCESS) return er;
 		//convert to a meep vector and append
 		meep::vec tmp_vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z());
-		printf("%f %f %f\n", tmp_vec.x(), tmp_vec.y(), tmp_vec.z());
 		monitor_locs.push_back(tmp_vec);
 		cleanup_val(&vec_cast);
 	    }
@@ -588,7 +587,7 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
 	char root_name[ROOT_BUF_SIZE];
 	snprintf(root_name, ROOT_BUF_SIZE, "%s/root_%d.pgm", s.out_dir, i);
 	vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-	roots[i]->draw(root_name, s.len, cam_pos, cam_pos*-1);
+	roots[i]->draw(root_name, 1.0/s.len, cam_pos, cam_pos*-1);
     }
     meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
     //read susceptibilities if they are available
@@ -625,6 +624,8 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
     strct(structure_from_settings(s, problem, ercode)),
     fields(strct)
 {
+    //TODO: actually fix the memory issues
+    for (size_t i = 0; i < FIELDS_PAD_SIZE; ++i) dummy_vals[i] = 0;
     um_scale = s.um_scale;
     if (ercode) *ercode = E_SUCCESS;
 
@@ -702,7 +703,6 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
 		    if (ercode) *ercode = E_BAD_VALUE;
 		}
 	    } else if (type.type == VAL_STR && strcmp(type.val.s, "monitor") == 0) {
-		printf("found a monitor!\n");
 		parse_ercode tmp_er = parse_monitors(data[i]);
 		if (tmp_er != E_SUCCESS) printf("warning: Invalid monitor location encountered! (all monitors must be vectors or lists with three elements)\n");
 		monitor_clusters.push_back(monitor_locs.size());
@@ -711,6 +711,7 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
     }
     write_settings(stdout);
     dump_span = s.field_dump_span;
+    dump_raw = s.dump_raw;
 }
 
 bound_geom::~bound_geom() {
@@ -758,48 +759,63 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
  */
 void bound_geom::run(const char* fname_prefix) {
     fields.set_output_directory(fname_prefix);
+    char h5_fname[BUF_SIZE];
 
     //save the dielectric used
     printf("Set output directory to %s\n", fname_prefix);
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
+
+    //avoid divisions by zero by defaulting to 1
+    if (dump_span == 0) dump_span = 1;
 
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     size_t n_locs = monitor_locs.size();
     field_times.resize(n_locs);
     n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
     for (_uint j = 0; j < n_locs; ++j) {
-	make_data_arr(&(field_times[j]), n_t_pts);
+        field_times[j].reserve( 1+ (n_t_pts/dump_span) );
+        //make_data_arr(&(field_times[j]), n_t_pts/dump_span);
     }
 
     //figure out the number of digits before the decimal and after
     int n_digits_a = (int)(ceil(log(ttot)/log(10)));
     double rat = -log((double)(fields.dt))/log(10.0);
     int n_digits_b = (int)ceil(rat)+1;
-    char h5_fname[BUF_SIZE];
     strcpy(h5_fname, "ex-");
-
-    //ensure that no field dumps are saved
-    if (dump_span == 0) dump_span = n_t_pts+1;
     //run the simulation
     printf("starting simulations\n");
-    for (_uint i = 0; i < n_t_pts; ++i) {
-	//fetch monitor points
-	for (_uint j = 0; j < n_locs; ++j) {
-	    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
-	    field_times[j].buf[i].re = val.real();
-	    field_times[j].buf[i].im = val.imag();
-	    if (field_times[j].buf[i].re > 1000) {
-		printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, field_times[j].buf[i].re);
-	    }
-	}
-	try {
-	    fields.step();
-	} catch (std::runtime_error err) {
-	    std::cout << "error on step " << i << ": " << err.what() << std::endl;
-	    break;
-	}
+    _uint i = 0;
+    try {
+        for (; i < n_t_pts; ++i) {
+            //write each of the monitor locations, but only if we've reached a savepoint
+            if (i % dump_span == 0) {
+                //fetch monitor points
+                for (_uint j = 0; j < n_locs; ++j) {
+                    std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
+                    complex tmp(val.real(), val.imag());
+                    field_times[j].push_back(tmp);
+                    if (tmp.re > 1000) {
+                        printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, tmp.re);
+                    }
+                }
+                //save the raw hdf5 files if requested
+                if (dump_raw) {
+                    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
+                    meep::h5file* file = fields.open_h5file(h5_fname);
+                    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
+                    delete file;
+                }
+                printf("    %d%% complete\n", 100*i/n_t_pts);
+            }
+            fields.step();
+        }
+    } catch (std::runtime_error err) {
+        std::cout << "error on step " << i << ": " << err.what() << std::endl;
     }
-    printf("Simulations completed\n");
+
+    printf("values written to dummies:\n\t");
+    for (size_t i = 0; i < FIELDS_PAD_SIZE; ++i) { printf("%x ", dummy_vals[i]); }
+    printf("\nSimulations completed\n");
 }
 
 /**
@@ -815,8 +831,10 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     size_t n_locs = monitor_locs.size();
     //create the field type and specify members
     H5::CompType fieldtype(sizeof(complex));
-    fieldtype.insertMember("Re", HOFFSET(complex, re), H5_float_type);
-    fieldtype.insertMember("Im", HOFFSET(complex, im), H5_float_type);
+
+    hid_t float_member_id = H5_float_type.getId();
+    herr_t ret_val = H5Tinsert(fieldtype.getId(), "Re", HOFFSET(complex, re), float_member_id);
+    ret_val = H5Tinsert(fieldtype.getId(), "Im", HOFFSET(complex, im), float_member_id);
     //use the space of rank 1 tensors with a dimension of n_t_pts
     hsize_t t_dim[1];
     t_dim[0] = {n_t_pts};
@@ -825,9 +843,9 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 
     //create the location type and specify members
     H5::CompType loctype(sizeof(sto_vec));
-    loctype.insertMember("x", HOFFSET(sto_vec, x), H5_float_type);
-    loctype.insertMember("y", HOFFSET(sto_vec, y), H5_float_type);
-    loctype.insertMember("z", HOFFSET(sto_vec, z), H5_float_type);
+    ret_val = H5Tinsert(loctype.getId(), "x", HOFFSET(sto_vec, x), float_member_id);
+    ret_val = H5Tinsert(loctype.getId(), "y", HOFFSET(sto_vec, y), float_member_id);
+    ret_val = H5Tinsert(loctype.getId(), "z", HOFFSET(sto_vec, z), float_member_id);
     //use the space of rank 1 tensors with dimension of the number of monitor points
     hsize_t l_dim[1];
     l_dim[0] = {n_locs};
@@ -835,21 +853,22 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 
     //create the source type and specify members
     H5::CompType srctype(sizeof(source_info));
-    /*H5::DataType enum_src_type(H5T_ENUM, sizeof(src_type));
-    H5::DataType enum_component(H5T_ENUM, sizeof(meep::component));
-    srctype.insertMember("type", HOFFSET(source_info, type), enum_src_type);
-    srctype.insertMember("component", HOFFSET(source_info, component), enum_component);*/
-    srctype.insertMember("wavelen", HOFFSET(source_info, wavelen), H5_float_type);
-    srctype.insertMember("width", HOFFSET(source_info, width), H5_float_type);
-    srctype.insertMember("start_time", HOFFSET(source_info, start_time), H5_float_type);
-    srctype.insertMember("end_time", HOFFSET(source_info, end_time), H5_float_type);
-    srctype.insertMember("amplitude", HOFFSET(source_info, amplitude), H5_float_type);
+    ret_val = H5Tinsert(srctype.getId(), "wavelen", HOFFSET(source_info, wavelen), float_member_id);
+    ret_val = H5Tinsert(srctype.getId(), "width", HOFFSET(source_info, width), float_member_id);
+    ret_val = H5Tinsert(srctype.getId(), "start_time", HOFFSET(source_info, start_time), float_member_id);
+    ret_val = H5Tinsert(srctype.getId(), "end_time", HOFFSET(source_info, end_time), float_member_id);
+    ret_val = H5Tinsert(srctype.getId(), "amplitude", HOFFSET(source_info, amplitude), float_member_id);
 
     //take the fourier transform for each point
-    std::vector<data_arr> fours(n_locs);
+    std::vector<data_arr> tdom_fields(n_locs);
+    std::vector<data_arr> fdom_fields(n_locs);
     for (_uint j = 0; j < n_locs; ++j) {
-        fours[j] = fft(field_times[j]);
-        f_dim[0] = fours[j].size;
+        //copy the time domain data
+        make_data_arr(&(tdom_fields[j]), field_times[j].size());
+        for (size_t i = 0; i < field_times[j].size(); ++i) tdom_fields[j].buf[i] = field_times[j][i];
+        //take the fourier transform
+        fdom_fields[j] = fft(tdom_fields[j]);
+        f_dim[0] = fdom_fields[j].size;
     }
     H5::DataSpace f_space(1, f_dim);
 
@@ -874,7 +893,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     //set the start and end times for the simulation TODO: is the first boundary necessary or can it be left implicit?
     _ftype time_boundaries[3];
     time_boundaries[0] = 0.0;time_boundaries[1] = meep_time_to_fs(ttot);            //start and end of simulation times
-    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])/n_t_pts;   //step size
+    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])*dump_span/n_t_pts;   //step size
     t_info_dataset.write(time_boundaries, H5_float_type);
     //write the number of clusters
     hsize_t n_info_dim[1];
@@ -930,23 +949,27 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 	//write the (prefix for) the points in the group
 	strncpy(out_name, POINT_NAME, SMALL_BUF_SIZE);
 	for (; i < max_i; ++i) {
-	    if (field_times[i].size < n_t_pts) {
+        //two is the minimum number of points needed to take np.diff which is used in data analysis
+	    if (tdom_fields[i].size < 2) {
 		printf("Error: monitor location %d has insufficient points\n", i);
 		break;
 	    }
 	    //create a unique name for the point that respects alphabetic sorting
 	    write_number(out_name + strlen(POINT_NAME), SMALL_BUF_SIZE-strlen(POINT_NAME), i, n_pt_digits);
-	    printf("saving point %d to group %s\n", i, out_name);
+	    printf("%d ", i);
 	    H5::Group cur_group = clust_group.createGroup(out_name);
 
 	    //write the time and wavelenuency domain data to the file
 	    H5::DataSet t_dataset(cur_group.createDataSet("time", fieldtype, t_space));
 	    H5::DataSet f_dataset(cur_group.createDataSet("frequency", fieldtype, f_space));
-	    t_dataset.write(field_times[i].buf, fieldtype);
-	    f_dataset.write(fours[i].buf, fieldtype);
+	    t_dataset.write(tdom_fields[i].buf, fieldtype);
+	    f_dataset.write(fdom_fields[i].buf, fieldtype);
 	}
+    printf("\nfinished writing cluster %d\n", j);
     }
-    free(tmp_vecs);
+    file.close();
+    printf("finished writing hdf5 file!\n");
+    //free(tmp_vecs);
 }
 
 void bound_geom::write_settings(FILE* fp) {

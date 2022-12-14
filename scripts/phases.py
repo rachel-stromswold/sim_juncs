@@ -9,16 +9,15 @@ import matplotlib.pyplot as plt
 
 EPSILON = 0.125
 H_EPSILON = EPSILON/2
-
-SKIP = 200
-AMP_CUTOFF = 0.0025
+AMP_CUTOFF = 0.025
+OUTLIER_FACTOR = 20
 N_STDS = 2
 WIDTH_SCALE = 1000
 
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
 #for a local maxima with amplitude A_l/A_g >= LOC_MAX_CUT, the location of A_l will be considered for double envelope optimization. Here A_l is the amplitude of the local maxima and A_g is the amplitude of the global maxima
-LOC_MAX_CUT = 0.2
+LOC_MAX_CUT = 1e-6
 #The number of standard deviations away from the local maxima to consider when performing least squares fits
 DEF_KEEP_N = 2.5
 
@@ -67,7 +66,7 @@ def fix_angle(theta):
     return theta
 
 class EnvelopeFitter:
-    def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF):
+    def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF, outlier=OUTLIER_FACTOR):
         '''Given t_pts and a_pts return a list off all local extrema and their corresponding times. Also return the time for the global maxima, the value of the global maxima and the average spacing between maxima
         t_pts: time points to search
         a_pts: values to search
@@ -86,7 +85,7 @@ class EnvelopeFitter:
                 self.ext_ts.append(t_pts[i])
                 self.ext_vs.append(abs(a_pts[i]))
                 #check if this is a global maxima
-                if self.ext_vs[-1] > self.max_v:
+                if self.ext_vs[-1] > self.max_v and (self.ext_vs[-1] < self.max_v*outlier or self.max_v == 0):
                     self.l_max_i = i
                     self.max_t = t_pts[i]
                     self.max_v = self.ext_vs[-1]
@@ -350,7 +349,7 @@ def find_local_maxima(t_pts, a_pts, cutoff=AMP_CUTOFF):
 
     return ext_ts, ext_vs, max_t, max_v, typ_spacing
 
-def opt_pulse(t_pts_0, a_pts_0, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
+def opt_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
     '''Set values for the a_pts for each time point
     a_pts: the values of the electric field at each corresponding time point in t_pts. Note that len(a_pts) must be the same as len(t_pts)
     env_x: an array representing the value found from an envelope fit (i.e if you call res=opt_envelope(...) this would be res.x
@@ -360,22 +359,22 @@ def opt_pulse(t_pts_0, a_pts_0, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
 
     #truncate so that we only look at N_STDS deviations from the center of the pulse
     if keep_n > 0:
-        dt = (t_pts_0[-1]-t_pts_0[0])/t_pts_0.shape[0]
+        dt = (t_pts[-1]-t_pts[0])/t_pts.shape[0]
         i_0 = int(env_x[1]/dt)
         i_shift = int(keep_n*env_x[2] / dt)
         #make sure we don't go past the ends of the array
         if i_0 < i_shift:
             i_shift = i_0
-        if i_0+i_shift > t_pts_0.shape[0]:
-            i_shift = t_pts_0.shape[0] - i_0 - 1
-        t_pts = t_pts_0[i_0-i_shift:i_0+i_shift]
-        a_pts = a_pts_0[i_0-i_shift:i_0+i_shift]
+        if i_0+i_shift > t_pts.shape[0]:
+            i_shift = t_pts.shape[0] - i_0 - 1
+        t_pts = t_pts[i_0-i_shift:i_0+i_shift]
+        a_pts = a_pts[i_0-i_shift:i_0+i_shift]
         if len(t_pts) == 0:
-            t_pts = t_pts_0
-            a_pts = a_pts_0
+            t_pts = t_pts
+            a_pts = a_pts
     else:
-        t_pts = t_pts_0
-        a_pts = a_pts_0
+        t_pts = t_pts
+        a_pts = a_pts
 
     #it is helpful to try to get the amplitude close to unity so that the gradient in other directions is not suppressed
     if env_x[0] != 0.0:
@@ -484,28 +483,27 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
 
     return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
 
-def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
-    if a_pts_0.shape != t_pts_0.shape:
+def opt_pulse_env(t_pts, a_pts, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
+    if a_pts.shape != t_pts.shape:
         raise ValueError("t_pts and a_pts must have the same shape")
+    if t_pts.shape[0] == 0:
+        raise ValueError("empty time series supplied!")
     env_fig_name = ''
     env_fig_name_2 = ''
     if fig_name != '':
         env_fig_name = fig_name+"_env"
         env_fig_name_2 = fig_name+"_env_2"
 
-    t_pts_skip = t_pts_0[::SKIP]
-    a_pts_skip = a_pts_0[::SKIP]
-
     #the maximum of the derivative on a_pts(t_pts) and use this to get a conservative estimate of the variance on each of the sample points. Note that for an RV Y with P(Y|X)=N(mX+x0, s) we have V(Y) = s^2 + m^2 V(X). We take X to follow a continuous uniform distribution between (t_pts[i], t_pts[i+SKIP])
-    max_diff = np.max(np.diff(a_pts_skip))
+    max_diff = np.max(np.diff(a_pts))
     skip_sigma_sq = a_sigmas_sq + (max_diff**2)/12
     #find the extrema
-    env_fit = EnvelopeFitter(t_pts_skip, a_pts_skip)
+    env_fit = EnvelopeFitter(t_pts, a_pts)
     #set defaults
     env_res = None
     res = None
-    low_t = t_pts_0[0]
-    hi_t = t_pts_0[-1]
+    low_t = t_pts[0]
+    hi_t = t_pts[-1]
     err = 1.0
     used_double = False
     #try fitting to both possible envelopes
@@ -519,12 +517,12 @@ def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name
     #substantial evidence as defined by Jeffreys
     if np.isnan(ln_bayes) or ln_bayes > 1.15:
         env_res = env_res_1
-        res, low_t, hi_t = opt_double_pulse(t_pts_skip, a_pts_skip, env_res_1.x, est_omega_1, est_phi_1, keep_n=keep_n)
+        res, low_t, hi_t = opt_double_pulse(t_pts, a_pts, env_res_1.x, est_omega_1, est_phi_1, keep_n=keep_n)
         err = err_1
         used_double = True
     else:
         env_res = env_res_0
-        res, low_t, hi_t = opt_pulse(t_pts_skip, a_pts_skip, env_res_0.x, est_omega_0, est_phi_0, keep_n=keep_n)
+        res, low_t, hi_t = opt_pulse(t_pts, a_pts, env_res_0.x, est_omega_0, est_phi_0, keep_n=keep_n)
         err = err_0
         used_double = False
 
@@ -532,17 +530,17 @@ def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name
     if fig_name != '':
         fig = plt.figure()
         ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-        ax.plot(t_pts_0, a_pts_0, color='black')
-        ax.plot(t_pts_0, gauss_env(env_res.x, t_pts_0), linestyle=':', color='red')
-        ax.plot(t_pts_0, gauss_env(res.x, t_pts_0), linestyle=':', color='blue')
+        ax.plot(t_pts, a_pts, color='black')
+        ax.plot(t_pts, gauss_env(env_res.x, t_pts), linestyle=':', color='red')
+        ax.plot(t_pts, gauss_env(res.x, t_pts), linestyle=':', color='blue')
         if used_double:
             x0 = np.array([env_res.x[0], env_res.x[1], env_res.x[2], est_omega_1, est_phi_1, env_res.x[3], env_res.x[4], env_res.x[5]])
-            ax.plot(t_pts_0, double_gauss_series(x0, t_pts_0), color='red')
-            ax.plot(t_pts_0, double_gauss_series(res.x, t_pts_0), color='blue')
+            ax.plot(t_pts, double_gauss_series(x0, t_pts), color='red')
+            ax.plot(t_pts, double_gauss_series(res.x, t_pts), color='blue')
         else:
             x0 = np.array([env_res.x[0], env_res.x[1], env_res.x[2], est_omega_0, est_phi_0])
-            ax.plot(t_pts_0, gauss_series(x0, t_pts_0), color='red')
-            ax.plot(t_pts_0, gauss_series(res.x, t_pts_0), color='blue')
+            ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
+            ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
         ax.vlines([low_t, hi_t], -1.2, 1.2)
         ax.set_ylim((-1.2, 1.2))
         ax.annotate(r"$er^2={:.1f}$".format(res.fun), (0.01, 0.84), xycoords='axes fraction')
