@@ -20,9 +20,9 @@
 #define THICK_SCALE 1.0
 //for drawing images
 #define ROOT_BUF_SIZE 128
-#define CAM_X	1.5
-#define CAM_Y	1.3
-#define CAM_Z	2.0
+#define CAM_X	1.1
+#define CAM_Y	1.1
+#define CAM_Z	1.1
 
 #define CLUSTER_NAME "cluster_"
 #define POINT_NAME "point_"

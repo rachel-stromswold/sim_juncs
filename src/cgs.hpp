@@ -13,6 +13,7 @@
 #define DEF_TEST_N	500000
 #define DEF_IM_RES	255
 #define IM_DEPTH	255
+#define IM_LN_DEPTH	8
 
 #define SIDE_END	2
 #define SIDE_UNDEF	3

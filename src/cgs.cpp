@@ -23,6 +23,8 @@ void object::draw(const char* out_fname, double scale, vec3 cam_pos, vec3 cam_lo
     double x,y,z;
     //initialize random state
     uint32_t state = lcg(lcg(1465432554));
+    //We assume that all points are within a distance of cam_pos.norm() of the origin, so that the maximum distance from the camera is 2*cam_pos.norm()
+    double aa = IM_DEPTH/(2*cam_pos.norm());
     //cross the look direction with the z direction
     vec3 x_comp(cam_look.y(), -cam_look.x(), 0);
     vec3 y_comp = x_comp.cross(cam_look);
@@ -48,11 +50,16 @@ void object::draw(const char* out_fname, double scale, vec3 cam_pos, vec3 cam_lo
 	vec3 view_r = view_mat*(r*scale - cam_pos);
 	//figure out the index and depth and store the result into the array
 	size_t ind = floor( (1+view_r.x())*res/2 ) + res*floor( (1+view_r.y())*res/2 );
-	if (ind >= res*res)
-	    ind = 0;
-	_uint8 depth = floor(IM_DEPTH*view_r.z());
-	if (in(r))
-	    if (depth < im_arr[ind]) im_arr[ind] = depth;
+	//we don't draw anything behind the camera
+	if (view_r.z() > 0) {
+	    if (ind >= res*res)
+		ind = 0;
+	    //d=d_0(1 - 2^(-z/z_0))
+	    //_uint8 depth = IM_DEPTH - ( IM_DEPTH >> (unsigned int)floor(aa*view_r.z()) );
+	    _uint8 depth = floor(aa*view_r.z());
+	    if (in(r))
+		if (depth < im_arr[ind]) im_arr[ind] = depth;
+	}
     }
     //open the file. We use a .pgm format since it's super simple. Then we write the header information.
     FILE* fp;
