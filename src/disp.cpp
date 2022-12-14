@@ -587,7 +587,7 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
 	char root_name[ROOT_BUF_SIZE];
 	snprintf(root_name, ROOT_BUF_SIZE, "%s/root_%d.pgm", s.out_dir, i);
 	vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-	roots[i]->draw(root_name, s.len, cam_pos, cam_pos*-1);
+	roots[i]->draw(root_name, 1.0/s.len, cam_pos, cam_pos*-1);
     }
     meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
     //read susceptibilities if they are available
@@ -711,6 +711,7 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
     }
     write_settings(stdout);
     dump_span = s.field_dump_span;
+    dump_raw = s.dump_raw;
 }
 
 bound_geom::~bound_geom() {
@@ -758,6 +759,7 @@ void bound_geom::add_volume_source(meep::component c, const meep::src_time &src,
  */
 void bound_geom::run(const char* fname_prefix) {
     fields.set_output_directory(fname_prefix);
+    char h5_fname[BUF_SIZE];
 
     //save the dielectric used
     printf("Set output directory to %s\n", fname_prefix);
@@ -779,7 +781,6 @@ void bound_geom::run(const char* fname_prefix) {
     int n_digits_a = (int)(ceil(log(ttot)/log(10)));
     double rat = -log((double)(fields.dt))/log(10.0);
     int n_digits_b = (int)ceil(rat)+1;
-    char h5_fname[BUF_SIZE];
     strcpy(h5_fname, "ex-");
     //run the simulation
     printf("starting simulations\n");
@@ -796,6 +797,13 @@ void bound_geom::run(const char* fname_prefix) {
                     if (tmp.re > 1000) {
                         printf("divergence in run at (i,j)=(%d,%d) (%f)\n", i, j, tmp.re);
                     }
+                }
+                //save the raw hdf5 files if requested
+                if (dump_raw) {
+                    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
+                    meep::h5file* file = fields.open_h5file(h5_fname);
+                    fields.output_hdf5(meep::Ex, vol.surroundings(), file);
+                    delete file;
                 }
                 printf("    %d%% complete\n", 100*i/n_t_pts);
             }

@@ -9,14 +9,15 @@ import matplotlib.pyplot as plt
 
 EPSILON = 0.125
 H_EPSILON = EPSILON/2
-AMP_CUTOFF = 0.0025
+AMP_CUTOFF = 0.025
+OUTLIER_FACTOR = 20
 N_STDS = 2
 WIDTH_SCALE = 1000
 
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
 #for a local maxima with amplitude A_l/A_g >= LOC_MAX_CUT, the location of A_l will be considered for double envelope optimization. Here A_l is the amplitude of the local maxima and A_g is the amplitude of the global maxima
-LOC_MAX_CUT = 0.2
+LOC_MAX_CUT = 1e-6
 #The number of standard deviations away from the local maxima to consider when performing least squares fits
 DEF_KEEP_N = 2.5
 
@@ -65,7 +66,7 @@ def fix_angle(theta):
     return theta
 
 class EnvelopeFitter:
-    def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF):
+    def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF, outlier=OUTLIER_FACTOR):
         '''Given t_pts and a_pts return a list off all local extrema and their corresponding times. Also return the time for the global maxima, the value of the global maxima and the average spacing between maxima
         t_pts: time points to search
         a_pts: values to search
@@ -84,7 +85,7 @@ class EnvelopeFitter:
                 self.ext_ts.append(t_pts[i])
                 self.ext_vs.append(abs(a_pts[i]))
                 #check if this is a global maxima
-                if self.ext_vs[-1] > self.max_v:
+                if self.ext_vs[-1] > self.max_v and (self.ext_vs[-1] < self.max_v*outlier or self.max_v == 0):
                     self.l_max_i = i
                     self.max_t = t_pts[i]
                     self.max_v = self.ext_vs[-1]
@@ -485,6 +486,8 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
 def opt_pulse_env(t_pts, a_pts, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
     if a_pts.shape != t_pts.shape:
         raise ValueError("t_pts and a_pts must have the same shape")
+    if t_pts.shape[0] == 0:
+        raise ValueError("empty time series supplied!")
     env_fig_name = ''
     env_fig_name_2 = ''
     if fig_name != '':

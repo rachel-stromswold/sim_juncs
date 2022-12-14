@@ -1,6 +1,7 @@
 #include <meep.hpp>
 #include <math.h>
 #include <hdf5.h>
+#include <chrono>
 
 #include "argparse.h"
 #include "disp.hpp"
@@ -55,13 +56,28 @@ int main(int argc, char **argv) {
     int has_insert_member = test_h5_funcs();
 
     //create the geometry object
+    auto start = std::chrono::steady_clock::now();
     parse_ercode ercode = E_SUCCESS;
     bound_geom geom(args, &ercode);
     if (ercode) return (int)ercode;
+    //time benchmarking
+    auto end_init = std::chrono::steady_clock::now();
+    auto this_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_init-start).count();
+    std::cout << "initialization completed in " << this_time << " ms" << std::endl;
 
     geom.run(args.out_dir);
+    //time benchmarking
+    auto end_run = std::chrono::steady_clock::now();
+    this_time = std::chrono::duration_cast<std::chrono::seconds> (end_run-end_init).count();
+    std::cout << "simulation completed in " << this_time << " s" << std::endl;
     //save the time series for fields
     geom.save_field_times(args.out_dir);
+    //time benchmarking
+    auto end_write = std::chrono::steady_clock::now();
+    this_time = std::chrono::duration_cast<std::chrono::milliseconds> (end_write-end_run).count();
+    std::cout << "saving timeseries completed in " << this_time << " ms" << std::endl;
+    this_time = std::chrono::duration_cast<std::chrono::seconds> (end_write-start).count();
+    std::cout << "total time: " << this_time << " s" << std::endl;
 
     cleanup_settings(&args);
     return 0;

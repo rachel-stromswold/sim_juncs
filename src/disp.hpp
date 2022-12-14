@@ -183,6 +183,7 @@ private:
     double z_center;
     double eps_scale;
     _uint dump_span = 20;
+    bool dump_raw = false;
 
 #ifndef DEBUG_INFO
     std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);
