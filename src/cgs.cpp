@@ -740,8 +740,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 				//snapshot requires two arguments. The first is the filename that the picture should be saved to and the second is the camera location that should be used
 				if (cur_func.n_args >= 2 && cur_func.args[0].type == VAL_STR) {
 				    value cam_val = cur_func.args[1].cast_to(VAL_3VEC, er);
-				    double dist = cam_val.val.v->norm();
-				    if (er == E_SUCCESS && dist != 0 && tree_pos.get_root()) {
+				    if (er == E_SUCCESS && tree_pos.get_root()) {
 					vec3 cam_pos = *(cam_val.val.v);
 					//set defaults
 					vec3 cam_look = cam_pos*-1;
@@ -757,8 +756,13 @@ parse_ercode scene::read_file(const char* p_fname) {
 					if (res_val.type == VAL_NUM) res = (size_t)(res_val.val.x);
 					value n_val = lookup_named(cur_func, "n_samples");
 					if (n_val.type == VAL_NUM) n_samples = (size_t)(n_val.val.x);
-					//make the drawing
-					tree_pos.get_root()->draw(cur_func.args[0].val.s, cam_pos, cam_look, up_vec, res, n_samples);
+					//ensure that all parameters passed are valid
+					if (cam_look.norm() == 0 || up_vec.norm() == 0 || res == 0 || n_samples == 0) {
+					    printf("invalid parameters passed to snapshot on line %d\n", lineno);
+					} else {
+					    //make the drawing
+					    tree_pos.get_root()->draw(cur_func.args[0].val.s, cam_pos, cam_look, up_vec, res, n_samples);
+					}
 				    }
 				}
 			    }
