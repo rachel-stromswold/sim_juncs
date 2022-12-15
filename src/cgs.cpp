@@ -32,7 +32,7 @@ vec3 random_vec(uint32_t* sto_state, double range) {
     return ret;
 }
 /**
- * Render the object and save the image to out_fname
+ * Render the object and save the image to out_fname. This uses a stochastic method that randomly samples points. It is faster than draw(), but less accurate.
  * out_fname: the filename for the picture
  * cam_pos: the position of the camera
  * cam_look: the direction the camera is looking.
@@ -41,13 +41,13 @@ vec3 random_vec(uint32_t* sto_state, double range) {
  * res: the resolution of the saved image, only 1x1 aspect ratios are allowed
  * n_samples: the number of random samples to take, a higher value results in a cleaner image but takes longer to generate.
  */
-void object::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res, size_t n_samples) {
+void object::draw_stochastic(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res, size_t n_samples) {
     //initialize random state
     uint32_t state = lcg(lcg(1465432554));
     //depth scale factors and sampling region are determined by the magnitude of cam_look. Calculated these and then normalize cam_look
-    double aa = 1.2/cam_look.norm();
+    double aa = 1/cam_look.norm();
     double full_dist = cam_look.norm();
-    double step_dist = full_dist*WALK_STEP;
+    double step_dist = full_dist*WALK_STEP_STC;
     cam_look = cam_look.normalize();
     //cross the look direction with the z direction
     vec3 x_comp = cam_up.cross(cam_look);
@@ -67,8 +67,8 @@ void object::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_u
     view_mat.set_row(1, y_comp.normalize());
     view_mat.set_row(2, cam_look);
     //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
-    _uint8 im_arr[res*res];
-    for (size_t i = 0; i < res*res; ++i) im_arr[i]=0xff;
+    _uint8 z_buf[res*res];
+    for (size_t i = 0; i < res*res; ++i) z_buf[i]=0xff;
     //sample random points. If a point is in the object, and it's closer than any other sampled point, then store it in the z-buffer.
     vec3 r = random_vec(&state, full_dist);
     vec3 half_step(-step_dist/2, -step_dist/2, -step_dist/2);
@@ -78,8 +78,8 @@ void object::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_u
 	    vec3 r0 = r;
 	    //we reduce the number of points by walking closer to the camera
 	    while (true) {
-		double walk_dist = WALK_STEP*cam_look.dot(r-cam_pos);
-		vec3 new_r = r - WALK_STEP*cam_look;
+		double walk_dist = WALK_STEP_STC*cam_look.dot(r-cam_pos);
+		vec3 new_r = r - WALK_STEP_STC*cam_look;
 		if (in(new_r))
 		    r = new_r;
 		else
@@ -94,8 +94,8 @@ void object::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_u
 		    //d=d_0(1 - 2^(-z/z_0))
 		    //_uint8 depth = IM_DEPTH - ( IM_DEPTH >> (unsigned int)floor(aa*view_r.z()) );
 		    _uint8 depth = floor( IM_DEPTH*(1 - exp(-view_r.z()*aa)) );
-		    if (depth < im_arr[ind]) {
-			im_arr[ind] = depth;
+		    if (depth < z_buf[ind]) {
+			z_buf[ind] = depth;
 			//printf("%d\t\t(%f, %f, %f) %f %d\n", ind, r.x(), r.y(), r.z(), view_r.z(), depth);
 		    }
 		}
@@ -119,7 +119,76 @@ void object::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_u
     //iterate through the image buffer and write
     for (size_t yy = 0; yy < res; ++yy) {
 	for (size_t xx = 0; xx < res; ++xx) {
-	    fprintf(fp, "%d ", im_arr[yy*res+xx]);
+	    fprintf(fp, "%d ", z_buf[yy*res+xx]);
+	}
+	fprintf(fp, "\n");
+    }
+    fclose(fp);
+}
+/**
+ * Render the object and save the image to out_fname
+ * out_fname: the filename for the picture
+ * cam_pos: the position of the camera
+ * cam_look: the direction the camera is looking.
+ * cam_up: this determines the "up" direction for the camera. Note that the up vector is not directly used. Rather the vector in the cam_look,cam_up plane which is orthogonal to cam_look and has a positive dot product with cam_up is used.
+ * transform: a transformation matrix applied to the points in the image.
+ * res: the resolution of the saved image, only 1x1 aspect ratios are allowed
+ * n_samples: the number of random samples to take, a higher value results in a cleaner image but takes longer to generate.
+ */
+void object::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res, size_t n_samples) {
+    //depth scale factors and sampling region are determined by the magnitude of cam_look. Calculated these and then normalize cam_look
+    double aa = 1/cam_look.norm();
+    double xy_scale = cam_look.norm()/res;
+    double max_draw_z = 2*cam_pos.norm();
+    cam_look = cam_look.normalize();
+    //cross the look direction with the z direction
+    vec3 x_comp = cam_up.cross(cam_look);
+    //avoid divisions by zero
+    if (x_comp.norm() == 0) {
+	//if we're looking along the z axis, take the x component to be the x basis vector. Otherwise shift cam_up along the z axis and try again.
+	if (cam_look.x() == 0 && cam_look.y() == 0) {
+	    x_comp.x() = 1;
+	} else {
+	    cam_up.z() = cam_up.z() + 1;
+	    x_comp = cam_look.cross(cam_up);
+	}
+    }
+    x_comp = x_comp.normalize();
+    vec3 y_comp = x_comp.cross(cam_look);
+    //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
+    _uint8 z_buf[res*res];
+    for (size_t i = 0; i < res*res; ++i) z_buf[i]=0xff;
+    //iterate across the pixels in the buffer
+    for (long ii = 0; ii < res; ++ii) {
+	for (long jj = res-1; jj >= 0; --jj) {
+	    //orthographic projection
+	    vec3 disp = xy_scale*(2*(double)ii-res)*x_comp + xy_scale*(2*(double)jj-res)*y_comp;
+	    vec3 r0 = cam_pos+disp;
+	    //take small steps until we hit the object
+	    for (double z = 0; z < max_draw_z; z += WALK_STEP*max_draw_z) {
+		vec3 r = r0 + z*cam_look;
+		if (in(r)) {
+		    //if we hit the object then figure out the index in the image buffer and map the depth
+		    _uint8 depth = floor( IM_DEPTH*(1 - exp(-z*aa)) );
+		    z_buf[ii + jj*res] = depth;
+		    break;
+		}
+	    }
+	}
+    }
+    //open the file. We use a .pgm format since it's super simple. Then we write the header information.
+    FILE* fp;
+    if (out_fname) {
+	fp = fopen(out_fname, "w");
+	if (!fp) fp = stdout;
+    } else {
+	fp = stdout;
+    }
+    fprintf(fp, "P2\n%d %d\n%d\n", res, res, IM_DEPTH);
+    //iterate through the image buffer and write
+    for (size_t yy = 0; yy < res; ++yy) {
+	for (size_t xx = 0; xx < res; ++xx) {
+	    fprintf(fp, "%d ", z_buf[yy*res+xx]);
 	}
 	fprintf(fp, "\n");
     }

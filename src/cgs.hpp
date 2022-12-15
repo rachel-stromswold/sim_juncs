@@ -11,7 +11,8 @@
 #include <math.h>
 
 #define DEF_TEST_N	50000
-#define WALK_STEP	0.05
+#define WALK_STEP_STC	0.05
+#define WALK_STEP	0.01
 #define DEF_IM_RES	255
 #define IM_DEPTH	255
 #define IM_LN_DEPTH	8
@@ -45,6 +46,7 @@ public:
     void set_inversion(int p_invert);
     void rescale(const vec3& components);
     void set_trans_mat(const mat3x3& new_mat) { trans_mat = new_mat; }
+    void draw_stochastic(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
     void draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
     void draw(const char* out_fname, vec3 cam_pos);
 };
