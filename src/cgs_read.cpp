@@ -597,6 +597,7 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	    //actually change data and free the old
 	    ret.val.v = new vec3(tmp_lst[0].val.x, tmp_lst[1].val.x, tmp_lst[2].val.x);
 	    ret.n_els = 3;
+	    return ret;
 	}
     } else if (t == VAL_LIST) {
 	if (type == VAL_3VEC) {
@@ -607,12 +608,16 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 		ret.val.l[i].n_els = 1;
 		ret.val.l[i].val.x = val.v->el[i];
 	    }
+	    return ret;
 	} else if (type == VAL_MAT) {
 	    //TODO
 	}
     } else if (type == VAL_STR) {
 	//TODO
     }
+    //if we reach this point in execution then there was an error
+    ret.type = VAL_UNDEF;
+    ret.n_els = 0;
     return ret;
 }
 
@@ -665,6 +670,19 @@ void swap_func(cgs_func* a, cgs_func* b) {
 	sf->args[i] = lf->args[i];
 	sf->arg_names[i] = lf->arg_names[i];
     }
+}
+/**
+ * Find the named argument with the matching name
+ */
+value lookup_named(const cgs_func f, const char* name) {
+    for (size_t i = 0; i < f.n_args; ++i) {
+	if (f.arg_names[i] && strcmp(f.arg_names[i], name) == 0) return f.args[i];
+    }
+    value ret;
+    ret.type = VAL_UNDEF;
+    ret.val.x = 0;
+    ret.n_els = 0;
+    return ret;
 }
 
 /** ======================================================== name_val_pair ======================================================== **/

@@ -19,46 +19,67 @@ void object::rescale(const vec3& components) {
 }
 
 uint32_t lcg(uint32_t state) { return state*1664525 + 1013904223; }//LCG PRNG with parameters from Numerical Recipes
-void object::draw(const char* out_fname, double scale, vec3 cam_pos, vec3 cam_look, size_t res, size_t n_samples) {
+/**
+ * Render the object and save the image to out_fname
+ * out_fname: the filename for the picture
+ * cam_pos: the position of the camera
+ * cam_look: the direction the camera is looking.
+ * cam_up: this determines the "up" direction for the camera. Note that the up vector is not directly used. Rather the vector in the cam_look,cam_up plane which is orthogonal to cam_look and has a positive dot product with cam_up is used.
+ * transform: a transformation matrix applied to the points in the image.
+ * res: the resolution of the saved image, only 1x1 aspect ratios are allowed
+ * n_samples: the number of random samples to take, a higher value results in a cleaner image but takes longer to generate.
+ */
+void object::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res, size_t n_samples) {
     double x,y,z;
     //initialize random state
     uint32_t state = lcg(lcg(1465432554));
-    //We assume that all points are within a distance of cam_pos.norm() of the origin, so that the maximum distance from the camera is 2*cam_pos.norm()
-    double aa = IM_DEPTH/(2*cam_pos.norm());
     //cross the look direction with the z direction
-    vec3 x_comp(cam_look.y(), -cam_look.x(), 0);
+    vec3 x_comp = cam_look.cross(cam_up);
+    //avoid divisions by zero
+    if (x_comp.norm() == 0) {
+	//if we're looking along the z axis, take the x component to be the x basis vector. Otherwise shift cam_up along the z axis and try again.
+	if (cam_look.x() == 0 && cam_look.y() == 0) {
+	    x_comp.x() = 1;
+	} else {
+	    cam_up.z() = cam_up.z();
+	    x_comp = cam_look.cross(cam_up);
+	}
+    }
     vec3 y_comp = x_comp.cross(cam_look);
     mat3x3 view_mat;
     view_mat.set_row(0, x_comp.normalize());
     view_mat.set_row(1, y_comp.normalize());
     view_mat.set_row(2, cam_look.normalize());
+    double aa = 1.2/cam_look.norm();
+    double gen_fact = cam_look.norm()/UINT32_MAX;
     //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
     _uint8 im_arr[res*res];
-    for (size_t i = 0; i < res*res; ++i) im_arr[i]=0xff;
+    for (size_t i = 0; i < res*res; ++i) im_arr[i]=0;
     //sample random points. If a point is in the object, and it's closer than any other sampled point, then store it in the z-buffer.
     for (size_t i = 0; i < n_samples; ++i) {
 	//get a random point
 	state = lcg(state);
-	x = (double)state / UINT32_MAX;
+	x = (double)gen_fact*state;
 	state = lcg(state);
-	y = (double)state / UINT32_MAX;
+	y = (double)gen_fact*state;
 	state = lcg(state);
-	z = (double)state / UINT32_MAX;
+	z = (double)gen_fact*state;
 	state = lcg(state);
 	//initialize a point from the random values and compute it's position projected onto the view matrix. The z-buffer will act as color intensity
 	vec3 r(x, y, z);
-	vec3 view_r = view_mat*(r*scale - cam_pos);
-	//figure out the index and depth and store the result into the array
-	size_t ind = floor( (1+view_r.x())*res/2 ) + res*floor( (1+view_r.y())*res/2 );
-	//we don't draw anything behind the camera
-	if (view_r.z() > 0) {
-	    if (ind >= res*res)
-		ind = 0;
-	    //d=d_0(1 - 2^(-z/z_0))
-	    //_uint8 depth = IM_DEPTH - ( IM_DEPTH >> (unsigned int)floor(aa*view_r.z()) );
-	    _uint8 depth = floor(aa*view_r.z());
-	    if (in(r))
-		if (depth < im_arr[ind]) im_arr[ind] = depth;
+	if (in(r)) {
+	    vec3 view_r = view_mat*(r - cam_pos);
+	    //we don't draw anything behind the camera
+	    if (view_r.z() > 0) {
+		//figure out the index and depth and store the result into the array
+		size_t ind = floor( (1+view_r.x())*res/2 ) + res*floor( (1+view_r.y())*res/2 );
+		if (in(r) && ind < res*res) {
+		    //d=d_0(1 - 2^(-z/z_0))
+		    //_uint8 depth = IM_DEPTH - ( IM_DEPTH >> (unsigned int)floor(aa*view_r.z()) );
+		    _uint8 depth = floor( IM_DEPTH*(1 - exp(-view_r.z()*aa)) );
+		    if (depth > im_arr[ind]) im_arr[ind] = depth;
+		}
+	    }
 	}
     }
     //open the file. We use a .pgm format since it's super simple. Then we write the header information.
@@ -78,6 +99,11 @@ void object::draw(const char* out_fname, double scale, vec3 cam_pos, vec3 cam_lo
 	fprintf(fp, "\n");
     }
     fclose(fp);
+}
+void object::draw(const char* out_fname, vec3 cam_pos) {
+    vec3 cam_look = cam_pos*-1;
+    vec3 cam_up(0,0,1);
+    draw(out_fname, cam_pos, cam_look, cam_up);
 }
 
 /** ======================================================== sphere ======================================================== **/
@@ -445,6 +471,7 @@ parse_ercode scene::make_transformation(const cgs_func& f, mat3x3& res) const {
 	if (f.args[0].type != VAL_NUM || f.args[1].type != VAL_3VEC) return E_BAD_VALUE;
 	double angle = f.args[0].val.x;
 	res = make_rotation(angle, *(f.args[1].val.v));
+	return E_SUCCESS;
     } else if (strcmp(f.name, "scale") == 0) {
 	if (f.n_args < 1) return E_LACK_TOKENS;
 	vec3 scale;
@@ -457,9 +484,9 @@ parse_ercode scene::make_transformation(const cgs_func& f, mat3x3& res) const {
 	    scale.z() = val;
 	}
 	res = scale.make_diagonal();
+	return E_SUCCESS;
     }
-
-    return E_SUCCESS;
+    return E_BAD_TYPE;
 }
 
 /** ============================ object_stack ============================ **/
@@ -615,6 +642,31 @@ parse_ercode scene::read_file(const char* p_fname) {
 			    } else if ((er = make_transformation(cur_func, tmp)) == E_SUCCESS) {
 				last_type = BLK_TRANSFORM;
 				next_trans_mat = tmp*cur_trans_mat;
+			    } else if (strcmp(cur_func.name, "snapshot") == 0) {
+				//snapshot requires two arguments. The first is the filename that the picture should be saved to and the second is the camera location that should be used
+				if (cur_func.n_args >= 2 && cur_func.args[0].type == VAL_STR) {
+				    value cam_val = cur_func.args[1].cast_to(VAL_3VEC, er);
+				    double dist = cam_val.val.v->norm();
+				    if (er == E_SUCCESS && dist != 0 && tree_pos.get_root()) {
+					vec3 cam_pos = *(cam_val.val.v);
+					//set defaults
+					vec3 cam_look = cam_pos*-1;
+					vec3 up_vec(0,0,1);
+					size_t res = DEF_IM_RES;
+					size_t n_samples = DEF_TEST_N;
+					//find optional named arguments
+					value look_val = lookup_named(cur_func, "look").cast_to(VAL_3VEC, er);
+					if (look_val.type == VAL_3VEC) cam_look = *(look_val.val.v);
+					value up_val = lookup_named(cur_func, "up").cast_to(VAL_3VEC, er);
+					if (up_val.type == VAL_3VEC) up_vec = *(up_val.val.v);
+					value res_val = lookup_named(cur_func, "resolution");
+					if (res_val.type == VAL_NUM) res = (size_t)(res_val.val.x);
+					value n_val = lookup_named(cur_func, "n_samples");
+					if (n_val.type == VAL_NUM) n_samples = (size_t)(res_val.val.x);
+					//make the drawing
+					tree_pos.get_root()->draw(cur_func.args[0].val.s, cam_pos, cam_look, up_vec, res, n_samples);
+				    }
+				}
 			    }
 			} else {
 			    if (type == CGS_ROOT) {

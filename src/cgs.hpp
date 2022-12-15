@@ -44,7 +44,8 @@ public:
     void set_inversion(int p_invert);
     void rescale(const vec3& components);
     void set_trans_mat(const mat3x3& new_mat) { trans_mat = new_mat; }
-    void draw(const char* out_fname, double scale, vec3 cam_pos, vec3 cam_look, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
+    void draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
+    void draw(const char* out_fname, vec3 cam_pos);
 };
 
 class sphere : public object {
