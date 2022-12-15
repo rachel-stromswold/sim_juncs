@@ -106,6 +106,8 @@ public:
 	return ret;
     }
 };
+template <size_t M,size_t N> inline matrix<M,N> operator*(_ftype s, const matrix<M,N>& m) { return m*s; }
+
 template <size_t N>
 struct vector : public matrix<N,1> {
     vector<N>() { for(size_t i = 0; i < N; ++i) this->el[i] = 0; }
@@ -146,6 +148,8 @@ struct vector : public matrix<N,1> {
 	return ret;
     }
 };
+template <size_t N> inline vector<N> operator*(_ftype s, const vector<N>& m) { return m*s; }
+
 struct vec3 : public vector<3> {
     vec3() { this->el[0] = 0;this->el[1] = 0;this->el[2] = 0; }
     vec3(const matrix<3,1>& o) { el[0] = o.el[0];el[1] = o.el[1];el[2] = o.el[2]; }
@@ -168,6 +172,7 @@ struct vec3 : public vector<3> {
     _ftype& y() { return el[1]; }
     _ftype& z() { return el[2]; }
 };
+inline vec3 operator*(_ftype s, const vec3& m) { return m*s; }
 //make a rotation matrix about the specified axis with the specified rotation
 inline matrix<3,3> make_rotation(_ftype theta, vec3 a) {
     a = a.normalize();
@@ -180,6 +185,7 @@ inline matrix<3,3> make_rotation(_ftype theta, vec3 a) {
     ret.el[6] = ret.el[2]-2*a.el[1]*st;	ret.el[7] = ret.el[5]+2*a.el[0]*st;		ret.el[8] = ct+a.el[2]*a.el[2]*ctc;
     return ret;
 }
+
 struct quaternion : public vector<4> {
     quaternion() : vector<4>() {}
     quaternion operator*(const quaternion& o) {

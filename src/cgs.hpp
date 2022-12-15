@@ -10,7 +10,8 @@
 #include <cstdint>
 #include <math.h>
 
-#define DEF_TEST_N	500000
+#define DEF_TEST_N	50000
+#define WALK_STEP	0.05
 #define DEF_IM_RES	255
 #define IM_DEPTH	255
 #define IM_LN_DEPTH	8
