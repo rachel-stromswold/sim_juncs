@@ -791,9 +791,6 @@ TEST_CASE("Test volumes") {
     CHECK(abs(v_cyl - cyl_frac)/v_cyl < EPSILON);
     //draw test images
     vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-    test_sphere.draw("/tmp/test_sphere.pgm", cam_pos);
-    test_cyl.draw("/tmp/test_cylinder.pgm", cam_pos);
-    test_plane.draw("/tmp/test_plane.pgm", cam_pos);
 }
 
 TEST_CASE("Test object Trees") {
@@ -966,7 +963,7 @@ TEST_CASE("Test Geometric Inclusion") {
     CHECK(root->in(vec3(.55,.45,.45)) == 0);
     CHECK(root->in(vec3(.55,.41,.85)) == 0);
     vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-    root->draw("/tmp/test_composite.pgm", cam_pos);
+    s.draw("/tmp/test_composite.pgm", cam_pos);
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {

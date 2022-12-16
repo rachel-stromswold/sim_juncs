@@ -109,19 +109,19 @@ public:
 template <size_t M,size_t N> inline matrix<M,N> operator*(_ftype s, const matrix<M,N>& m) { return m*s; }
 
 template <size_t N>
-struct vector : public matrix<N,1> {
-    vector<N>() { for(size_t i = 0; i < N; ++i) this->el[i] = 0; }
+struct rvector : public matrix<N,1> {
+    rvector<N>() { for(size_t i = 0; i < N; ++i) this->el[i] = 0; }
     /**
-     * freely enable conversions between row and column vectors
+     * freely enable conversions between row and column rvectors
      */
-    vector<N>(const matrix<1,N>& o) {
+    rvector<N>(const matrix<1,N>& o) {
 	for (size_t i = 0; i < N; ++i) this->el[i] = o.el[i];
     }
-    vector<N>& operator=(const matrix<1,N>& o) {
+    rvector<N>& operator=(const matrix<1,N>& o) {
 	for (size_t i = 0; i < N; ++i) this->el[i] = o.el[i];return this;
     }
     /**
-     * create an NxN matrix with elements from the vector along the diagonal
+     * create an NxN matrix with elements from the rvector along the diagonal
      */
     matrix<N,N> make_diagonal() const {
 	matrix<N,N> ret;
@@ -130,27 +130,27 @@ struct vector : public matrix<N,1> {
 	}
 	return ret;
     }
-    //return the square of the normal of the vector
+    //return the square of the normal of the rvector
     _ftype normsq() {
 	_ftype ret = 0.0;
 	for (size_t i = 0; i < N; ++i) ret += (this->el[i])*(this->el[i]);
 	return ret;
     }
-    //return the normal of the vector
+    //return the normal of the rvector
     _ftype norm() {
 	return sqrt(normsq());
     }
-    //return a vector which points along the same direction with unit length
-    vector<N> normalize() {
-	vector<N> ret;
+    //return a rvector which points along the same direction with unit length
+    rvector<N> normalize() {
+	rvector<N> ret;
 	_ftype n = norm();
 	for (size_t i = 0; i < N; ++i) ret.el[i] = this->el[i]/n;
 	return ret;
     }
 };
-template <size_t N> inline vector<N> operator*(_ftype s, const vector<N>& m) { return m*s; }
+template <size_t N> inline rvector<N> operator*(_ftype s, const rvector<N>& m) { return m*s; }
 
-struct vec3 : public vector<3> {
+struct vec3 : public rvector<3> {
     vec3() { this->el[0] = 0;this->el[1] = 0;this->el[2] = 0; }
     vec3(const matrix<3,1>& o) { el[0] = o.el[0];el[1] = o.el[1];el[2] = o.el[2]; }
     vec3& operator=(const matrix<3,1>& o) { el[0] = o.el[0];el[1] = o.el[1];el[2] = o.el[2];return *this; }
@@ -186,8 +186,8 @@ inline matrix<3,3> make_rotation(_ftype theta, vec3 a) {
     return ret;
 }
 
-struct quaternion : public vector<4> {
-    quaternion() : vector<4>() {}
+struct quaternion : public rvector<4> {
+    quaternion() : rvector<4>() {}
     quaternion operator*(const quaternion& o) {
 	quaternion ret;
 	ret.el[0] = el[0]*o.el[0] - el[1]*o.el[1] - el[2]*o.el[2] - el[3]*o.el[3];
