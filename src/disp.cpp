@@ -594,7 +594,7 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
     for (size_t i = 0; i < roots.size(); ++i) {
 	std::vector<drude_suscept> cur_sups;
 	int res = 0;
-	if (roots[i]->has_metadata("susceptibilities") && roots[i]->fetch_metadata("susceptibilities").get_type() == VAL_STR) {
+	if (roots[i]->has_metadata("susceptibilities")) {
 	    value sup_val = roots[i]->fetch_metadata("susceptibilities");
 	    cur_sups = parse_susceptibilities(sup_val, &res);
 	}
