@@ -366,7 +366,7 @@ def opt_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
         if i_0 < i_shift:
             i_shift = i_0
         if i_0+i_shift > t_pts.shape[0]:
-            i_shift = t_pts.shape[0] - i_0 - 1
+            i_shift = min(t_pts.shape[0] - i_0 - 1, i_0)
         t_pts = t_pts[i_0-i_shift:i_0+i_shift]
         a_pts = a_pts[i_0-i_shift:i_0+i_shift]
         if len(t_pts) == 0:
