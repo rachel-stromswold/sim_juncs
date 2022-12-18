@@ -704,6 +704,11 @@ scene::scene(const char* p_fname, parse_ercode* ercode) {
     *ercode = read_file(p_fname);
 }
 
+scene::scene(const char* p_fname, context con, parse_ercode* ercode) : named_items(con) {
+    if (ercode) *ercode = E_SUCCESS;
+    *ercode = read_file(p_fname);
+}
+
 scene::scene(const scene& o) {
     roots.resize(o.roots.size());
     data_objs.resize(o.data_objs.size());

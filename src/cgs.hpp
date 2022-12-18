@@ -177,11 +177,12 @@ private:
     //let users define constants
     context named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
-    parse_ercode read_file(const char* p_fname);
+    void save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y);
 
 public:
     scene() {}
     scene(const char* p_fname, parse_ercode* ercode = NULL);
+    scene(const char* p_fname, context con, parse_ercode* ercode = NULL);
     scene(const scene& o);
     scene(scene&& o);
     scene& operator=(scene& o);
@@ -191,6 +192,7 @@ public:
     std::vector<composite_object*> get_data() { return data_objs; }
     void read();
  
+    parse_ercode read_file(const char* p_fname);
     parse_ercode make_object(const cgs_func& f, object** ptr, object_type* type, int p_invert) const;
     parse_ercode make_transformation(const cgs_func& f, emat3& res) const;
     context& get_context() { return named_items; }

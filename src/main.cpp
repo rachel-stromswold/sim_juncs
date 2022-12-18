@@ -9,6 +9,53 @@
 const double epsilon = 0.01;
 const double n_monitor_spheres = 2;
 
+<<<<<<< Updated upstream
+=======
+/**
+ * insertMember isn't available in all versions of hdf5, and there were some issues that popped up calling it after running the simulations. It's better to fail early if something is wrong
+ */
+int test_h5_funcs() {
+    printf("Now trying HDF5 library files\n");
+    int ret = 1;
+    /*try {
+        H5::CompType fieldtype(sizeof(complex));
+        fieldtype.insertMember("Re", HOFFSET(complex, re), H5_float_type);
+        fieldtype.insertMember("Im", HOFFSET(complex, im), H5_float_type);
+    } catch (...) {
+        printf("insertMember doesn't work!\n");
+        ret = 0;
+    }*/
+    return ret;
+}
+
+/**
+ * Load variables specified in the parse_settings struct s into the context con
+ */
+context context_from_settings(parse_settings& args) {
+    context con;
+    con.emplace("pml_thickness", make_val_num(args.pml_thickness));
+    con.emplace("sim_length", make_val_num(args.len));
+    con.emplace("length", make_val_num(2*args.pml_thickness + args.len));
+    con.emplace("l_per_um", make_val_num(args.um_scale));
+    //TODO: use context to handle this more elegantly
+    if (args.user_opts) {
+	char* save;
+	char* line = strtok_r(args.user_opts, ";", &save);
+	while (line) {
+	    char* eq_loc = strchr(line, '=');
+	    if (eq_loc) {
+		*eq_loc = 0;
+		parse_ercode er = E_SUCCESS;
+		value tmp = con.parse_value(eq_loc+1, er);
+		if (er) con.emplace(line, tmp);
+		cleanup_val(&tmp);
+	    }
+	    line = strtok_r(args.user_opts, ";", &save);
+	}
+    }
+    return con;
+}
+
 int main(int argc, char **argv) {
     parse_settings args;
 
@@ -33,12 +80,16 @@ int main(int argc, char **argv) {
     if (ret) return ret;
     correct_defaults(&args);
 
-    double z_center = args.len/2 + args.pml_thickness;
-    double y_loc = z_center;
+    //initialize a context for the scene based on parameters
+    parse_ercode ercode = E_SUCCESS;
+    context scene_con = context_from_settings(args);
+
+    //test hdf5
+    int has_insert_member = test_h5_funcs();
 
     //create the geometry object
-    parse_ercode ercode = E_SUCCESS;
-    bound_geom geom(args, &ercode);
+    auto start = std::chrono::steady_clock::now();
+    bound_geom geom(args, scene_con, &ercode);
     if (ercode) return (int)ercode;
 
     geom.run(args.out_dir);

@@ -620,8 +620,8 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
  * s: parse_settings object to read.
  * ercode: if an error occurs while parsing the .geom file and ercode is not NULL, a code for the error is saved there
  */
-bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
-    problem(s.geom_fname, ercode),
+bound_geom::bound_geom(const parse_settings& s, context con, parse_ercode* ercode) :
+    problem(s.geom_fname, con, ercode),
     strct(structure_from_settings(s, problem, ercode)),
     fields(strct)
 {
