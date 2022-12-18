@@ -1093,7 +1093,8 @@ TEST_CASE("Test geometry file reading") {
     args.len = 2.0;
 
     //check the susceptibilities
-    bound_geom geometry(args, &er);
+    context defcon;
+    bound_geom geometry(args, defcon, &er);
 
     SUBCASE("Test reading of susceptibilities") {
 	CHECK(er == E_SUCCESS);
@@ -1179,7 +1180,8 @@ TEST_CASE("Test that spans of monitor locations are read correctly") {
     free(name_dup);
 
     //try creating the geometry object
-    bound_geom geometry(args, &er);
+    context defcon;
+    bound_geom geometry(args, defcon, &er);
     const size_t SPAN = 4;
     CHECK(er == E_SUCCESS);
     //(2/0.1)^2 == 400
@@ -1224,7 +1226,8 @@ TEST_CASE("Test running with a very small system") {
     args.resolution = 5.0;
 
     //try creating the geometry object
-    bound_geom geometry(args, &er);
+    context defcon;
+    bound_geom geometry(args, defcon, &er);
     CHECK(er == E_SUCCESS);
 
     //make sure that monitor locations were added

@@ -242,6 +242,7 @@ struct cgs_func {
     size_t n_args;
     cgs_func() { name = NULL;n_args = 0; }
 };
+value make_val_num(double x);
 value make_val_str(const char* s);
 value make_val_std_str(std::string s);
 value make_val_list(const value* vs, size_t n_vs);

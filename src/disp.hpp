@@ -134,7 +134,7 @@ struct sto_vec {
 
 class bound_geom {
 public:
-    bound_geom(const parse_settings& s, parse_ercode* ercode=NULL);
+    bound_geom(const parse_settings& s, context con, parse_ercode* ercode=NULL);
     ~bound_geom();
     std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
     std::vector<std::vector<complex>> get_field_times() { return field_times; }

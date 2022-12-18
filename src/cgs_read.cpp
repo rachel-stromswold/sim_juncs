@@ -465,6 +465,13 @@ value flatten_list(cgs_func tmp_f, parse_ercode& er) {
     return sto;
 }
 /** ======================================================== value ======================================================== **/
+value make_val_num(double x) {
+    value v;
+    v.type = VAL_NUM;
+    v.n_els = 1;
+    v.val.x = x;
+    return v;
+}
 value make_val_str(const char* s) {
     value v;
     v.type = VAL_STR;

@@ -45,6 +45,7 @@ typedef struct {
     _uint field_dump_span = 20;
     unsigned char dump_raw = 0;
     _uint verbosity = 1;//same as meep
+    char* user_opts = NULL;
 } parse_settings;
 
 /**
@@ -89,6 +90,7 @@ inline void set_ercode(int* sto, int er) {
 inline void cleanup_settings(parse_settings* s) {
     if (s->geom_fname) free(s->geom_fname_al);
     if (s->monitor_locs) free(s->monitor_locs);
+    if (s->user_opts) free(s->user_opts);
 }
 
 /**
@@ -330,6 +332,14 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 			printf("Invalid floating point supplied to --eps1");
 			return errno;
 		    }
+		    to_rm = 2;
+		}
+	    } else if (strstr(argv[i], "--opts") == argv[i]) {
+		if (i == n_args-1) {
+		    printf("Usage: meep --opts \"<name1=value1;name2=value2>\"");
+		    return 0;
+		} else {
+		    a->user_opts = strdup(argv[i+1]);
 		    to_rm = 2;
 		}
 	    }
