@@ -837,7 +837,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     ret_val = H5Tinsert(fieldtype.getId(), "Im", HOFFSET(complex, im), float_member_id);
     //use the space of rank 1 tensors with a dimension of n_t_pts
     hsize_t t_dim[1];
-    t_dim[0] = {n_t_pts};
+    t_dim[0] = {n_t_pts/dump_span};
     hsize_t f_dim[1];
     H5::DataSpace t_space(1, t_dim);
 
@@ -855,6 +855,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     H5::CompType srctype(sizeof(source_info));
     ret_val = H5Tinsert(srctype.getId(), "wavelen", HOFFSET(source_info, wavelen), float_member_id);
     ret_val = H5Tinsert(srctype.getId(), "width", HOFFSET(source_info, width), float_member_id);
+    ret_val = H5Tinsert(srctype.getId(), "phase", HOFFSET(source_info, phase), float_member_id);
     ret_val = H5Tinsert(srctype.getId(), "start_time", HOFFSET(source_info, start_time), float_member_id);
     ret_val = H5Tinsert(srctype.getId(), "end_time", HOFFSET(source_info, end_time), float_member_id);
     ret_val = H5Tinsert(srctype.getId(), "amplitude", HOFFSET(source_info, amplitude), float_member_id);
@@ -904,7 +905,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     n_c_info_dataset.write(&hsize_sto, H5::PredType::NATIVE_HSIZE);
     //write the number of time points
     H5::DataSet n_t_info_dataset(info_group.createDataSet("n_time_points", H5::PredType::NATIVE_HSIZE, n_info_space));
-    hsize_sto = n_t_pts;
+    hsize_sto = n_t_pts/dump_span;
     n_t_info_dataset.write(&hsize_sto, H5::PredType::NATIVE_HSIZE);
     //write information about sources
     size_t n_srcs = sources.size();
