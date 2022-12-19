@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.stats import linregress
+import scipy.fft
 import time
 import pickle
 import os.path
@@ -48,7 +49,14 @@ if slice_dir == 'x':
     slice_name = 'z'
 
 class phase_finder:
-    def __init__(self, fname, width, height, stop_time=2.5):
+    '''
+    Initialize a phase finder reading from the  specified by fname and a juction width and gap specified by width and height respectively.
+    fname: h5 file to read time samples from
+    width: the width of the junction
+    height: the thickness of the junction
+    pass_alpha: The scale of the low pass filter applied to the time series. This corresponds to taking a time average of duration 2/pass_alpha on either side
+    '''
+    def __init__(self, fname, width, height, pass_alpha=1/30):
         '''read metadata from the h5 file'''
         self.geom = utils.Geometry("params.conf", gap_width=width, gap_thick=height)
         #open the h5 file and identify all the clusters
@@ -70,10 +78,6 @@ class phase_finder:
         t_max = self.f['info']['time_bounds'][1]
         self.dt = (t_max-t_min)/self.n_t_pts
         self.t_pts = np.linspace(t_min, t_max, num=self.n_t_pts)
-        #if specified truncate until the time specified by stop_time
-        self.stop_ind = int(stop_time/self.dt)
-        if stop_time <= 0:
-            self.stop_ind = len(self.t_pts)
         #this normalizes the square errors to have reasonable units
         self.sq_er_fact = self.dt/(t_max-t_min)
         #figure out a range of incident frequencies
@@ -83,10 +87,26 @@ class phase_finder:
         self.freq_comps = avg_field_0*avg_sig_0*np.exp(-1j*avg_phase_0-((self.freq_range+FREQ_0)*avg_sig_0)**2/2)/np.sqrt(2*np.pi)
         '''self.freq_range = np.array([FREQ_0])
         self.freq_comps = np.array([0j+avg_field_0/self.df])'''
+        #these are used for applying a low pass filter to the time data, the low-pass is a sinc function applied in frequency space
+        self.f_pts = scipy.fft.fftfreq(self.stop_ind, d=self.dt)
+        self.low_pass = np.sin(self.f_pts*np.pi*pass_alpha) / (self.f_pts*np.pi*pass_alpha)
+        self.low_pass[0] = 1
 
     def get_clust_location(self, clust):
         '''return the location of the cluster with the name clust along the propagation direction (z if slice_dir=x x if slice_dir=z)'''
         return self.geom.meep_len_to_um(self.f[clust]['locations'][slice_name][0] - self.geom.t_junc)
+
+    def get_point_times(self, clust, ind, low_pass_alpha=False):
+        #fetch a list of points and their associated coordinates
+        points = list(self.f[clust].keys())[1:]
+        v_pts = np.array(self.f[clust][points[ind]]['time']['Re'][:self.stop_ind]) + 1j*np.array(self.f[clust][points[ind]]['time']['Im'][:self.stop_ind])
+        # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
+        #err_2 = 8*np.max(np.diff(v_pts)**2)
+        err_2 = 0.02
+        if low_pass:
+            vf_pts = sfft.fft(v_pts)*self.low_pass
+            v_pts = sfft.ifft(vf_pts)
+        return v_pts, err_2
 
     def read_cluster(self, clust):
         '''Read an h5 file and return three two dimensional numpy arrays of the form ([amplitudes, errors], [sigmas, errors], [phases, errors]
@@ -108,17 +128,14 @@ class phase_finder:
         phase_arr = np.zeros((2,n_z_pts))
         good_zs = []
         phase_cor = 0
-        for j, pt in enumerate(points):
-            v_pts = np.array(self.f[clust][pt]['time']['Re'])
+        for j in range(len(points)):
+            v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
             #before doing anything else, save a plot of just the time series
-            plt.plot(self.t_pts[:self.stop_ind], v_pts[:self.stop_ind])
+            plt.plot(self.t_pts, v_pts)
             plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
             plt.clf()
-            # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
-            #err_2 = 8*np.max(np.diff(v_pts)**2)
-            err_2 = 0.02
             print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
-            res,res_env = phases.opt_pulse_env(self.t_pts[:self.stop_ind], v_pts[:self.stop_ind], a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+            res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
             n_evals += 1
             print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
             #only include this point if the fit was good
