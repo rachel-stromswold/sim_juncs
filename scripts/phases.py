@@ -226,10 +226,19 @@ class EnvelopeFitter:
         l_ext_ts = np.array(self.ext_ts)
         l_ext_vs = np.array(self.ext_vs)/self.max_v
 
-        local_maxes = []
-        for i in range(1, len(l_ext_vs)-1):
+        max_l_ext = len(l_ext_vs)-1
+        local_maxes = [0, 0]
+        local_sigs = [fwhm, fwhm]
+        for i in range(1, max_l_ext):
             if l_ext_vs[i] > LOC_MAX_CUT and l_ext_vs[i] > l_ext_vs[i-1] and l_ext_vs[i] > l_ext_vs[i+1]:
-                local_maxes.append(i)
+                #estimate the second derivative by (f(x+h)-2f(x)+f(x-h))/h^2 and use this to estimate the standard deviation
+                est_deriv = (l_ext_vs[i+1] - 2*l_ext_vs[i] + l_ext_vs[i-1])*4 / (l_ext_ts[i+1]-l_ext_ts[i-1])**2
+                if l_ext_vs[i] > l_ext_vs[local_maxes[0]]:
+                    local_maxes[0] = i
+                    local_sigs[0] = np.sqrt(-1/est_deriv)
+                elif l_ext_vs[i] > l_ext_vs[local_maxes[1]]:
+                    local_maxes[1] = i
+                    local_sigs[1] = np.sqrt(-1/est_deriv)
 
         #the square error
         def doub_gauss_ser(x, t_pts):
@@ -253,11 +262,9 @@ class EnvelopeFitter:
 
         #create an initial guess by supposing that the widths are each one half
         x0 = np.array([1.0, self.max_t, fwhm/2, 1.0, self.max_t+fwhm, fwhm/2])
-        #try a different guess if we have multiple local maxima
-        if len(local_maxes) > 1:
-            est_fwhm = 0.5*(l_ext_ts[local_maxes[-1]] - l_ext_ts[local_maxes[0]] - fwhm)
-            if est_fwhm > 0:
-                x0 = np.array([l_ext_vs[local_maxes[0]], l_ext_ts[local_maxes[0]], est_fwhm, l_ext_vs[local_maxes[-1]], l_ext_ts[local_maxes[-1]], est_fwhm])
+        if local_maxes[0] != local_maxes[1]:
+            x0 = np.array([l_ext_vs[local_maxes[0]], l_ext_ts[local_maxes[0]], local_sigs[0], l_ext_vs[local_maxes[1]], l_ext_ts[local_maxes[1]], local_sigs[1]])
+
         #perform the optimization and make figures
         res = opt.minimize(ff, x0, jac=jac_env)
         if fig_name != '':
