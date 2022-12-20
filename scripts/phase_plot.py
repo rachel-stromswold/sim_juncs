@@ -56,7 +56,7 @@ class phase_finder:
     height: the thickness of the junction
     pass_alpha: The scale of the low pass filter applied to the time series. This corresponds to taking a time average of duration 2/pass_alpha on either side
     '''
-    def __init__(self, fname, width, height, pass_alpha=1/30):
+    def __init__(self, fname, width, height, pass_alpha=0.5):
         '''read metadata from the h5 file'''
         self.geom = utils.Geometry("params.conf", gap_width=width, gap_thick=height)
         #open the h5 file and identify all the clusters
@@ -78,34 +78,34 @@ class phase_finder:
         t_max = self.f['info']['time_bounds'][1]
         self.dt = (t_max-t_min)/self.n_t_pts
         self.t_pts = np.linspace(t_min, t_max, num=self.n_t_pts)
+        #these are used for applying a low pass filter to the time data, the low-pass is a sinc function applied in frequency space
+        self.f_pts = scipy.fft.fftfreq(self.n_t_pts, d=self.dt)
+        self.low_filter = np.sin(self.f_pts*np.pi*pass_alpha) / (self.f_pts*np.pi*pass_alpha)
+        self.low_filter[0] = 1
         #this normalizes the square errors to have reasonable units
         self.sq_er_fact = self.dt/(t_max-t_min)
         #figure out a range of incident frequencies
-        avg_field_0, avg_sig_0, avg_phase_0 = self.find_avg_vals(self.clust_names[0])
+        avg_field_0 = self.f['info']['sources']['amplitude']
+        avg_sig_0 = self.f['info']['sources']['width']
+        avg_phase_0 = self.f['info']['sources']['phase']
         self.df = 6/(avg_sig_0*N_FREQ_COMPS)
         self.freq_range = np.linspace(-FREQ_0-3/avg_sig_0, -FREQ_0+3/avg_sig_0, num=N_FREQ_COMPS)
         self.freq_comps = avg_field_0*avg_sig_0*np.exp(-1j*avg_phase_0-((self.freq_range+FREQ_0)*avg_sig_0)**2/2)/np.sqrt(2*np.pi)
-        '''self.freq_range = np.array([FREQ_0])
-        self.freq_comps = np.array([0j+avg_field_0/self.df])'''
-        #these are used for applying a low pass filter to the time data, the low-pass is a sinc function applied in frequency space
-        self.f_pts = scipy.fft.fftfreq(self.stop_ind, d=self.dt)
-        self.low_pass = np.sin(self.f_pts*np.pi*pass_alpha) / (self.f_pts*np.pi*pass_alpha)
-        self.low_pass[0] = 1
 
     def get_clust_location(self, clust):
         '''return the location of the cluster with the name clust along the propagation direction (z if slice_dir=x x if slice_dir=z)'''
         return self.geom.meep_len_to_um(self.f[clust]['locations'][slice_name][0] - self.geom.t_junc)
 
-    def get_point_times(self, clust, ind, low_pass_alpha=False):
+    def get_point_times(self, clust, ind, low_pass=False):
         #fetch a list of points and their associated coordinates
         points = list(self.f[clust].keys())[1:]
-        v_pts = np.array(self.f[clust][points[ind]]['time']['Re'][:self.stop_ind]) + 1j*np.array(self.f[clust][points[ind]]['time']['Im'][:self.stop_ind])
+        v_pts = np.array(self.f[clust][points[ind]]['time']['Re']) + 1j*np.array(self.f[clust][points[ind]]['time']['Im'])
         # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
         #err_2 = 8*np.max(np.diff(v_pts)**2)
         err_2 = 0.02
         if low_pass:
-            vf_pts = sfft.fft(v_pts)*self.low_pass
-            v_pts = sfft.ifft(vf_pts)
+            vf_pts = scipy.fft.fft(v_pts)*self.low_filter
+            v_pts = scipy.fft.ifft(vf_pts)
         return v_pts, err_2
 
     def read_cluster(self, clust):
@@ -209,19 +209,19 @@ class phase_finder:
     def get_junc_bounds(self):
         return self.geom.meep_len_to_um(self.geom.l_junc - self.geom.z_center), self.geom.meep_len_to_um(self.geom.r_junc - self.geom.z_center)
 
-    def lookup_fits(self, clust_name):
+    def lookup_fits(self, clust_name, recompute=False):
         '''Load the fits from the pickle file located at fname or perform the fits if it doesn't exist. Return the results'''
         data_name = '{}/dat_{}'.format(args.prefix, clust_name)
-        if os.path.exists(data_name):
-            with open(data_name, 'rb') as fh:
-                vals = pickle.load(fh)
-            return vals[0], vals[1], vals[2], vals[3]
-        else:
+        if recompute or not os.path.exists(data_name):
             #figure out data by phase fitting
             dat_xs, amp_arr, sig_arr, phase_arr = self.read_cluster(clust_name)
             with open(data_name, 'wb') as fh:
                 pickle.dump([dat_xs, amp_arr, sig_arr, phase_arr], fh)
-            return dat_xs, amp_arr, sig_arr, phase_arr
+            return dat_xs, amp_arr, sig_arr, phase_arr  
+        else:
+            with open(data_name, 'rb') as fh:
+                vals = pickle.load(fh)
+            return vals[0], vals[1], vals[2], vals[3]
 
     def get_field_amps(self, x_pts, z, diel_const, vac_wavelen=0.7, n_modes=HIGHEST_MODE):
         #omega = 2*np.pi*.299792458 / vac_wavelen
@@ -369,7 +369,7 @@ class phase_finder:
         sig_0 = np.sum(sig_arr[0]) / sig_arr.shape[1]
         phase_0 = np.sum(phase_arr[0]) / sig_arr.shape[1]
         return field_0, sig_0, phase_0
-
+    
 def get_axis(axs_list, ind):
     #matplotlib is annoying and the axes it gives have a different type depending on the column
     if N_COLS == 1:
