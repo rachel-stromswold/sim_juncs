@@ -63,7 +63,8 @@ class phase_finder:
         self.f = h5py.File(fname, "r")
         self.clust_names = []
         for key in self.f.keys():
-            if 'cluster' in key:
+            #make sure that the cluster has a valid name and it actually has points
+            if 'cluster' in key and len(self.f[key]) > 1 and len(self.f[key]['locations']) > 0:
                 self.clust_names.append(key)
         self.n_clusts = len(self.clust_names)
         #create a numpy array for time points, this will be shared across all points
@@ -129,13 +130,18 @@ class phase_finder:
         good_zs = []
         phase_cor = 0
         for j in range(len(points)):
-            v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
+            v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
             #before doing anything else, save a plot of just the time series
             plt.plot(self.t_pts, v_pts)
             plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
             plt.clf()
             print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
-            res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+            try:
+                res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+            except:
+                print("fitting to raw time series failed, applying low pass filter")
+                v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
+                res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
             n_evals += 1
             print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
             #only include this point if the fit was good
@@ -409,23 +415,6 @@ def make_fits(pf):
     fig_fits, axs_fits = plt.subplots(2)
     fit_xs = np.zeros((3, pf.n_clusts))
     x_cnt = np.linspace(junc_bounds[0], junc_bounds[1], num=100)
-    #res = pf.fit_eps(inds=[1])
-    res, eps_init = pf.fit_eps()
-    print(res)
-    #iterate over each cluster
-    '''for i, clust in enumerate(pf.clust_names):
-        res = pf.fit_eps(dat_xs, amp_arr[0], z)
-        fit_xs[0, i] = z
-        fit_xs[1, i] = res.x[0]
-        print(res)
-        #amps_fit = pf.get_field_amps(x_cnt, z, 0.4, 6.56, FREQ_0)
-        amps_fit_0 = pf.get_field_amps(x_cnt, z, EPS_0)
-        amps_fit = pf.get_field_amps(x_cnt, z, res.x[0])
-        #actually make the plot
-        tmp_axs = get_axis(axs_amp, i)
-        #tmp_axs.plot(x_cnt, np.abs(amps_fit_0), color='red')
-        tmp_axs.plot(x_cnt, np.abs(amps_fit))'''
-        #tmp_axs.set_ylim(AMP_RANGE)
     axs_fits[0].scatter(fit_xs[0], fit_xs[1])
     axs_fits[1].scatter(fit_xs[0], fit_xs[2])
     axs_fits[0].set_ylim(AMP_RANGE)
