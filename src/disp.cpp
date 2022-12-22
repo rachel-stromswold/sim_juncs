@@ -583,11 +583,6 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
 	    roots[i]->rescale(vec3(1.0, 1.0, thicknesses[i]));
 	}
 	inf_eps_func.add_region(roots[i]);
-	//draw the shape of the current structure
-	/*char root_name[ROOT_BUF_SIZE];
-	snprintf(root_name, ROOT_BUF_SIZE, "%s/root_%d.pgm", s.out_dir, i);
-	vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-	roots[i]->draw(root_name, 1.0/s.len, cam_pos, cam_pos*-1);*/
     }
     meep::structure* strct = new meep::structure(vol, inf_eps_func, meep::pml(s.pml_thickness));
     //read susceptibilities if they are available

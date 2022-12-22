@@ -18,7 +18,7 @@ plt.rc('ytick', labelsize=12)
 
 N_COLS = 1
 
-AMP_RANGE = (0, 0.55)
+AMP_RANGE = (0, 1.1)
 SIG_RANGE = (0, 10.0)
 PHI_RANGE = (-1.0, 1.0)
 PAD_FACTOR = 1.05
@@ -403,17 +403,39 @@ def make_theory_plots(pf):
         #tmp_axs.set_ylim(AMP_RANGE)
     fig_amp.savefig(args.prefix+"/amps_theory.pdf")
 
-def make_fits(pf):
+def make_fits(pf, axs_mapping=None):
+    #use a default set of axes if the user didn't supply one or the supplied axes were invalid
+    if axs_mapping is None:
+        axs_mapping = range(len(pf.clust_names))
+    n_mapped = max(axs_mapping)+1
+    if n_mapped > len(pf.clust_names):
+        axs_mapping = range(len(pf.clust_names))
+        n_mapped = pf.n_clusts
     #figure out the edges of the junction
     junc_bounds = pf.get_junc_bounds()
     l_gold = [pf.x_range[0], junc_bounds[0]]
     r_gold = [junc_bounds[1], pf.x_range[-1]]
     #initialize plots
-    fig_amp, axs_amp = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
-    fig_phs, axs_phs = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
+    fig_amp, axs_amp = plt.subplots(n_mapped//N_COLS, N_COLS)
+    fig_phs, axs_phs = plt.subplots(n_mapped//N_COLS, N_COLS)
+    #set up axes first
+    for i in range(n_mapped):
+        tmp_axs = get_axis(axs_amp, i)
+        tmp_axs.set_xlim(pf.x_range)
+        tmp_axs.set_ylim(AMP_RANGE)
+        tmp_axs.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        if i < len(pf.clust_names) - 1:
+            tmp_axs.get_xaxis().set_visible(False)
+        tmp_axs = get_axis(axs_phs, i)
+        tmp_axs.set_xlim(pf.x_range)
+        tmp_axs.set_ylim(PHI_RANGE)
+        tmp_axs.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+    #make a plot of average fits
     fig_amp.suptitle(r"amplitude across a junction $E_1=1/\sqrt{2}$, $E_2=0")
     fig_fits, axs_fits = plt.subplots(2)
-    fit_xs = np.zeros((3, pf.n_clusts))
+    fit_xs = np.zeros((3, n_mapped))
     x_cnt = np.linspace(junc_bounds[0], junc_bounds[1], num=100)
     axs_fits[0].scatter(fit_xs[0], fit_xs[1])
     axs_fits[1].scatter(fit_xs[0], fit_xs[2])
@@ -421,31 +443,19 @@ def make_fits(pf):
     axs_fits[1].set_ylim([6, 7])
     #now perform a plot using the average of fits
     avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
-    #print("average fit: {}".format(avg_fit))
-    for i, clust in enumerate(pf.clust_names):
-        #amps_fit = pf.get_field_amps(x_cnt, pf.get_clust_location(clust), np.abs(avg_fit[0]))
-        #amps_fit = pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 2.6372705)
+    for i, clust in zip(axs_mapping, pf.clust_names):
         dat_xs,amp_arr,sig_arr,phs_arr = pf.lookup_fits(clust)
         amps_fit = np.abs(pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 4.5, vac_wavelen=0.7))
         phss_fit = np.abs(pf.get_field_phases(x_cnt, pf.get_clust_location(clust), 4.5, -np.pi/2))
+        #plot amplitudes
         tmp_axs = get_axis(axs_amp, i)
-        if i < len(pf.clust_names) - 1:
-            tmp_axs.get_xaxis().set_visible(False)
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.set_ylim([0, 0.5])
         tmp_axs.plot(x_cnt, amps_fit)
-        #tmp_axs.errorbar(dat_xs, amp_arr[0], yerr=amp_arr[1], fmt='.', linestyle='')
         tmp_axs.scatter(dat_xs, amp_arr[0], s=3)
-        tmp_axs.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        #plot phases
         tmp_axs = get_axis(axs_phs, i)
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.set_ylim(PHI_RANGE)
         tmp_axs.plot(x_cnt, phss_fit)
-        #tmp_axs.scatter(dat_xs, phs_arr[0])
-        tmp_axs.errorbar(dat_xs, phs_arr[0], yerr=phs_arr[1], fmt='.', linestyle='')
-        tmp_axs.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.scatter(dat_xs, phs_arr[0])
+
     #save the figures
     fig_amp.savefig(args.prefix+"/amps_theory.pdf")
     fig_phs.savefig(args.prefix+"/phases_theory.pdf")
@@ -549,4 +559,4 @@ def make_plots(pf):
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
 #make_plots(pf)
 #make_theory_plots(pf)
-make_fits(pf)
+make_fits(pf, axs_mapping=[0,1,2,3,4,5,6,0,1,2,3,4,5,6])

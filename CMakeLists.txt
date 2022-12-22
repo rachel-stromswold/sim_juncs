@@ -56,7 +56,7 @@ endif()
 
 #allow the user to specify what type of geometry they'd like to use
 if(NOT JUNCTION_TYPE)
-    set(JUNCTION_TYPE Au_graphene_box)
+    set(JUNCTION_TYPE Au_SiO2_box)
 endif()
 
 message(CHECK_START "Using junction type: ${JUNCTION_TYPE}")
