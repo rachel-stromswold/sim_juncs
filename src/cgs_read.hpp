@@ -11,9 +11,10 @@
 #include "geometry.hpp"
 
 //hints for dynamic buffer sizes
-#define BUF_SIZE 1024
-#define ARGS_BUF_SIZE 256
-#define FUNC_BUF_SIZE 8
+#define BUF_SIZE 	1024
+#define DEF_STACK_SIZE	16
+#define ARGS_BUF_SIZE 	256
+#define FUNC_BUF_SIZE 	8
 
 //keywords
 #define KEY_CLASS_LEN	5
@@ -72,7 +73,7 @@ protected:
 public:
     stack() {
 	stack_ptr = 0;
-	buf_len = ARGS_BUF_SIZE;
+	buf_len = DEF_STACK_SIZE;
 	buf = (T*)calloc(buf_len, sizeof(T));
 	//check that allocation was successful
 	if (!buf) {
@@ -107,6 +108,8 @@ public:
 	stack_ptr = o.stack_ptr;
 	//to save memory we'll only allocate however many entries the old object had
 	buf_len = stack_ptr;
+	//make sure that we set aside some space for the buffer
+	if (buf_len == 0) buf_len = DEF_STACK_SIZE;
 	buf = (T*)calloc(buf_len, sizeof(T));
 	if (!buf) {
 	    buf = NULL;

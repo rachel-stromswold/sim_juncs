@@ -44,6 +44,9 @@ typedef struct {
     double s;
 } region_scale_pair;
 
+//TODO: place this in context to handle this more elegantly
+context context_from_settings(parse_settings& args);
+
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
  */

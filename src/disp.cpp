@@ -3,6 +3,38 @@
 const double eps_cutoff = 10;
 
 /**
+ * Load variables specified in the parse_settings struct s into the context con
+ * TODO: place this in context to handle this more elegantly
+ */
+context context_from_settings(parse_settings& args) {
+    context con;
+    con.emplace("pml_thickness", make_val_num(args.pml_thickness));
+    con.emplace("sim_length", make_val_num(args.len));
+    con.emplace("length", make_val_num(2*args.pml_thickness + args.len));
+    con.emplace("l_per_um", make_val_num(args.um_scale));
+    if (args.user_opts) {
+	char* save;
+	char* line = strtok_r(args.user_opts, ";", &save);
+	while (line) {
+	    char* eq_loc = strchr(line, '=');
+	    if (eq_loc) {
+		*eq_loc = 0;
+		parse_ercode er = E_SUCCESS;
+		value tmp = con.parse_value(eq_loc+1, er);
+		line = CGS_trim_whitespace(line, NULL);
+		if (er == E_SUCCESS) con.emplace(line, tmp);
+		cleanup_val(&tmp);
+		*eq_loc = '=';
+	    }
+	    line = strtok_r(NULL, ";", &save);
+	}
+    }
+    return con;
+}
+
+
+
+/**
  * Helper function which initializes an array of smooth points
  */
 void cgs_material_function::generate_smooth_pts(double smooth_rad, uint64_t seed) {
@@ -965,7 +997,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     }
     file.close();
     printf("finished writing hdf5 file!\n");
-    //free(tmp_vecs);
+    free(tmp_vecs);
 }
 
 void bound_geom::write_settings(FILE* fp) {

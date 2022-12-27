@@ -601,7 +601,13 @@ parse_ercode scene::read_file(const char* p_fname) {
 					    scale_vec.el[1] = scale;
 					    draw(cur_func.args[0].val.s, cam_pos, cam_look, up_vec, scale_vec, res, res, n_samples);
 					}
+					cleanup_val(&look_val);
+					cleanup_val(&up_val);
+					cleanup_val(&res_val);
+					cleanup_val(&n_val);
+					cleanup_val(&scale_val);
 				    }
+				    cleanup_val(&cam_val);
 				}
 			    }
 			} else {
@@ -827,6 +833,7 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
 	fprintf(fp, "\n");
     }
     fclose(fp);
+    free(hues);
 }
 /**
  * Render the object and save the image to out_fname

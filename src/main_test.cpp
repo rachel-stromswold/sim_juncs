@@ -1028,7 +1028,7 @@ TEST_CASE("Test reading of configuration files") {
     SUBCASE("Command line arguments override defaults") {
 	parse_settings args;
 	//parse commandline arguments
-	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0" };
+	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0", "--opts", "a = 0.1; b_option = [1,\"blah\"]" };
 	//gcc doesn't like using string literals as c-strings, ugh.
 	int n_args = sizeof(sim_argv_cpp)/sizeof(std::string);
 	//need to create two lists since parse_args modifies the list in place. The second list is only used so that we know which addresses to free.
@@ -1067,6 +1067,28 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.smooth_rad == 0.25);
 	//CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
 	CHECK(args.post_source_t == 1.0);
+
+	//check that contexts are loaded with the correct options
+	context con = context_from_settings(args);
+	value tmp = con.lookup("pml_thickness");
+	CHECK(tmp.type == VAL_NUM);
+	CHECK(tmp.val.x == 2.0);
+	tmp = con.lookup("length");
+	CHECK(tmp.type == VAL_NUM);
+	CHECK(tmp.val.x == 9.0+2*2.0);
+	tmp = con.lookup("l_per_um");
+	CHECK(tmp.type == VAL_NUM);
+	CHECK(tmp.val.x == 1.0);
+	tmp = con.lookup("a");
+	CHECK(tmp.type == VAL_NUM);
+	CHECK(tmp.val.x == 0.1);
+	tmp = con.lookup("b_option");
+	CHECK(tmp.type == VAL_LIST);
+	CHECK(tmp.n_els == 2);
+	CHECK(tmp.val.l[0].type == VAL_NUM);
+	CHECK(tmp.val.l[0].val.x == 1.0);
+	CHECK(tmp.val.l[1].type == VAL_STR);
+	CHECK(strcmp(tmp.val.l[1].val.s, "blah") == 0);
 
 	//deallocate memory
 	for (_uint i = 0; i < n_args; ++i) free(post_sim_argv_c[i]);
