@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.stats import linregress
+import scipy.fft
 import time
 import pickle
 import os.path
@@ -17,7 +18,7 @@ plt.rc('ytick', labelsize=12)
 
 N_COLS = 1
 
-AMP_RANGE = (0, 0.55)
+AMP_RANGE = (0, 1.1)
 SIG_RANGE = (0, 10.0)
 PHI_RANGE = (-1.0, 1.0)
 PAD_FACTOR = 1.05
@@ -48,39 +49,65 @@ if slice_dir == 'x':
     slice_name = 'z'
 
 class phase_finder:
-    def __init__(self, fname, width, height):
+    '''
+    Initialize a phase finder reading from the  specified by fname and a juction width and gap specified by width and height respectively.
+    fname: h5 file to read time samples from
+    width: the width of the junction
+    height: the thickness of the junction
+    pass_alpha: The scale of the low pass filter applied to the time series. This corresponds to taking a time average of duration 2/pass_alpha on either side
+    '''
+    def __init__(self, fname, width, height, pass_alpha=0.5):
         '''read metadata from the h5 file'''
         self.geom = utils.Geometry("params.conf", gap_width=width, gap_thick=height)
         #open the h5 file and identify all the clusters
         self.f = h5py.File(fname, "r")
-        self.clust_names = list(self.f.keys())[:-2]
+        self.clust_names = []
+        for key in self.f.keys():
+            #make sure that the cluster has a valid name and it actually has points
+            if 'cluster' in key and len(self.f[key]) > 1 and len(self.f[key]['locations']) > 0:
+                self.clust_names.append(key)
         self.n_clusts = len(self.clust_names)
         #create a numpy array for time points, this will be shared across all points
-        keylist = list(self.f['cluster_0'].keys())
-        n_t_pts = len(self.f['cluster_0'][keylist[1]]['time'])
-        self.n_post_skip = n_t_pts // phases.SKIP
+        keylist = list(self.f[self.clust_names[0]].keys())
+        self.n_t_pts = len(self.f[self.clust_names[0]][keylist[1]]['time'])
         #figure out the extent of the simulation points in the spanned direction
         z_min = min(self.geom.meep_len_to_um(self.geom.l_junc -self.geom.z_center), \
-                self.geom.meep_len_to_um(self.f['cluster_0']['locations'][slice_dir][0]-self.geom.z_center))
+                self.geom.meep_len_to_um(self.f[self.clust_names[0]]['locations'][slice_dir][0]-self.geom.z_center))
         self.x_range = (PAD_FACTOR*z_min, -PAD_FACTOR*z_min)
         #read information to figure out time units and step sizes
         t_min = self.f['info']['time_bounds'][0]
         t_max = self.f['info']['time_bounds'][1]
-        self.dt = (t_max-t_min)/n_t_pts
-        self.t_pts = np.linspace(t_min, t_max, num=n_t_pts)
+        self.dt = (t_max-t_min)/self.n_t_pts
+        self.t_pts = np.linspace(t_min, t_max, num=self.n_t_pts)
+        #these are used for applying a low pass filter to the time data, the low-pass is a sinc function applied in frequency space
+        self.f_pts = scipy.fft.fftfreq(self.n_t_pts, d=self.dt)
+        self.low_filter = np.sin(self.f_pts*np.pi*pass_alpha) / (self.f_pts*np.pi*pass_alpha)
+        self.low_filter[0] = 1
         #this normalizes the square errors to have reasonable units
-        self.sq_er_fact = self.dt*phases.SKIP/(t_max-t_min)
+        self.sq_er_fact = self.dt/(t_max-t_min)
         #figure out a range of incident frequencies
-        avg_field_0, avg_sig_0, avg_phase_0 = self.find_avg_vals(self.clust_names[0])
+        avg_field_0 = self.f['info']['sources']['amplitude']
+        avg_sig_0 = self.f['info']['sources']['width']
+        avg_phase_0 = self.f['info']['sources']['phase']
         self.df = 6/(avg_sig_0*N_FREQ_COMPS)
         self.freq_range = np.linspace(-FREQ_0-3/avg_sig_0, -FREQ_0+3/avg_sig_0, num=N_FREQ_COMPS)
         self.freq_comps = avg_field_0*avg_sig_0*np.exp(-1j*avg_phase_0-((self.freq_range+FREQ_0)*avg_sig_0)**2/2)/np.sqrt(2*np.pi)
-        '''self.freq_range = np.array([FREQ_0])
-        self.freq_comps = np.array([0j+avg_field_0/self.df])'''
 
     def get_clust_location(self, clust):
         '''return the location of the cluster with the name clust along the propagation direction (z if slice_dir=x x if slice_dir=z)'''
         return self.geom.meep_len_to_um(self.f[clust]['locations'][slice_name][0] - self.geom.t_junc)
+
+    def get_point_times(self, clust, ind, low_pass=False):
+        #fetch a list of points and their associated coordinates
+        points = list(self.f[clust].keys())[1:]
+        v_pts = np.array(self.f[clust][points[ind]]['time']['Re']) + 1j*np.array(self.f[clust][points[ind]]['time']['Im'])
+        # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
+        #err_2 = 8*np.max(np.diff(v_pts)**2)
+        err_2 = 0.02
+        if low_pass:
+            vf_pts = scipy.fft.fft(v_pts)*self.low_filter
+            v_pts = scipy.fft.ifft(vf_pts)
+        return v_pts, err_2
 
     def read_cluster(self, clust):
         '''Read an h5 file and return three two dimensional numpy arrays of the form ([amplitudes, errors], [sigmas, errors], [phases, errors]
@@ -102,13 +129,19 @@ class phase_finder:
         phase_arr = np.zeros((2,n_z_pts))
         good_zs = []
         phase_cor = 0
-        for j, pt in enumerate(points):
-            v_pts = np.array(self.f[clust][pt]['time']['Re'])
-            # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
-            #err_2 = 8*np.max(np.diff(v_pts)**2)
-            err_2 = 0.02
+        for j in range(len(points)):
+            v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
+            #before doing anything else, save a plot of just the time series
+            plt.plot(self.t_pts, v_pts)
+            plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
+            plt.clf()
             print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
-            res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+            try:
+                res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+            except:
+                print("fitting to raw time series failed, applying low pass filter")
+                v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
+                res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
             n_evals += 1
             print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
             #only include this point if the fit was good
@@ -117,13 +150,13 @@ class phase_finder:
                 jj = len(good_zs)-1
                 amp, t_0, sig, omega, cep = phases.get_params(res)
                 amp_arr[0,jj] = amp
-                amp_arr[1,jj] = np.sqrt(res_env.hess_inv[0][0]/(err_2*self.n_post_skip))/2
+                amp_arr[1,jj] = np.sqrt(res_env.hess_inv[0][0]/(err_2*self.n_t_pts))/2
                 t_0_arr[0,jj] = t_0
-                t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/(err_2*self.n_post_skip))
+                t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/(err_2*self.n_t_pts))
                 sig_arr[0,jj] = sig
-                sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig*self.n_post_skip))
+                sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig*self.n_t_pts))
                 phase_arr[0,jj] = cep/np.pi
-                phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi*self.n_post_skip))
+                phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi*self.n_t_pts))
             else:
                 print("bad fit! clust={}, j={}".format(clust,j))
 
@@ -182,19 +215,19 @@ class phase_finder:
     def get_junc_bounds(self):
         return self.geom.meep_len_to_um(self.geom.l_junc - self.geom.z_center), self.geom.meep_len_to_um(self.geom.r_junc - self.geom.z_center)
 
-    def lookup_fits(self, clust_name):
+    def lookup_fits(self, clust_name, recompute=False):
         '''Load the fits from the pickle file located at fname or perform the fits if it doesn't exist. Return the results'''
         data_name = '{}/dat_{}'.format(args.prefix, clust_name)
-        if os.path.exists(data_name):
-            with open(data_name, 'rb') as fh:
-                vals = pickle.load(fh)
-            return vals[0], vals[1], vals[2], vals[3]
-        else:
+        if recompute or not os.path.exists(data_name):
             #figure out data by phase fitting
             dat_xs, amp_arr, sig_arr, phase_arr = self.read_cluster(clust_name)
             with open(data_name, 'wb') as fh:
                 pickle.dump([dat_xs, amp_arr, sig_arr, phase_arr], fh)
-            return dat_xs, amp_arr, sig_arr, phase_arr
+            return dat_xs, amp_arr, sig_arr, phase_arr  
+        else:
+            with open(data_name, 'rb') as fh:
+                vals = pickle.load(fh)
+            return vals[0], vals[1], vals[2], vals[3]
 
     def get_field_amps(self, x_pts, z, diel_const, vac_wavelen=0.7, n_modes=HIGHEST_MODE):
         #omega = 2*np.pi*.299792458 / vac_wavelen
@@ -342,7 +375,7 @@ class phase_finder:
         sig_0 = np.sum(sig_arr[0]) / sig_arr.shape[1]
         phase_0 = np.sum(phase_arr[0]) / sig_arr.shape[1]
         return field_0, sig_0, phase_0
-
+    
 def get_axis(axs_list, ind):
     #matplotlib is annoying and the axes it gives have a different type depending on the column
     if N_COLS == 1:
@@ -370,66 +403,59 @@ def make_theory_plots(pf):
         #tmp_axs.set_ylim(AMP_RANGE)
     fig_amp.savefig(args.prefix+"/amps_theory.pdf")
 
-def make_fits(pf):
+def make_fits(pf, axs_mapping=None):
+    #use a default set of axes if the user didn't supply one or the supplied axes were invalid
+    if axs_mapping is None:
+        axs_mapping = range(len(pf.clust_names))
+    n_mapped = max(axs_mapping)+1
+    if n_mapped > len(pf.clust_names):
+        axs_mapping = range(len(pf.clust_names))
+        n_mapped = pf.n_clusts
     #figure out the edges of the junction
     junc_bounds = pf.get_junc_bounds()
     l_gold = [pf.x_range[0], junc_bounds[0]]
     r_gold = [junc_bounds[1], pf.x_range[-1]]
     #initialize plots
-    fig_amp, axs_amp = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
-    fig_phs, axs_phs = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
+    fig_amp, axs_amp = plt.subplots(n_mapped//N_COLS, N_COLS)
+    fig_phs, axs_phs = plt.subplots(n_mapped//N_COLS, N_COLS)
+    #set up axes first
+    for i in range(n_mapped):
+        tmp_axs = get_axis(axs_amp, i)
+        tmp_axs.set_xlim(pf.x_range)
+        tmp_axs.set_ylim(AMP_RANGE)
+        tmp_axs.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        if i < len(pf.clust_names) - 1:
+            tmp_axs.get_xaxis().set_visible(False)
+        tmp_axs = get_axis(axs_phs, i)
+        tmp_axs.set_xlim(pf.x_range)
+        tmp_axs.set_ylim(PHI_RANGE)
+        tmp_axs.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+    #make a plot of average fits
     fig_amp.suptitle(r"amplitude across a junction $E_1=1/\sqrt{2}$, $E_2=0")
     fig_fits, axs_fits = plt.subplots(2)
-    fit_xs = np.zeros((3, pf.n_clusts))
+    fit_xs = np.zeros((3, n_mapped))
     x_cnt = np.linspace(junc_bounds[0], junc_bounds[1], num=100)
-    #res = pf.fit_eps(inds=[1])
-    res, eps_init = pf.fit_eps()
-    print(res)
-    #iterate over each cluster
-    '''for i, clust in enumerate(pf.clust_names):
-        res = pf.fit_eps(dat_xs, amp_arr[0], z)
-        fit_xs[0, i] = z
-        fit_xs[1, i] = res.x[0]
-        print(res)
-        #amps_fit = pf.get_field_amps(x_cnt, z, 0.4, 6.56, FREQ_0)
-        amps_fit_0 = pf.get_field_amps(x_cnt, z, EPS_0)
-        amps_fit = pf.get_field_amps(x_cnt, z, res.x[0])
-        #actually make the plot
-        tmp_axs = get_axis(axs_amp, i)
-        #tmp_axs.plot(x_cnt, np.abs(amps_fit_0), color='red')
-        tmp_axs.plot(x_cnt, np.abs(amps_fit))'''
-        #tmp_axs.set_ylim(AMP_RANGE)
     axs_fits[0].scatter(fit_xs[0], fit_xs[1])
     axs_fits[1].scatter(fit_xs[0], fit_xs[2])
     axs_fits[0].set_ylim(AMP_RANGE)
     axs_fits[1].set_ylim([6, 7])
     #now perform a plot using the average of fits
     avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
-    #print("average fit: {}".format(avg_fit))
-    for i, clust in enumerate(pf.clust_names):
-        #amps_fit = pf.get_field_amps(x_cnt, pf.get_clust_location(clust), np.abs(avg_fit[0]))
-        #amps_fit = pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 2.6372705)
+    for i, clust in zip(axs_mapping, pf.clust_names):
         dat_xs,amp_arr,sig_arr,phs_arr = pf.lookup_fits(clust)
         amps_fit = np.abs(pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 4.5, vac_wavelen=0.7))
         phss_fit = np.abs(pf.get_field_phases(x_cnt, pf.get_clust_location(clust), 4.5, -np.pi/2))
+        #plot amplitudes
         tmp_axs = get_axis(axs_amp, i)
-        if i < len(pf.clust_names) - 1:
-            tmp_axs.get_xaxis().set_visible(False)
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.set_ylim([0, 0.5])
         tmp_axs.plot(x_cnt, amps_fit)
-        #tmp_axs.errorbar(dat_xs, amp_arr[0], yerr=amp_arr[1], fmt='.', linestyle='')
         tmp_axs.scatter(dat_xs, amp_arr[0], s=3)
-        tmp_axs.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
+        #plot phases
         tmp_axs = get_axis(axs_phs, i)
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.set_ylim(PHI_RANGE)
         tmp_axs.plot(x_cnt, phss_fit)
-        #tmp_axs.scatter(dat_xs, phs_arr[0])
-        tmp_axs.errorbar(dat_xs, phs_arr[0], yerr=phs_arr[1], fmt='.', linestyle='')
-        tmp_axs.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.scatter(dat_xs, phs_arr[0])
+
     #save the figures
     fig_amp.savefig(args.prefix+"/amps_theory.pdf")
     fig_phs.savefig(args.prefix+"/phases_theory.pdf")
@@ -533,4 +559,4 @@ def make_plots(pf):
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
 #make_plots(pf)
 #make_theory_plots(pf)
-make_fits(pf)
+make_fits(pf, axs_mapping=[0,1,2,3,4,5,6,0,1,2,3,4,5,6])

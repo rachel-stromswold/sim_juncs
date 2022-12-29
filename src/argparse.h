@@ -43,6 +43,7 @@ typedef struct {
     char* monitor_locs = NULL;
     double post_source_t = 10.0;
     _uint field_dump_span = 20;
+    unsigned char dump_raw = 0;
     _uint verbosity = 1;//same as meep
     char* user_opts = NULL;
 } parse_settings;
@@ -124,33 +125,40 @@ inline void handle_pair(parse_settings* s, char* const tok, _uint toklen, char* 
     //reset errors
     errno = 0;
     if (strcmp(tok, "pml_thickness") == 0 && s->pml_thickness < 0) {
-	s->pml_thickness = strtod(val, NULL);
+        s->pml_thickness = strtod(val, NULL);
     } else if (strcmp(tok, "resolution") == 0 && s->resolution < 0) {
-	s->resolution = strtod(val, NULL);
+        s->resolution = strtod(val, NULL);
     } else if (strcmp(tok, "dimensions") == 0 && s->n_dims < 0) {
-	s->n_dims = strtol(val, NULL, 10);
+        s->n_dims = strtol(val, NULL, 10);
     } else if (strcmp(tok, "um_scale") == 0) {
-	s->um_scale = strtod(val, NULL);
+        s->um_scale = strtod(val, NULL);
     } else if (strcmp(tok, "length") == 0 && s->len < 0) {
-	s->len = strtod(val, NULL);
+        s->len = strtod(val, NULL);
     } else if (strcmp(tok, "smooth_rad") == 0) {
-	s->smooth_rad = strtod(val, NULL);
+        s->smooth_rad = strtod(val, NULL);
     } else if (strcmp(tok, "smooth_n") == 0) {
-	s->smooth_n = strtol(val, NULL, 10);
+        s->smooth_n = strtol(val, NULL, 10);
     } else if (strcmp(tok, "courant") == 0) {
-	s->courant = strtod(val, NULL);
+        s->courant = strtod(val, NULL);
     } else if (strcmp(tok, "ambient_eps") == 0 && s->ambient_eps < 0) {
-	s->ambient_eps = strtod(val, NULL);
+        s->ambient_eps = strtod(val, NULL);
     } else if (strcmp(tok, "geom_fname") == 0 && !s->geom_fname_al) {
-	//copy only the non whitespace portion
-	s->geom_fname_al = strdup(val);
-	s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);
+        //copy only the non whitespace portion
+        s->geom_fname_al = strdup(val);
+        s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);
     } else if (strcmp(tok, "monitor_locations") == 0 && !s->monitor_locs) {
-	s->monitor_locs = strdup(val);
+        s->monitor_locs = strdup(val);
     } else if (strcmp(tok, "post_source_t") == 0) {
-	s->post_source_t = strtod(val, NULL);
+        s->post_source_t = strtod(val, NULL);
     } else if (strcmp(tok, "field_dump_span") == 0) {
-	s->field_dump_span = strtol(val, NULL, 10);
+        s->field_dump_span = strtol(val, NULL, 10);
+    } else if (strcmp(tok, "dump_raw") == 0) {
+        if (strcmp(val, "true") == 0)
+            s->dump_raw = 1;
+        else if (strcmp(val, "false") == 0)
+            s->dump_raw = 0;
+        else
+            s->dump_raw = strtol(val, NULL, 10);
     }
 }
 

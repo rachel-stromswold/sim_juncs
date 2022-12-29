@@ -9,16 +9,15 @@ import matplotlib.pyplot as plt
 
 EPSILON = 0.125
 H_EPSILON = EPSILON/2
-
-SKIP = 200
-AMP_CUTOFF = 0.0025
+AMP_CUTOFF = 0.025
+OUTLIER_FACTOR = 20
 N_STDS = 2
 WIDTH_SCALE = 1000
 
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
 #for a local maxima with amplitude A_l/A_g >= LOC_MAX_CUT, the location of A_l will be considered for double envelope optimization. Here A_l is the amplitude of the local maxima and A_g is the amplitude of the global maxima
-LOC_MAX_CUT = 0.2
+LOC_MAX_CUT = 1e-6
 #The number of standard deviations away from the local maxima to consider when performing least squares fits
 DEF_KEEP_N = 2.5
 
@@ -67,7 +66,7 @@ def fix_angle(theta):
     return theta
 
 class EnvelopeFitter:
-    def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF):
+    def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF, outlier=OUTLIER_FACTOR):
         '''Given t_pts and a_pts return a list off all local extrema and their corresponding times. Also return the time for the global maxima, the value of the global maxima and the average spacing between maxima
         t_pts: time points to search
         a_pts: values to search
@@ -86,7 +85,7 @@ class EnvelopeFitter:
                 self.ext_ts.append(t_pts[i])
                 self.ext_vs.append(abs(a_pts[i]))
                 #check if this is a global maxima
-                if self.ext_vs[-1] > self.max_v:
+                if self.ext_vs[-1] > self.max_v and (self.ext_vs[-1] < self.max_v*outlier or self.max_v == 0):
                     self.l_max_i = i
                     self.max_t = t_pts[i]
                     self.max_v = self.ext_vs[-1]
@@ -227,10 +226,19 @@ class EnvelopeFitter:
         l_ext_ts = np.array(self.ext_ts)
         l_ext_vs = np.array(self.ext_vs)/self.max_v
 
-        local_maxes = []
-        for i in range(1, len(l_ext_vs)-1):
+        max_l_ext = len(l_ext_vs)-1
+        local_maxes = [0, 0]
+        local_sigs = [fwhm, fwhm]
+        for i in range(1, max_l_ext):
             if l_ext_vs[i] > LOC_MAX_CUT and l_ext_vs[i] > l_ext_vs[i-1] and l_ext_vs[i] > l_ext_vs[i+1]:
-                local_maxes.append(i)
+                #estimate the second derivative by (f(x+h)-2f(x)+f(x-h))/h^2 and use this to estimate the standard deviation
+                est_deriv = (l_ext_vs[i+1] - 2*l_ext_vs[i] + l_ext_vs[i-1])*4 / (l_ext_ts[i+1]-l_ext_ts[i-1])**2
+                if l_ext_vs[i] > l_ext_vs[local_maxes[0]]:
+                    local_maxes[0] = i
+                    local_sigs[0] = np.sqrt(-1/est_deriv)
+                elif l_ext_vs[i] > l_ext_vs[local_maxes[1]]:
+                    local_maxes[1] = i
+                    local_sigs[1] = np.sqrt(-1/est_deriv)
 
         #the square error
         def doub_gauss_ser(x, t_pts):
@@ -238,27 +246,28 @@ class EnvelopeFitter:
         def ff(x):
             return np.sum( (np.abs(x[0])*np.exp(-0.5*((l_ext_ts - x[1])/x[2])**2) + np.abs(x[3])*np.exp(-0.5*((l_ext_ts - x[4])/x[5])**2) - l_ext_vs)**2 )
         def jac_env(x):
+            #negative amplitudes are invalid, fix them to be positive
+            x[0] = np.abs(x[0])
+            x[3] = np.abs(x[3])
             t_dif_0 = (l_ext_ts - x[1])
             t_dif_1 = (l_ext_ts - x[4])
-            exp_0 = np.abs(x[0])*np.exp(-0.5*(t_dif_0/x[2])**2)
-            exp_1 = np.abs(x[3])*np.exp(-0.5*(t_dif_1/x[5])**2)
-            diff_ser = np.abs(x[0])*exp_0 + np.abs(x[3])*exp_1 - l_ext_vs
+            exp_0 = np.exp(-0.5*(t_dif_0/x[2])**2)
+            exp_1 = np.exp(-0.5*(t_dif_1/x[5])**2)
+            diff_ser = x[0]*exp_0 + x[3]*exp_1 - l_ext_vs
             ret = np.zeros(6)
-            ret[0] = 2*np.sum(diff_ser*exp_0)/np.abs(x[0])
-            ret[1] = 2*np.sum(diff_ser*t_dif_0*exp_0)/(x[2]**2)
-            ret[2] = 2*np.sum(diff_ser*exp_0*(t_dif_0)**2)/(x[2]**3)
-            ret[3] = 2*np.sum(diff_ser*exp_1)/np.abs(x[3])
-            ret[4] = 2*np.sum(diff_ser*t_dif_1*exp_1)/(x[5]**2)
-            ret[5] = 2*np.sum(diff_ser*exp_1*(t_dif_1)**2)/(x[5]**3)
+            ret[0] = 2*np.sum(diff_ser*exp_0)
+            ret[1] = 2*x[0]*np.sum(diff_ser*t_dif_0*exp_0)/(x[2]**2)
+            ret[2] = 2*x[0]*np.sum(diff_ser*exp_0*(t_dif_0)**2)/(x[2]**3)
+            ret[3] = 2*np.sum(diff_ser*exp_1)
+            ret[4] = 2*x[3]*np.sum(diff_ser*t_dif_1*exp_1)/(x[5]**2)
+            ret[5] = 2*x[3]*np.sum(diff_ser*exp_1*(t_dif_1)**2)/(x[5]**3)
             return ret
 
         #create an initial guess by supposing that the widths are each one half
         x0 = np.array([1.0, self.max_t, fwhm/2, 1.0, self.max_t+fwhm, fwhm/2])
-        #try a different guess if we have multiple local maxima
-        if len(local_maxes) > 1:
-            est_fwhm = 0.5*(l_ext_ts[local_maxes[-1]] - l_ext_ts[local_maxes[0]] - fwhm)
-            if est_fwhm > 0:
-                x0 = np.array([l_ext_vs[local_maxes[0]], l_ext_ts[local_maxes[0]], est_fwhm, l_ext_vs[local_maxes[-1]], l_ext_ts[local_maxes[-1]], est_fwhm])
+        if local_maxes[0] != local_maxes[1]:
+            x0 = np.array([l_ext_vs[local_maxes[0]], l_ext_ts[local_maxes[0]], local_sigs[0], l_ext_vs[local_maxes[1]], l_ext_ts[local_maxes[1]], local_sigs[1]])
+
         #perform the optimization and make figures
         res = opt.minimize(ff, x0, jac=jac_env)
         if fig_name != '':
@@ -350,7 +359,7 @@ def find_local_maxima(t_pts, a_pts, cutoff=AMP_CUTOFF):
 
     return ext_ts, ext_vs, max_t, max_v, typ_spacing
 
-def opt_pulse(t_pts_0, a_pts_0, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
+def opt_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
     '''Set values for the a_pts for each time point
     a_pts: the values of the electric field at each corresponding time point in t_pts. Note that len(a_pts) must be the same as len(t_pts)
     env_x: an array representing the value found from an envelope fit (i.e if you call res=opt_envelope(...) this would be res.x
@@ -360,22 +369,22 @@ def opt_pulse(t_pts_0, a_pts_0, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
 
     #truncate so that we only look at N_STDS deviations from the center of the pulse
     if keep_n > 0:
-        dt = (t_pts_0[-1]-t_pts_0[0])/t_pts_0.shape[0]
+        dt = (t_pts[-1]-t_pts[0])/t_pts.shape[0]
         i_0 = int(env_x[1]/dt)
         i_shift = int(keep_n*env_x[2] / dt)
         #make sure we don't go past the ends of the array
         if i_0 < i_shift:
             i_shift = i_0
-        if i_0+i_shift > t_pts_0.shape[0]:
-            i_shift = t_pts_0.shape[0] - i_0 - 1
-        t_pts = t_pts_0[i_0-i_shift:i_0+i_shift]
-        a_pts = a_pts_0[i_0-i_shift:i_0+i_shift]
+        if i_0+i_shift > t_pts.shape[0]:
+            i_shift = min(t_pts.shape[0] - i_0 - 1, i_0)
+        t_pts = t_pts[i_0-i_shift:i_0+i_shift]
+        a_pts = a_pts[i_0-i_shift:i_0+i_shift]
         if len(t_pts) == 0:
-            t_pts = t_pts_0
-            a_pts = a_pts_0
+            t_pts = t_pts
+            a_pts = a_pts
     else:
-        t_pts = t_pts_0
-        a_pts = a_pts_0
+        t_pts = t_pts
+        a_pts = a_pts
 
     #it is helpful to try to get the amplitude close to unity so that the gradient in other directions is not suppressed
     if env_x[0] != 0.0:
@@ -387,19 +396,17 @@ def opt_pulse(t_pts_0, a_pts_0, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
             x[2] = 0.1
         return np.sum( (gauss_series(x, t_pts) - a_pts)**2 )
     def jac_fp(x):
-        if x[2] == 0:
-            x[2] = 0.1
         p_i = gauss_series(x, t_pts) - a_pts
         exp_cos = np.exp(-0.5*((t_pts-x[1])/x[2])**2)*np.cos(x[3]*(t_pts-x[1])-x[4])
         exp_sin = np.exp(-0.5*((t_pts-x[1])/x[2])**2)*np.sin(x[3]*(t_pts-x[1])-x[4])       
         t_dif_by_w = (t_pts-x[1])
         ret = np.zeros(5)
         ret[0] = 2*np.sum(p_i*exp_cos)
-        ret[1] = 2*x[0]*np.sum(p_i*(t_dif_by_w*exp_cos/(x[2]**2) + exp_sin))
+        ret[1] = 2*x[0]*np.sum(p_i*(t_dif_by_w*exp_cos/(x[2]**2) + x[3]*exp_sin))
         ret[2] = 2*x[0]*np.sum(p_i*exp_cos*t_dif_by_w**2)/(x[2]**3)
         ret[3] = -2*x[0]*np.sum(p_i*exp_sin*t_dif_by_w)
         ret[4] = 2*x[0]*np.sum(p_i*exp_sin)
-        return ret
+        return np.real(ret)
 
     x0 = np.array([1.0, env_x[1], env_x[2], est_omega, est_phi])
     #super hacky way to account for pi phase shifts
@@ -446,23 +453,27 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
     def fp(x):
         return np.sum( (double_gauss_series(x, t_pts) - a_pts)**2 )
     def jac_fp(x):
+        #negative amplitudes are invalid, fix them to be positive
+        x[0] = np.abs(x[0])
+        x[5] = np.abs(x[5])
+        #the difference between the fit/data series
         p_i = double_gauss_series(x, t_pts) - a_pts
         t_dif_0 = (t_pts-x[1])
         t_dif_1 = (t_pts-x[6])
-        exp_cos_0 = np.abs(x[0])*np.exp(-0.5*(t_dif_0/x[2])**2)*np.cos(x[3]*t_dif_0-x[4])
-        exp_sin_0 = np.abs(x[0])*np.exp(-0.5*(t_dif_0/x[2])**2)*np.sin(x[3]*t_dif_0-x[4])
-        exp_cos_1 = np.abs(x[5])*np.exp(-0.5*(t_dif_1/x[7])**2)*np.cos(x[3]*t_dif_0-x[4])
-        exp_sin_1 = np.abs(x[5])*np.exp(-0.5*(t_dif_1/x[7])**2)*np.sin(x[3]*t_dif_0-x[4])
+        exp_cos_0 = x[0]*np.exp(-0.5*(t_dif_0/x[2])**2)*np.cos(x[3]*t_dif_0-x[4])
+        exp_sin_0 = x[0]*np.exp(-0.5*(t_dif_0/x[2])**2)*np.sin(x[3]*t_dif_0-x[4])
+        exp_cos_1 = x[5]*np.exp(-0.5*(t_dif_1/x[7])**2)*np.cos(x[3]*t_dif_0-x[4])
+        exp_sin_1 = x[5]*np.exp(-0.5*(t_dif_1/x[7])**2)*np.sin(x[3]*t_dif_0-x[4])
         ret = np.zeros(8)
         ret[0] = 2*np.sum(p_i*exp_cos_0)/x[0]
         ret[1] = 2*np.sum(p_i*(t_dif_0*exp_cos_0/(x[2]**2) + x[3]*(exp_sin_0+exp_sin_1)))
         ret[2] = 2*np.sum(p_i*exp_cos_0*t_dif_0**2)/(x[2]**3)
-        ret[3] =-2*np.sum(p_i*t_dif_1*(exp_sin_0+exp_sin_1))
+        ret[3] =-2*np.sum(p_i*t_dif_0*(exp_sin_0+exp_sin_1))
         ret[4] = 2*np.sum(p_i*(exp_sin_0+exp_sin_1))
         ret[5] = 2*np.sum(p_i*exp_cos_1)/x[5]
         ret[6] = 2*np.sum(p_i*(t_dif_1*exp_cos_1/(x[7]**2)))
         ret[7] = 2*np.sum(p_i*exp_cos_1*t_dif_1**2)/(x[7]**3)
-        return ret
+        return np.real(ret)
 
     x0 = np.array([1.0, env_x[1], env_x[2], est_omega, est_phi, env_x[3]/env_x[0], env_x[4], env_x[5]])
     #super hacky way to account for pi phase shifts
@@ -484,28 +495,27 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
 
     return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
 
-def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
-    if a_pts_0.shape != t_pts_0.shape:
+def opt_pulse_env(t_pts, a_pts, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
+    if a_pts.shape != t_pts.shape:
         raise ValueError("t_pts and a_pts must have the same shape")
+    if t_pts.shape[0] == 0:
+        raise ValueError("empty time series supplied!")
     env_fig_name = ''
     env_fig_name_2 = ''
     if fig_name != '':
         env_fig_name = fig_name+"_env"
         env_fig_name_2 = fig_name+"_env_2"
 
-    t_pts_skip = t_pts_0[::SKIP]
-    a_pts_skip = a_pts_0[::SKIP]
-
     #the maximum of the derivative on a_pts(t_pts) and use this to get a conservative estimate of the variance on each of the sample points. Note that for an RV Y with P(Y|X)=N(mX+x0, s) we have V(Y) = s^2 + m^2 V(X). We take X to follow a continuous uniform distribution between (t_pts[i], t_pts[i+SKIP])
-    max_diff = np.max(np.diff(a_pts_skip))
+    max_diff = np.max(np.diff(a_pts))
     skip_sigma_sq = a_sigmas_sq + (max_diff**2)/12
     #find the extrema
-    env_fit = EnvelopeFitter(t_pts_skip, a_pts_skip)
+    env_fit = EnvelopeFitter(t_pts, a_pts)
     #set defaults
     env_res = None
     res = None
-    low_t = t_pts_0[0]
-    hi_t = t_pts_0[-1]
+    low_t = t_pts[0]
+    hi_t = t_pts[-1]
     err = 1.0
     used_double = False
     #try fitting to both possible envelopes
@@ -519,12 +529,12 @@ def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name
     #substantial evidence as defined by Jeffreys
     if np.isnan(ln_bayes) or ln_bayes > 1.15:
         env_res = env_res_1
-        res, low_t, hi_t = opt_double_pulse(t_pts_skip, a_pts_skip, env_res_1.x, est_omega_1, est_phi_1, keep_n=keep_n)
+        res, low_t, hi_t = opt_double_pulse(t_pts, a_pts, env_res_1.x, est_omega_1, est_phi_1, keep_n=keep_n)
         err = err_1
         used_double = True
     else:
         env_res = env_res_0
-        res, low_t, hi_t = opt_pulse(t_pts_skip, a_pts_skip, env_res_0.x, est_omega_0, est_phi_0, keep_n=keep_n)
+        res, low_t, hi_t = opt_pulse(t_pts, a_pts, env_res_0.x, est_omega_0, est_phi_0, keep_n=keep_n)
         err = err_0
         used_double = False
 
@@ -532,17 +542,17 @@ def opt_pulse_env(t_pts_0, a_pts_0, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name
     if fig_name != '':
         fig = plt.figure()
         ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-        ax.plot(t_pts_0, a_pts_0, color='black')
-        ax.plot(t_pts_0, gauss_env(env_res.x, t_pts_0), linestyle=':', color='red')
-        ax.plot(t_pts_0, gauss_env(res.x, t_pts_0), linestyle=':', color='blue')
+        ax.plot(t_pts, a_pts, color='black')
+        ax.plot(t_pts, gauss_env(env_res.x, t_pts), linestyle=':', color='red')
+        ax.plot(t_pts, gauss_env(res.x, t_pts), linestyle=':', color='blue')
         if used_double:
             x0 = np.array([env_res.x[0], env_res.x[1], env_res.x[2], est_omega_1, est_phi_1, env_res.x[3], env_res.x[4], env_res.x[5]])
-            ax.plot(t_pts_0, double_gauss_series(x0, t_pts_0), color='red')
-            ax.plot(t_pts_0, double_gauss_series(res.x, t_pts_0), color='blue')
+            ax.plot(t_pts, double_gauss_series(x0, t_pts), color='red')
+            ax.plot(t_pts, double_gauss_series(res.x, t_pts), color='blue')
         else:
             x0 = np.array([env_res.x[0], env_res.x[1], env_res.x[2], est_omega_0, est_phi_0])
-            ax.plot(t_pts_0, gauss_series(x0, t_pts_0), color='red')
-            ax.plot(t_pts_0, gauss_series(res.x, t_pts_0), color='blue')
+            ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
+            ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
         ax.vlines([low_t, hi_t], -1.2, 1.2)
         ax.set_ylim((-1.2, 1.2))
         ax.annotate(r"$er^2={:.1f}$".format(res.fun), (0.01, 0.84), xycoords='axes fraction')

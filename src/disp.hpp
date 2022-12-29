@@ -14,15 +14,15 @@
 #define PREFIX_LEN 3
 
 //meep seems to be confused about how large fields are. On the cluster I consistently saw writes past the official meep bounds. This constant is here to help prevent data clobbering
-#define FIELDS_PAD_SIZE 10
+#define FIELDS_PAD_SIZE 128
 
 #define DEFAULT_WIDTH_N 5
 #define THICK_SCALE 1.0
 //for drawing images
 #define ROOT_BUF_SIZE 128
-#define CAM_X	1.5
-#define CAM_Y	1.3
-#define CAM_Z	2.0
+#define CAM_X	1.1
+#define CAM_Y	1.1
+#define CAM_Z	1.1
 
 #define CLUSTER_NAME "cluster_"
 #define POINT_NAME "point_"
@@ -43,6 +43,9 @@ typedef struct {
     composite_object* c;
     double s;
 } region_scale_pair;
+
+//TODO: place this in context to handle this more elegantly
+context context_from_settings(parse_settings& args);
 
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
@@ -137,7 +140,7 @@ public:
     bound_geom(const parse_settings& s, context con, parse_ercode* ercode=NULL);
     ~bound_geom();
     std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
-    std::vector<data_arr> get_field_times() { return field_times; }
+    std::vector<std::vector<complex>> get_field_times() { return field_times; }
     std::vector<source_info> get_sources() { return sources; }
     size_t get_n_monitor_clusters() const { return monitor_clusters.size(); }
 
@@ -162,7 +165,7 @@ private:
     std::vector<source_info> sources;
     std::vector<meep::vec> monitor_locs;
     std::vector<size_t> monitor_clusters;
-    std::vector<data_arr> field_times;
+    std::vector<std::vector<complex>> field_times;
 
     //meep objects
     meep::grid_volume vol;
@@ -170,7 +173,7 @@ private:
     meep::fields fields;
 
     //meep:fields seems to be confused about how long it is, so we add a whole bunch of dummy variables so that it doesn't clobber other variables
-    char dummy_vals[FIELDS_PAD_SIZE];
+    unsigned char dummy_vals[FIELDS_PAD_SIZE];
 
     double um_scale;
     double ttot = 0;
@@ -183,6 +186,7 @@ private:
     double z_center;
     double eps_scale;
     _uint dump_span = 20;
+    bool dump_raw = false;
 
 #ifndef DEBUG_INFO
     std::vector<drude_suscept> parse_susceptibilities(char* const str, int* er);

@@ -4,7 +4,7 @@
 
 object::object(int p_invert) {
     invert = p_invert;
-    trans_mat = emat3::Identity();
+    trans_mat = mat3x3::id();
 }
 
 void object::set_inversion(int p_invert) {
@@ -14,84 +14,45 @@ void object::set_inversion(int p_invert) {
 	invert = 1;
 }
 
-void object::rescale(const evec3& components) {
-    trans_mat = trans_mat*(components.asDiagonal());
+void object::rescale(const vec3& components) {
+    trans_mat = trans_mat*(components.make_diagonal());
 }
 
 uint32_t lcg(uint32_t state) { return state*1664525 + 1013904223; }//LCG PRNG with parameters from Numerical Recipes
-void object::draw(const char* out_fname, double scale, evec3 cam_pos, evec3 cam_look, size_t res, size_t n_samples) {
-    double x,y,z;
-    //initialize random state
-    uint32_t state = lcg(lcg(1465432554));
-    //cross the look direction with the z direction
-    evec3 x_comp(cam_look.y(), -cam_look.x(), 0);
-    evec3 y_comp = x_comp.cross(cam_look);
-    emat3 view_mat;
-    view_mat << x_comp/x_comp.norm(), y_comp/y_comp.norm(), cam_look/cam_look.norm();
-    //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
-    _uint8 im_arr[res*res];
-    for (size_t i = 0; i < res*res; ++i) im_arr[i]=0xff;
-    //sample random points. If a point is in the object, and it's closer than any other sampled point, then store it in the z-buffer.
-    for (size_t i = 0; i < n_samples; ++i) {
-	//get a random point
-	state = lcg(state);
-	x = (double)state / UINT32_MAX;
-	state = lcg(state);
-	y = (double)state / UINT32_MAX;
-	state = lcg(state);
-	z = (double)state / UINT32_MAX;
-	state = lcg(state);
-	//initialize a point from the random values and compute it's position projected onto the view matrix. The z-buffer will act as color intensity
-	evec3 r(x, y, z);
-	evec3 view_r = view_mat*(r*scale - cam_pos);
-	//figure out the index and depth and store the result into the array
-	size_t ind = floor( (1+view_r.x())*res/2 ) + res*floor( (1+view_r.y())*res/2 );
-	if (ind >= res*res)
-	    ind = 0;
-	_uint8 depth = floor(IM_DEPTH*view_r.z());
-	if (in(r))
-	    if (depth < im_arr[ind]) im_arr[ind] = depth;
-    }
-    //open the file. We use a .pgm format since it's super simple. Then we write the header information.
-    FILE* fp;
-    if (out_fname) {
-	fp = fopen(out_fname, "w");
-	if (!fp) fp = stdout;
-    } else {
-	fp = stdout;
-    }
-    fprintf(fp, "P2\n%d %d\n%d\n", res, res, IM_DEPTH);
-    //iterate through the image buffer and write
-    for (size_t yy = 0; yy < res; ++yy) {
-	for (size_t xx = 0; xx < res; ++xx) {
-	    fprintf(fp, "%d ", im_arr[yy*res+xx]);
-	}
-	fprintf(fp, "\n");
-    }
-    fclose(fp);
+vec3 random_vec(uint32_t* sto_state, double range) {
+    vec3 ret;
+    uint32_t state = *sto_state;
+    state = lcg(state);
+    ret.el[0] = (double)range*state/UINT32_MAX;
+    state = lcg(state);
+    ret.el[1] = (double)range*state/UINT32_MAX;
+    state = lcg(state);
+    ret.el[2] = (double)range*state/UINT32_MAX;
+    *sto_state = lcg(state);
+    return ret;
 }
 
 /** ======================================================== sphere ======================================================== **/
 
-sphere::sphere(evec3& p_center, double p_rad, int p_invert) : object(p_invert) {
+sphere::sphere(vec3& p_center, double p_rad, int p_invert) : object(p_invert) {
     center = p_center;
     rad = p_rad;
 }
 
-sphere::sphere(evec3& p_center, evec3& p_rad, int p_invert) : object(p_invert) {
+sphere::sphere(vec3& p_center, vec3& p_rad, int p_invert) : object(p_invert) {
     center = p_center;
     rad = 1;
-    rescale( evec3(1/p_rad.x(), 1/p_rad.y(), 1/p_rad.z()) );
+    rescale( vec3(1/p_rad.x(), 1/p_rad.y(), 1/p_rad.z()) );
 }
 
-int sphere::in(const evec3& r) {
+int sphere::in(const vec3& r) {
     //find the relative offset between the input vector and the center of the box
-    evec3 r_rel = trans_mat*(r - center);
+    vec3 r_rel = trans_mat*(r - center);
     if (r_rel.norm() > rad) return invert;
     return 1 - invert;
 }
 
-box::box(evec3& p_corner_1, evec3& p_corner_2, int p_invert) : object(p_invert) {
+box::box(vec3& p_corner_1, vec3& p_corner_2, int p_invert) : object(p_invert) {
     offset = (p_corner_2 - p_corner_1)/2;
     center = p_corner_1 + offset;
     //wlog, fix the offset to always be positive from the center
@@ -102,9 +63,9 @@ box::box(evec3& p_corner_1, evec3& p_corner_2, int p_invert) : object(p_invert) 
 
 /** ======================================================== box ======================================================== **/
 
-int box::in(const evec3& r) {
+int box::in(const vec3& r) {
     //find the relative offset between the input vector and the center of the box
-    evec3 r_rel = trans_mat*(r - center);
+    vec3 r_rel = trans_mat*(r - center);
     //check if we're outside the bounding box
     if (fabs(r_rel.x()) > offset.x()) {
         return invert;
@@ -122,7 +83,7 @@ int box::in(const evec3& r) {
 /**
  * The term plane is a bit misleading since we are describing the three dimensional volume. The plane has a fixed orientation defined by the normal vector and an offset. Any point with a component along the normal vector which is less than the offset will be included in the volume.
  */
-plane::plane(evec3& p_normal, double p_offset, int p_invert) : object(0) {
+plane::plane(vec3& p_normal, double p_offset, int p_invert) : object(0) {
     if (p_invert)
 	offset = -p_offset;
     else
@@ -133,17 +94,16 @@ plane::plane(evec3& p_normal, double p_offset, int p_invert) : object(0) {
 /**
  * Construct a plane defined by three points. The normal vector is fixed to be (point_2 - point_1)X(point_3 - point_1). Thus, flipping the order of the arguments point_1 and point_2 flips the direction of inclusion.
  */
-plane::plane(evec3& point_1, evec3& point_2, evec3& point_3, int p_invert) : object(0) {
-    evec3 diff_2 = point_2 - point_1;
-    evec3 diff_3 = point_3 - point_1;
-    normal = diff_2.cross(diff_3);
-    normal /= normal.norm();
+plane::plane(vec3& point_1, vec3& point_2, vec3& point_3, int p_invert) : object(0) {
+    vec3 diff_2 = point_2 - point_1;
+    vec3 diff_3 = point_3 - point_1;
+    normal = diff_2.cross(diff_3).normalize();
     offset = normal.dot(point_1);
     if (p_invert)
 	offset *= -1;
 }
 
-int plane::in(const evec3& r) {
+int plane::in(const vec3& r) {
     double norm_comp = r.dot(normal);
     if (norm_comp > offset)
 	return 0;
@@ -153,7 +113,7 @@ int plane::in(const evec3& r) {
 
 /** ======================================================== cylinder ======================================================== **/
 
-cylinder::cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, int p_invert) : object(p_invert) {
+cylinder::cylinder(vec3& p_center, double p_height, double p_r1, double p_r2, int p_invert) : object(p_invert) {
     center = p_center;
     height = p_height;
     r1_sq = p_r1*p_r1;
@@ -161,9 +121,9 @@ cylinder::cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, i
     r2_sq = p_r2*p_r2;
 }
 
-int cylinder::in(const evec3& r) {
+int cylinder::in(const vec3& r) {
     //find the relative offset between the input vector and the center of the box
-    evec3 r_rel = trans_mat*(r - center);
+    vec3 r_rel = trans_mat*(r - center);
     if (r_rel.z() < 0 || r_rel.z() > height) return invert;
     double cent_rad_sq = r_rel.x()*r_rel.x() + r_rel.y()*r_rel.y();
     if (cent_rad_sq*height > (r2_sq - r1_sq)*r_rel.z() + r1_sq_x_h) return invert;
@@ -281,7 +241,7 @@ composite_object::~composite_object() {
     }
 }
 
-int composite_object::call_child_in(_uint side, const evec3& r) {
+int composite_object::call_child_in(_uint side, const vec3& r) {
     if (child_types[side] == CGS_COMPOSITE) return ((composite_object*)children[side])->in(r);
     if (child_types[side] == CGS_SPHERE) return ((sphere*)children[side])->in(r);
     if (child_types[side] == CGS_BOX) return ((box*)children[side])->in(r);
@@ -300,8 +260,8 @@ void composite_object::add_child(_uint side, object* o, object_type p_type) {
     }
 }
 
-int composite_object::in(const evec3& r) {
-    evec3 r_trans = trans_mat*r;
+int composite_object::in(const vec3& r) {
+    vec3 r_trans = trans_mat*r;
     //NOOP items should be ignored
     if (cmb == CGS_CMB_NOOP) return 0;
     //if the right child is null then we don't apply any operations
@@ -427,7 +387,7 @@ parse_ercode scene::make_object(const cgs_func& f, object** ptr, object_type* ty
 /**
  * Produce an appropriate transformation matrix
  */
-parse_ercode scene::make_transformation(const cgs_func& f, emat3& res) const {
+parse_ercode scene::make_transformation(const cgs_func& f, mat3x3& res) const {
     parse_ercode er = E_SUCCESS;
 
     if (!f.name) return E_BAD_TOKEN;
@@ -436,10 +396,11 @@ parse_ercode scene::make_transformation(const cgs_func& f, emat3& res) const {
 	if (f.n_args < 2) return E_LACK_TOKENS;
 	if (f.args[0].type != VAL_NUM || f.args[1].type != VAL_3VEC) return E_BAD_VALUE;
 	double angle = f.args[0].val.x;
-	res = Eigen::AngleAxisd(angle, *(f.args[1].val.v));
+	res = make_rotation(angle, *(f.args[1].val.v));
+	return E_SUCCESS;
     } else if (strcmp(f.name, "scale") == 0) {
 	if (f.n_args < 1) return E_LACK_TOKENS;
-	evec3 scale;
+	vec3 scale;
 	if (f.args[0].type == VAL_3VEC) {
 	    scale = *(f.args[0].val.v);
 	} else if (f.args[0].type == VAL_NUM) {
@@ -448,10 +409,10 @@ parse_ercode scene::make_transformation(const cgs_func& f, emat3& res) const {
 	    scale.y() = val;
 	    scale.z() = val;
 	}
-	res = scale.asDiagonal();
+	res = scale.make_diagonal();
+	return E_SUCCESS;
     }
-
-    return E_SUCCESS;
+    return E_BAD_TYPE;
 }
 
 /** ============================ object_stack ============================ **/
@@ -538,9 +499,9 @@ parse_ercode scene::read_file(const char* p_fname) {
     composite_object* last_comp = NULL;
     int invert = 0;
     //keep track of transformations
-    stack<emat3> transform_stack;
-    emat3 cur_trans_mat;
-    emat3 next_trans_mat;
+    stack<mat3x3> transform_stack;
+    mat3x3 cur_trans_mat;
+    mat3x3 next_trans_mat;
 
     //open the file for reading and read individual lines. We need to remove whitespace. Handily, we know the line length once we're done.
     FILE* fp = NULL;
@@ -600,13 +561,54 @@ parse_ercode scene::read_file(const char* p_fname) {
 			object_type type;
 			make_object(cur_func, &obj, &type, invert);
 			if (!obj) {
-			    emat3 tmp;
+			    mat3x3 tmp;
 			    //if that failed try interpreting it as an operation (TODO: are there any useful things to put here?)
 			    if (strcmp(cur_func.name, "invert") == 0) {
 				last_type = BLK_INVERT;
 			    } else if ((er = make_transformation(cur_func, tmp)) == E_SUCCESS) {
 				last_type = BLK_TRANSFORM;
 				next_trans_mat = tmp*cur_trans_mat;
+			    } else if (strcmp(cur_func.name, "snapshot") == 0) {
+				//snapshot requires two arguments. The first is the filename that the picture should be saved to and the second is the camera location that should be used
+				if (cur_func.n_args >= 2 && cur_func.args[0].type == VAL_STR) {
+				    value cam_val = cur_func.args[1].cast_to(VAL_3VEC, er);
+				    if (er == E_SUCCESS) {
+					vec3 cam_pos = *(cam_val.val.v);
+					//set defaults
+					vec3 cam_look = cam_pos*-1;
+					vec3 up_vec(0,0,1);
+					size_t res = DEF_IM_RES;
+					size_t n_samples = DEF_TEST_N;
+					//find optional named arguments
+					value look_val = lookup_named(cur_func, "look").cast_to(VAL_3VEC, er);
+					if (look_val.type == VAL_3VEC) cam_look = *(look_val.val.v);
+					value up_val = lookup_named(cur_func, "up").cast_to(VAL_3VEC, er);
+					if (up_val.type == VAL_3VEC) up_vec = *(up_val.val.v);
+					value res_val = lookup_named(cur_func, "resolution");
+					if (res_val.type == VAL_NUM) res = (size_t)(res_val.val.x);
+					value n_val = lookup_named(cur_func, "n_samples");
+					if (n_val.type == VAL_NUM) n_samples = (size_t)(n_val.val.x);
+					value scale_val = lookup_named(cur_func, "scale");
+					double scale = cam_look.norm();
+					if (scale_val.type == VAL_NUM) scale = (size_t)(scale_val.val.x);
+					//ensure that all parameters passed are valid
+					if (cam_look.norm() == 0 || up_vec.norm() == 0 || res == 0 || n_samples == 0) {
+					    printf("invalid parameters passed to snapshot on line %d\n", lineno);
+					} else {
+					    //make the drawing
+					    rvector<2> scale_vec;
+					    scale_vec.el[0] = scale;
+					    scale_vec.el[1] = scale;
+					    draw(cur_func.args[0].val.s, cam_pos, cam_look, up_vec, scale_vec, res, res, n_samples);
+					}
+					cleanup_val(&look_val);
+					cleanup_val(&up_val);
+					cleanup_val(&res_val);
+					cleanup_val(&n_val);
+					cleanup_val(&scale_val);
+				    }
+				    cleanup_val(&cam_val);
+				}
 			    }
 			} else {
 			    if (type == CGS_ROOT) {
@@ -746,4 +748,162 @@ scene::~scene() {
     for (_uint i = 0; i < data_objs.size(); ++i) {
 	if (data_objs[i]) delete data_objs[i];
     }
+}
+/*
+ * convert from hsv to rgb
+ * h,s,v hue satureation and value
+ * rgb: a pointer to an array of three unsigned chars where the first second and third elements represent r,g, and b respectively
+ */
+void hsvtorgb(int h, int s, int v, _uint8* rgb) {
+    int g_start = 85;//floor(256/3)
+    int b_start = 170;//floor(256*2/3)
+    int r_start = 255;
+    if (rgb) {
+	int r,g,b;
+	int s_comp = 255-s;
+	if (h < g_start) {
+	    r = (g_start-h)*v/g_start;
+	    g = h*v/g_start;
+	    r = (r*s_comp)/256 + 1;
+	    g = (g*s_comp)/256 + 1;
+	    b = s;
+	} else if (h < b_start) {
+	    int h_rel = h-g_start;
+	    g = (g_start-h_rel)*v/g_start;
+	    b = h_rel*v/g_start;
+	    g = (g*s_comp)/256 + 1;
+	    b = (b*s_comp)/256 + 1;
+	    r = s;
+	} else {
+	    int h_rel = h-b_start;
+	    b = (g_start-h_rel)*v/g_start;
+	    r = h_rel*v/g_start;
+	    b = (b*s_comp)/256 + 1;
+	    r = (r*s_comp)/256 + 1;
+	    g = s;
+	}
+	rgb[0] = (_uint8)r;
+	rgb[1] = (_uint8)g;
+	rgb[2] = (_uint8)b;
+    }
+}
+/*
+ * Save the image specified by z_buf and c_buf to out_fname with the specified resolution
+ * z_buf: the z buffer. This must have a size res*res
+ * c_buf: the color index buffer. This must have a size res*res
+ * res: the resolution of the image. Only square images are allowed
+ */
+void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y) {
+    //open the file. We use a .pgm format since it's super simple. Then we write the header information.
+    FILE* fp;
+    if (out_fname) {
+	fp = fopen(out_fname, "w");
+	if (!fp) fp = stdout;
+    } else {
+	fp = stdout;
+    }
+    _uint8* hues = (_uint8*)malloc(sizeof(_uint8)*roots.size());
+    for (size_t k = 0; k < roots.size(); ++k) {
+	bool got_color = false;
+	//check if the user specified a valid color for this object
+	if (roots[k]->has_metadata("color")) {
+	    value col_val = roots[k]->fetch_metadata("color");
+	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) {
+		hues[k] = (_uint8)col_val.val.x;
+		got_color = true;
+	    }
+	}
+	//otherwise use an arbitrary color
+	if (!got_color) hues[k] = (_uint8)((k*256)/roots.size());
+    }
+    _uint8 cur_col[3];
+    fprintf(fp, "P3\n%d %d\n%d\n", res_x, res_y, IM_DEPTH);
+    //iterate through the image buffer and write
+    for (size_t yy = 0; yy < res_y; ++yy) {
+	for (size_t xx = 0; xx < res_x; ++xx) {
+	    size_t ind = yy*res_y+xx;
+	    _uint8 col_code = c_buf[ind];
+	    if (col_code == 0xff) {
+		fprintf(fp, "255 255 255 ");
+	    } else {
+		hsvtorgb(hues[col_code], 0, 255-z_buf[ind], cur_col);
+		fprintf(fp, "%d %d %d ", cur_col[0], cur_col[1], cur_col[2]);
+	    }
+	}
+	fprintf(fp, "\n");
+    }
+    fclose(fp);
+    free(hues);
+}
+/**
+ * Render the object and save the image to out_fname
+ * out_fname: the filename for the picture
+ * cam_pos: the position of the camera
+ * cam_look: the direction the camera is looking.
+ * cam_up: this determines the "up" direction for the camera. Note that the up vector is not directly used. Rather the vector in the cam_look,cam_up plane which is orthogonal to cam_look and has a positive dot product with cam_up is used.
+ * transform: a transformation matrix applied to the points in the image.
+ * res: the resolution of the saved image, only 1x1 aspect ratios are allowed
+ * n_samples: the number of random samples to take, a higher value results in a cleaner image but takes longer to generate.
+ */
+void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x, size_t res_y, size_t n_samples) {
+    //depth scale factors and sampling region are determined by the magnitude of cam_look. Calculated these and then normalize cam_look
+    double aa = 1/cam_look.norm();
+    double max_draw_z = 2*cam_look.norm();
+    cam_look = cam_look.normalize();
+    //cross the look direction with the z directioncol_val.val.x > 0 
+    vec3 x_comp = cam_look.cross(cam_up);
+    //avoid divisions by zero
+    if (x_comp.norm() == 0) {
+	//if we're looking along the z axis, take the x component to be the x basis vector. Otherwise shift cam_up along the z axis and try again.
+	if (cam_look.x() == 0 && cam_look.y() == 0) {
+	    x_comp.x() = 1;
+	} else {
+	    cam_up.z() = cam_up.z() + 1;
+	    x_comp = cam_look.cross(cam_up);
+	}
+    }
+    x_comp = x_comp.normalize();
+    vec3 y_comp = x_comp.cross(cam_look);
+    //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
+    _uint8 z_buf[res_x*res_y];
+    _uint8 c_buf[res_x*res_y];
+    for (size_t i = 0; i < res_x*res_y; ++i) {
+	c_buf[i] = 0xff;
+	z_buf[i] = 0xff;
+    }
+    scale.el[0] /= res_x;
+    scale.el[1] /= res_y;
+    //iterate across the pixels in the buffer
+    for (long ii = 0; ii < res_x; ++ii) {
+	for (long jj = res_y-1; jj >= 0; --jj) {
+	    //orthographic projection
+	    vec3 disp = scale.el[0]*(2*(double)ii-res_x)*x_comp + scale.el[1]*(2*(double)jj-res_y)*y_comp;
+	    vec3 r0 = cam_pos+disp;
+	    //take small steps until we hit the object
+	    bool itz = true;
+	    for (double z = 0; itz && z < max_draw_z; z += WALK_STEP*max_draw_z) {
+		vec3 r = r0 + z*cam_look;
+		for (size_t k = 0; k < roots.size(); ++k) {
+		    if (roots[k]->in(r)) {
+			//if we hit the object then figure out the index in the image buffer and map the depth
+			_uint8 depth = floor( IM_DEPTH*(1 - exp(-z*aa)) );
+			z_buf[ii + jj*res_y] = depth;
+			c_buf[ii + jj*res_y] = (_uint8)k;
+			itz = false;
+			break;
+		    }
+		}
+	    }
+	}
+    }
+    save_imbuf(out_fname, z_buf, c_buf, res_x, res_y);
+}
+void scene::draw(const char* out_fname, vec3 cam_pos) {
+    vec3 cam_look = cam_pos*-1;
+    vec3 cam_up(0,0,1);
+    double xy_scale = cam_look.norm();
+    rvector<2> scale;
+    scale.el[0] = xy_scale;
+    scale.el[1] = xy_scale;
+    draw(out_fname, cam_pos, cam_look, cam_up, scale);
 }

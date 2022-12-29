@@ -85,7 +85,7 @@ TEST_CASE("Test Fourier transforms") {
 	    dat.buf[k].re = x.re;
 	    dat.buf[k].im = x.im;
 	    rand = lcg(rand);
-	    phi.im = 2*M_PI*(double)rand / (double)LCG_MOD;
+	    phi.im = 2*M_PI*floatize(rand);
 	    x += c_exp(phi);
 	}
 	//subtract off constant part and print out the result
@@ -120,6 +120,105 @@ TEST_CASE("Test Fourier transforms") {
 	cleanup_data_arr(&new_dat);
     }
     cleanup_data_arr(&dat);
+}
+
+TEST_CASE("Test geometry operations") {
+    _uint state = lcg(lcg(TEST_SEED));
+    vec3 x_axis(1,0,0);vec3 y_axis(0,1,0);vec3 z_axis(0,0,1);
+    //orthogonality and right hand rule
+    CHECK(x_axis.dot(y_axis) == 0);
+    CHECK(y_axis.dot(z_axis) == 0);
+    CHECK(z_axis.dot(x_axis) == 0);
+    CHECK(x_axis.cross(y_axis) == z_axis);
+    CHECK(y_axis.cross(z_axis) == x_axis);
+    CHECK(x_axis.cross(z_axis) == y_axis*-1);
+    SUBCASE("cross product identities") {
+	double x,y,z;
+	for (size_t i = 0; i < SMALL_TEST_N; ++i) {
+	    x = floatize(state);state = lcg(state);
+	    y = floatize(state);state = lcg(state);
+	    z = floatize(state);state = lcg(state);
+	    vec3 aa(x, y, z);
+	    x = floatize(state);state = lcg(state);
+	    y = floatize(state);state = lcg(state);
+	    z = floatize(state);state = lcg(state);
+	    vec3 bb(x, y, z);
+	    x = floatize(state);state = lcg(state);
+	    y = floatize(state);state = lcg(state);
+	    z = floatize(state);state = lcg(state);
+	    vec3 cc(x, y, z);
+	    //cross products are orthogonal and have the appropriate signed exchange
+	    vec3 bbxcc = bb.cross(cc);
+	    CHECK( bbxcc.dot(bb) == doctest::Approx(0) );
+	    CHECK( bbxcc.dot(cc) == doctest::Approx(0) );
+	    CHECK( bbxcc.dot(cc.cross(bb)) == doctest::Approx(-bbxcc.normsq()) );
+	    //dot product commutivity
+	    double aa_cc = aa.dot(cc);
+	    double aa_bb = aa.dot(bb);
+	    CHECK(aa_cc == cc.dot(aa));
+	    CHECK(aa_bb == bb.dot(aa));
+	    //BAC-CAB
+	    vec3 aaxbbxcc = aa.cross(bbxcc);
+	    vec3 baccab = bb*aa_cc - cc*aa_bb;
+	    CHECK( aaxbbxcc.el[0] == doctest::Approx(baccab.el[0]) );
+	    CHECK( aaxbbxcc.el[1] == doctest::Approx(baccab.el[1]) );
+	    CHECK( aaxbbxcc.el[2] == doctest::Approx(baccab.el[2]) );
+	}
+    }
+    SUBCASE("rotations") {
+	//check a rotation about the z axis
+	matrix<3,3> rotpiby6 = make_rotation(M_PI/6, z_axis);
+	CHECK(rotpiby6.el[0] == doctest::Approx(sqrt(3)/2));	CHECK(rotpiby6.el[1] == doctest::Approx(-0.5));		CHECK(rotpiby6.el[2] == 0);
+	CHECK(rotpiby6.el[3] == doctest::Approx(0.5));		CHECK(rotpiby6.el[4] == doctest::Approx(sqrt(3)/2));	CHECK(rotpiby6.el[5] == 0);
+	CHECK(rotpiby6.el[6] == 0);				CHECK(rotpiby6.el[7] == 0);				CHECK(rotpiby6.el[8] == 1);
+	vec3 res_mat_pow3 = rotpiby6*rotpiby6*rotpiby6*x_axis;
+	CHECK(res_mat_pow3.el[0] == doctest::Approx(0));
+	CHECK(res_mat_pow3.el[1] == doctest::Approx(1));
+	CHECK(res_mat_pow3.el[2] == doctest::Approx(0));
+	//check a rotation about the x axis
+	rotpiby6 = make_rotation(M_PI/6, x_axis);
+	CHECK(rotpiby6.el[0] == 1);	CHECK(rotpiby6.el[1] == doctest::Approx(0));		CHECK(rotpiby6.el[2] == 0);
+	CHECK(rotpiby6.el[3] == 0);	CHECK(rotpiby6.el[4] == doctest::Approx(sqrt(3)/2));	CHECK(rotpiby6.el[5] == doctest::Approx(-0.5));
+	CHECK(rotpiby6.el[6] == 0);	CHECK(rotpiby6.el[7] == doctest::Approx(0.5));		CHECK(rotpiby6.el[8] == doctest::Approx(sqrt(3)/2));
+	res_mat_pow3 = rotpiby6*rotpiby6*rotpiby6*y_axis;
+	CHECK(res_mat_pow3.el[0] == doctest::Approx(0));
+	CHECK(res_mat_pow3.el[1] == doctest::Approx(0));
+	CHECK(res_mat_pow3.el[2] == doctest::Approx(1));
+	//check a rotation about the y axis
+	rotpiby6 = make_rotation(M_PI/6, y_axis);
+	CHECK(rotpiby6.el[0] == doctest::Approx(sqrt(3)/2));	CHECK(rotpiby6.el[1] == 0);	CHECK(rotpiby6.el[2] == doctest::Approx(0.5));
+	CHECK(rotpiby6.el[3] == 0);				CHECK(rotpiby6.el[4] == 1);	CHECK(rotpiby6.el[5] == 0);
+	CHECK(rotpiby6.el[6] == doctest::Approx(-0.5));		CHECK(rotpiby6.el[7] == 0);	CHECK(rotpiby6.el[8] == doctest::Approx(sqrt(3)/2));
+	res_mat_pow3 = rotpiby6*rotpiby6*rotpiby6*z_axis;
+	CHECK(res_mat_pow3.el[0] == doctest::Approx(1));
+	CHECK(res_mat_pow3.el[1] == doctest::Approx(0));
+	CHECK(res_mat_pow3.el[2] == doctest::Approx(0));
+	double x,y,z;
+	//make a pi/2 rotation matrix about a random axis
+	x = floatize(state);state = lcg(state);
+	y = floatize(state);state = lcg(state);
+	z = floatize(state);state = lcg(state);
+	vec3 rot_axis(x, y, z);
+	rot_axis = rot_axis.normalize();
+	matrix<3,3> rot = make_rotation(M_PI/2, rot_axis);
+	//make random vectors and rotate them
+	for (size_t i = 0; i < SMALL_TEST_N; ++i) {
+	    x = floatize(state);state = lcg(state);
+	    y = floatize(state);state = lcg(state);
+	    z = floatize(state);state = lcg(state);
+	    vec3 r(x, y, z);
+	    vec3 rot_r = rot*r;
+	    vec3 rot_cross = rot_r.cross(rot_axis).normalize();
+	    double comp_along = r.dot(rot_axis);
+	    double comp_ortho = sqrt(r.normsq() - comp_along*comp_along);
+	    CHECK(r.dot(rot_cross) == doctest::Approx(comp_ortho));
+	    //we rotate by 90 degrees, so only the component along the axis of rotation will be shared
+	    CHECK(r.dot(rot_r) == doctest::Approx(comp_along*comp_along));
+	    //now rotate again by 90 degrees, so we have the negative of the orthogonal component as well
+	    rot_r = rot*rot_r;
+	    CHECK(r.dot(rot_r) == doctest::Approx(2*comp_along*comp_along - r.normsq()));
+	}
+    }
 }
 
 TEST_CASE("Test line reading") {
@@ -226,6 +325,75 @@ TEST_CASE("Test builtin functions") {
 	    CHECK(tmp_val.val.l[i].val.x == 0.5*i+1);
 	}
 	cleanup_val(&tmp_val);
+        //graceful failure cases
+        strncpy(buf, "range()", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_LACK_TOKENS);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "range(\"1\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "range(0.5,\"1\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "range(0.5,1,\"2\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+    }
+    SUBCASE("linspace()") {
+        strncpy(buf, "linspace(1,2,5)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_LIST);
+        CHECK(tmp_val.n_els == 5);
+        for (size_t i = 0; i < 4; ++i) {
+            CHECK(tmp_val.val.l[i].type == VAL_NUM);
+            CHECK(tmp_val.val.l[i].val.x == 1.0+0.25*i);
+        }
+        cleanup_val(&tmp_val);
+        strncpy(buf, "linspace(2,1,5)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_LIST);
+        CHECK(tmp_val.n_els == 5);
+        for (size_t i = 0; i < 4; ++i) {
+            CHECK(tmp_val.val.l[i].type == VAL_NUM);
+            CHECK(tmp_val.val.l[i].val.x == 2.0-0.25*i);
+        }
+        cleanup_val(&tmp_val);
+        //graceful failure cases
+        strncpy(buf, "linspace(2,1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_LACK_TOKENS);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "linspace(2,1,1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_VALUE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "linspace(\"2\",1,1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "linspace(2,\"1\",1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
+        strncpy(buf, "linspace(2,1,\"1\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_BAD_TYPE);
+        CHECK(tmp_val.type == VAL_UNDEF);
+        CHECK(tmp_val.n_els == 0);
     }
     SUBCASE("flatten()") {
 	strncpy(buf, "flatten([])", BUF_SIZE);buf[BUF_SIZE-1] = 0;
@@ -513,7 +681,7 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.name, "foo") == 0);
     INFO("func arg=", cur_func.args[0]);
     CHECK(cur_func.args[0].get_type() == VAL_3VEC);
-    evec3* tmp_vec = cur_func.args[0].get_val().v;
+    vec3* tmp_vec = cur_func.args[0].get_val().v;
     CHECK(tmp_vec->x() == 1.0);
     CHECK(tmp_vec->y() == 2.0);
     CHECK(tmp_vec->z() == 3.0);
@@ -587,10 +755,10 @@ TEST_CASE("Test volumes") {
     _uint state = lcg(lcg(TEST_SEED));
     double x, y, z;
     //test volumes by sampling from a cube with side lengths unit 1 and testing the fraction that are included
-    evec3 center(0.5, 0.5, 0.5);
-    evec3 corner_1(1, 1, 0);
-    evec3 corner_2(0, 1, 1);
-    evec3 corner_3(1, 0, 1);
+    vec3 center(0.5, 0.5, 0.5);
+    vec3 corner_1(1, 1, 0);
+    vec3 corner_2(0, 1, 1);
+    vec3 corner_3(1, 0, 1);
     sphere test_sphere(center, 0.5);
     cylinder test_cyl(center, 0.5, 0.5, 0.5);
     plane test_plane(corner_1, corner_2, corner_3);
@@ -600,13 +768,13 @@ TEST_CASE("Test volumes") {
     //sample random points
     for (size_t i = 0; i < TEST_N; ++i) {
 	state = lcg(state);
-	x = (double)state / LCG_MOD;
+	x = floatize(state);
 	state = lcg(state);
-	y = (double)state / LCG_MOD;
+	y = floatize(state);
 	state = lcg(state);
-	z = (double)state / LCG_MOD;
+	z = floatize(state);
 	state = lcg(state);
-	evec3 r(x, y, z);
+	vec3 r(x, y, z);
 	if (test_sphere.in(r))
 	    sphere_frac += 1.0/TEST_N;
 	if (test_plane.in(r))
@@ -622,11 +790,7 @@ TEST_CASE("Test volumes") {
     CHECK(abs(v_plane - plane_frac)/v_plane < EPSILON);
     CHECK(abs(v_cyl - cyl_frac)/v_cyl < EPSILON);
     //draw test images
-    evec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-    evec3 cam_look(-CAM_X, -CAM_Y, -CAM_Z);
-    test_sphere.draw("/tmp/test_sphere.pgm", 1.0, cam_pos, cam_look);
-    test_cyl.draw("/tmp/test_cylinder.pgm", 1.0, cam_pos, cam_look);
-    test_plane.draw("/tmp/test_plane.pgm", 1.0, cam_pos, cam_look);
+    vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
 }
 
 TEST_CASE("Test object Trees") {
@@ -792,15 +956,14 @@ TEST_CASE("Test Geometric Inclusion") {
     CHECK(er == E_SUCCESS);
     composite_object* root = s.get_roots()[0];
 
-    CHECK(root->in(Eigen::Vector3d(.45,.45,.45)) == 1);
-    CHECK(root->in(Eigen::Vector3d(.45,.41,.6)) == 1);
-    CHECK(root->in(Eigen::Vector3d(.65,.45,.41)) == 1);
-    CHECK(root->in(Eigen::Vector3d(.71,.51,.51)) == 0);
-    CHECK(root->in(Eigen::Vector3d(.55,.45,.45)) == 0);
-    CHECK(root->in(Eigen::Vector3d(.55,.41,.85)) == 0);
-    evec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-    evec3 cam_look(-CAM_X, -CAM_Y, -CAM_Z);
-    root->draw("/tmp/test_composite.pgm", 1.0, cam_pos, cam_look);
+    CHECK(root->in(vec3(.45,.45,.45)) == 1);
+    CHECK(root->in(vec3(.45,.41,.6)) == 1);
+    CHECK(root->in(vec3(.65,.45,.41)) == 1);
+    CHECK(root->in(vec3(.71,.51,.51)) == 0);
+    CHECK(root->in(vec3(.55,.45,.45)) == 0);
+    CHECK(root->in(vec3(.55,.41,.85)) == 0);
+    vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
+    s.draw("/tmp/test_composite.pgm", cam_pos);
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {
@@ -865,7 +1028,7 @@ TEST_CASE("Test reading of configuration files") {
     SUBCASE("Command line arguments override defaults") {
 	parse_settings args;
 	//parse commandline arguments
-	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0" };
+	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0", "--opts", "a = 0.1; b_option = [1,\"blah\"]" };
 	//gcc doesn't like using string literals as c-strings, ugh.
 	int n_args = sizeof(sim_argv_cpp)/sizeof(std::string);
 	//need to create two lists since parse_args modifies the list in place. The second list is only used so that we know which addresses to free.
@@ -904,6 +1067,28 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.smooth_rad == 0.25);
 	//CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
 	CHECK(args.post_source_t == 1.0);
+
+	//check that contexts are loaded with the correct options
+	context con = context_from_settings(args);
+	value tmp = con.lookup("pml_thickness");
+	CHECK(tmp.type == VAL_NUM);
+	CHECK(tmp.val.x == 2.0);
+	tmp = con.lookup("length");
+	CHECK(tmp.type == VAL_NUM);
+	CHECK(tmp.val.x == 9.0+2*2.0);
+	tmp = con.lookup("l_per_um");
+	CHECK(tmp.type == VAL_NUM);
+	CHECK(tmp.val.x == 1.0);
+	tmp = con.lookup("a");
+	CHECK(tmp.type == VAL_NUM);
+	CHECK(tmp.val.x == 0.1);
+	tmp = con.lookup("b_option");
+	CHECK(tmp.type == VAL_LIST);
+	CHECK(tmp.n_els == 2);
+	CHECK(tmp.val.l[0].type == VAL_NUM);
+	CHECK(tmp.val.l[0].val.x == 1.0);
+	CHECK(tmp.val.l[1].type == VAL_STR);
+	CHECK(strcmp(tmp.val.l[1].val.s, "blah") == 0);
 
 	//deallocate memory
 	for (_uint i = 0; i < n_args; ++i) free(post_sim_argv_c[i]);
@@ -984,7 +1169,7 @@ void* read_h5_array_raw(const H5::Group& grp, const H5::DataType& ctype, size_t 
     *n_entries = 0;
     try {
 	//find the dataspace for real values
-	H5::DataSet dataset = grp.openDataSet(name);
+	H5::DataSet dataset = grp.openDataSet(name.c_str());
 	H5::DataType datatype = dataset.getDataType();
 	H5::DataSpace dataspace = dataset.getSpace();
 	size_t n_pts = dataspace.getSimpleExtentNpoints();
@@ -1070,7 +1255,7 @@ TEST_CASE("Test running with a very small system") {
     //make sure that monitor locations were added
     geometry.run(args.out_dir);
     //fetch the field times
-    std::vector<data_arr> field_times = geometry.get_field_times();
+    std::vector<std::vector<complex>> field_times = geometry.get_field_times();
     CHECK(field_times.size() > 0);
 
     //check that writing hdf5 files works
@@ -1083,11 +1268,11 @@ TEST_CASE("Test running with a very small system") {
     H5::CompType fieldtype(sizeof(complex));
     //for some reason linking insertMember breaks on the cluster, we do it manually
     hid_t float_member_id = H5_float_type.getId();
-    snprintf(name_buf, BUF_SIZE, "Re");
-    herr_t ret_val = H5Tinsert(fieldtype.getId(), name_buf, HOFFSET(complex, re), float_member_id);
+    //snprintf(name_buf, BUF_SIZE, "Re");
+    herr_t ret_val = H5Tinsert(fieldtype.getId(), "Re", HOFFSET(complex, re), float_member_id);
     CHECK(ret_val == 0);
-    snprintf(name_buf, BUF_SIZE, "Im");
-    ret_val = H5Tinsert(fieldtype.getId(), name_buf, HOFFSET(complex, im), float_member_id);
+    //snprintf(name_buf, BUF_SIZE, "Im");
+    ret_val = H5Tinsert(fieldtype.getId(), "Im", HOFFSET(complex, im), float_member_id);
     CHECK(ret_val == 0);
     //do the same for location types
     H5::CompType loctype(sizeof(sto_vec));
@@ -1159,10 +1344,10 @@ TEST_CASE("Test running with a very small system") {
 	    CHECK(n_t_pts >= n_f_pts);
 
 	    //check that the stored times match the data in the geometry object
-	    CHECK(n_t_pts == field_times[j].size);
+	    CHECK(n_t_pts == field_times[j].size());
 	    for (_uint k = 0; k < n_t_pts; ++k) {
-		CHECK(t_data[k].re == field_times[j].buf[k].re);
-		CHECK(t_data[k].im == field_times[j].buf[k].im);
+            CHECK(t_data[k].re == field_times[j][k].re);
+            CHECK(t_data[k].im == field_times[j][k].im);
 	    }
 	    free(f_data);
 	    free(t_data);

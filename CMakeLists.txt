@@ -1,26 +1,27 @@
 cmake_minimum_required(VERSION 3.3.2)
 project(sim_geom)
 set (CMAKE_CXX_STANDARD 11)
-set(CMAKE_BUILD_TYPE Debug)
 
 #set names for applications
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     set(TEST_EXE test)
+    set(CMAKE_BUILD_TYPE Debug)
+    set(CMAKE_CXX_FLAGS "-Og")
+else()
+    set(CMAKE_CXX_FLAGS "-Os")
 endif()
 set(APP_EXE sim_geom)
 
 #find all the libraries we need for building
+set(CMAKE_BUILD_RPATH "/software/meep/b3/lib")
 find_library(meep libmeep.a REQUIRED HINTS $ENV{HOME}/install/lib)
+#find_library(meep libmeep.a REQUIRED HINTS /software/meep/b3/lib)
 #we need to install cmake to a custom location
 #set(HDF5_DIR "/home/sstromsw/install/cmake")
 find_package(HDF5 REQUIRED COMPONENTS CXX HL)
 
 find_package(PNG REQUIRED)
 find_package(ZLIB REQUIRED)
-
-#Cmake can't find the location of eigen on the cluster so we specify that manually
-set(Eigen3_DIR "/software/eigen/3.3.7/b1/share/eigen3/cmake")
-find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 
 if (${STO_PREC_32} MATCHES "^[Tt]rue")
     add_compile_definitions(STO_PREC_32=1)
@@ -29,7 +30,7 @@ endif()
 add_executable( ${APP_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main.cpp )
 
 #linking
-target_link_libraries(${APP_EXE} PRIVATE Eigen3::Eigen meep png ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} ctlgeom)
+target_link_libraries(${APP_EXE} PRIVATE meep png ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} ctlgeom)
 target_include_directories( ${APP_EXE} PRIVATE ${HDF5_INCLUDE_DIRS})
 target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
 
@@ -37,7 +38,7 @@ target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     #build and link the unit testing executable
     add_executable( ${TEST_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
-    target_link_libraries(${TEST_EXE} PRIVATE Eigen3::Eigen meep ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
+    target_link_libraries(${TEST_EXE} PRIVATE meep ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
     target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
     target_include_directories( ${TEST_EXE} PRIVATE ${HDF5_INCLUDE_DIRS} )
@@ -55,7 +56,7 @@ endif()
 
 #allow the user to specify what type of geometry they'd like to use
 if(NOT JUNCTION_TYPE)
-    set(JUNCTION_TYPE Au_graphene_box)
+    set(JUNCTION_TYPE Au_SiO2_box)
 endif()
 
 message(CHECK_START "Using junction type: ${JUNCTION_TYPE}")
@@ -67,6 +68,7 @@ configure_file(junctions/${JUNCTION_TYPE}/params.conf params.conf COPYONLY)
 configure_file(scripts/run.sh run.sh COPYONLY)
 configure_file(scripts/utils.py utils.py COPYONLY)
 configure_file(scripts/phases.py phases.py COPYONLY)
+configure_file(scripts/phase_plot.py phase_plot.py COPYONLY)
 configure_file(scripts/set_dims.py set_dims.py COPYONLY)
 configure_file(scripts/time_space.py time_space.py COPYONLY)
 configure_file(scripts/check_enes.py check_enes.py COPYONLY)

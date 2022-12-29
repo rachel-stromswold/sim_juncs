@@ -281,6 +281,10 @@ char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
 
 /**
   * Remove the whitespace surrounding a word
+<<<<<<< HEAD
+=======
+  * Note: this function performs trimming "in place"
+>>>>>>> a24f98f4a6e0cd48991594afc0e6ca961d44d232
   */
 char* CGS_trim_whitespace(char* str, size_t* len) {
     if (!str) return NULL;

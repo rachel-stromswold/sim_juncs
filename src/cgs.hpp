@@ -10,9 +10,12 @@
 #include <cstdint>
 #include <math.h>
 
-#define DEF_TEST_N	500000
+#define DEF_TEST_N	50000
+#define WALK_STEP_STC	0.05
+#define WALK_STEP	0.01
 #define DEF_IM_RES	255
 #define IM_DEPTH	255
+#define IM_LN_DEPTH	8
 
 #define SIDE_END	2
 #define SIDE_UNDEF	3
@@ -33,74 +36,73 @@ class object {
 private:
     friend class Geometricobject;
 protected:
-    emat3 trans_mat;
+    mat3x3 trans_mat;
     int invert;
 
 public:
     object(int p_invert=0);
-    object(const Eigen::Quaterniond& orientation, int p_invert=0);
-    virtual int in(const evec3& r) = 0;
+    object(const quaternion& orientation, int p_invert=0);
+    virtual int in(const vec3& r) = 0;
     void set_inversion(int p_invert);
-    void rescale(const evec3& components);
-    void set_trans_mat(const emat3& new_mat) { trans_mat = new_mat; }
-    void draw(const char* out_fname, double scale, evec3 cam_pos, evec3 cam_look, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
+    void rescale(const vec3& components);
+    void set_trans_mat(const mat3x3& new_mat) { trans_mat = new_mat; }
 };
 
 class sphere : public object {
 private:
-    evec3 center;
+    vec3 center;
     double rad;
 
 public:
-    sphere(evec3& p_center, double p_rad, int p_invert=0);
-    sphere(evec3& p_center, evec3& p_rad, int p_invert=0);
-    int in(const evec3& r);
+    sphere(vec3& p_center, double p_rad, int p_invert=0);
+    sphere(vec3& p_center, vec3& p_rad, int p_invert=0);
+    int in(const vec3& r);
 
-    evec3 get_center() const { return center; }
+    vec3 get_center() const { return center; }
     double get_rad() const { return rad; }
 };
 
 class box : public object {
 private:
-    evec3 center;
-    evec3 offset;
+    vec3 center;
+    vec3 offset;
 
 public:
-    box(evec3& p_corner_1, evec3& p_corner_2, int p_invert=0);
-    box(evec3& p_corner_1, evec3& p_corner_2, Eigen::Quaterniond p_orientation, int p_invert=0);
-    int in(const evec3& r);
+    box(vec3& p_corner_1, vec3& p_corner_2, int p_invert=0);
+    box(vec3& p_corner_1, vec3& p_corner_2, quaternion p_orientation, int p_invert=0);
+    int in(const vec3& r);
 
-    evec3 get_center() const { return center; }
-    evec3 get_offset() const { return offset; }
+    vec3 get_center() const { return center; }
+    vec3 get_offset() const { return offset; }
 };
 
 class plane : public object {
 private:
-    evec3 normal;
+    vec3 normal;
     double offset;
 
 public:
-    plane(evec3& normal, double offset, int p_invert=0);
-    plane(evec3& point_1, evec3& point_2, evec3& point_3, int p_invert=0);
-    int in(const evec3& r);
+    plane(vec3& normal, double offset, int p_invert=0);
+    plane(vec3& point_1, vec3& point_2, vec3& point_3, int p_invert=0);
+    int in(const vec3& r);
 
-    evec3 get_normal() const { return normal; }
+    vec3 get_normal() const { return normal; }
     double get_offset() const { return offset; }
 };
 
 class cylinder : public object {
 private:
-    evec3 center;
+    vec3 center;
     double height;
     double r1_sq;
     double r1_sq_x_h;
     double r2_sq;
 
 public:
-    cylinder(evec3& p_center, double p_height, double p_r1, double p_r2, int p_invert=0);
-    int in(const evec3& r);
+    cylinder(vec3& p_center, double p_height, double p_r1, double p_r2, int p_invert=0);
+    int in(const vec3& r);
 
-    evec3 get_center() const { return center; }
+    vec3 get_center() const { return center; }
     double get_height() const { return height; }
     double get_r1() const { return sqrt(r1_sq); }
     double get_r2() const { return sqrt(r2_sq); }
@@ -122,7 +124,7 @@ protected:
     std::unordered_map<std::string, value> metadata;
 
     //since we need to perform casts to use the appropriate object type, it's helpful to add a layer of abstraction
-    int call_child_in(_uint side, const evec3& r);
+    int call_child_in(_uint side, const vec3& r);
     //this is a helper function which returns a pointer to a copy of the object pointed to by the child on the specified side
     object* copy_child(_uint side) const;
 
@@ -136,7 +138,7 @@ public:
 
     //add a child to the composite object by parsing the string description
     void add_child(_uint side, object* o, object_type p_type);
-    int in(const evec3& r);
+    int in(const vec3& r);
     const object* get_child_l() { return children[0]; }
     const object* get_child_r() { return children[1]; }
     object_type get_child_type_l() const { return child_types[0]; }
@@ -194,9 +196,12 @@ public:
  
     parse_ercode read_file(const char* p_fname);
     parse_ercode make_object(const cgs_func& f, object** ptr, object_type* type, int p_invert) const;
-    parse_ercode make_transformation(const cgs_func& f, emat3& res) const;
+    parse_ercode make_transformation(const cgs_func& f, mat3x3& res) const;
     context& get_context() { return named_items; }
     //void cleanup_func(cgs_func& f);
+    void draw_stochastic(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
+    void draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x=DEF_IM_RES, size_t res_y=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
+    void draw(const char* out_fname, vec3 cam_pos);
 };
 
 #endif //CGS_H

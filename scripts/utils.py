@@ -184,7 +184,7 @@ class Geometry:
     #convert femtoseconds into the time units used by meep
     def fs_to_meep_time(self, t):
         #speed of light in um/sec = 299792458000000
-        return .299792458*t / self.um_scale
+        return .299792458*t*self.um_scale
 
     #convert electron-volts into the energy units used by meep
     def ev_to_meep_energy(self, ene):
@@ -208,7 +208,7 @@ class Geometry:
     #convert the time units used by meep into femtoseconds
     def meep_time_to_fs(self, t):
         #speed of light in um/sec = 299792458000000
-        return self.um_scale*t / .299792458
+        return t / (self.um_scale*.299792458)
 
     #convert electron-volts into the energy units used by meep
     def meep_energy_to_ev(self, ene):
@@ -238,7 +238,7 @@ class Geometry:
         if time < 0:
             compare_anyl=False
 
-        field_list, z_pts = get_fields_from_file(fname, slice_ax=0, max_z=self.tot_len)
+        field_list, z_pts = get_fields_from_file(fname, slice_ax=1, max_z=self.tot_len)
         #calculate the analytic data
         if compare_anyl:
             field_anyl = np.array([np.real(get_electric(z, time))[0] for z in z_pts])
