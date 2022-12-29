@@ -246,18 +246,21 @@ class EnvelopeFitter:
         def ff(x):
             return np.sum( (np.abs(x[0])*np.exp(-0.5*((l_ext_ts - x[1])/x[2])**2) + np.abs(x[3])*np.exp(-0.5*((l_ext_ts - x[4])/x[5])**2) - l_ext_vs)**2 )
         def jac_env(x):
+            #negative amplitudes are invalid, fix them to be positive
+            x[0] = np.abs(x[0])
+            x[3] = np.abs(x[3])
             t_dif_0 = (l_ext_ts - x[1])
             t_dif_1 = (l_ext_ts - x[4])
-            exp_0 = np.abs(x[0])*np.exp(-0.5*(t_dif_0/x[2])**2)
-            exp_1 = np.abs(x[3])*np.exp(-0.5*(t_dif_1/x[5])**2)
-            diff_ser = np.abs(x[0])*exp_0 + np.abs(x[3])*exp_1 - l_ext_vs
+            exp_0 = np.exp(-0.5*(t_dif_0/x[2])**2)
+            exp_1 = np.exp(-0.5*(t_dif_1/x[5])**2)
+            diff_ser = x[0]*exp_0 + x[3]*exp_1 - l_ext_vs
             ret = np.zeros(6)
-            ret[0] = 2*np.sum(diff_ser*exp_0)/np.abs(x[0])
-            ret[1] = 2*np.sum(diff_ser*t_dif_0*exp_0)/(x[2]**2)
-            ret[2] = 2*np.sum(diff_ser*exp_0*(t_dif_0)**2)/(x[2]**3)
-            ret[3] = 2*np.sum(diff_ser*exp_1)/np.abs(x[3])
-            ret[4] = 2*np.sum(diff_ser*t_dif_1*exp_1)/(x[5]**2)
-            ret[5] = 2*np.sum(diff_ser*exp_1*(t_dif_1)**2)/(x[5]**3)
+            ret[0] = 2*np.sum(diff_ser*exp_0)
+            ret[1] = 2*x[0]*np.sum(diff_ser*t_dif_0*exp_0)/(x[2]**2)
+            ret[2] = 2*x[0]*np.sum(diff_ser*exp_0*(t_dif_0)**2)/(x[2]**3)
+            ret[3] = 2*np.sum(diff_ser*exp_1)
+            ret[4] = 2*x[3]*np.sum(diff_ser*t_dif_1*exp_1)/(x[5]**2)
+            ret[5] = 2*x[3]*np.sum(diff_ser*exp_1*(t_dif_1)**2)/(x[5]**3)
             return ret
 
         #create an initial guess by supposing that the widths are each one half
@@ -393,19 +396,17 @@ def opt_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
             x[2] = 0.1
         return np.sum( (gauss_series(x, t_pts) - a_pts)**2 )
     def jac_fp(x):
-        if x[2] == 0:
-            x[2] = 0.1
         p_i = gauss_series(x, t_pts) - a_pts
         exp_cos = np.exp(-0.5*((t_pts-x[1])/x[2])**2)*np.cos(x[3]*(t_pts-x[1])-x[4])
         exp_sin = np.exp(-0.5*((t_pts-x[1])/x[2])**2)*np.sin(x[3]*(t_pts-x[1])-x[4])       
         t_dif_by_w = (t_pts-x[1])
         ret = np.zeros(5)
         ret[0] = 2*np.sum(p_i*exp_cos)
-        ret[1] = 2*x[0]*np.sum(p_i*(t_dif_by_w*exp_cos/(x[2]**2) + exp_sin))
+        ret[1] = 2*x[0]*np.sum(p_i*(t_dif_by_w*exp_cos/(x[2]**2) + x[3]*exp_sin))
         ret[2] = 2*x[0]*np.sum(p_i*exp_cos*t_dif_by_w**2)/(x[2]**3)
         ret[3] = -2*x[0]*np.sum(p_i*exp_sin*t_dif_by_w)
         ret[4] = 2*x[0]*np.sum(p_i*exp_sin)
-        return ret
+        return np.real(ret)
 
     x0 = np.array([1.0, env_x[1], env_x[2], est_omega, est_phi])
     #super hacky way to account for pi phase shifts
@@ -452,23 +453,27 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
     def fp(x):
         return np.sum( (double_gauss_series(x, t_pts) - a_pts)**2 )
     def jac_fp(x):
+        #negative amplitudes are invalid, fix them to be positive
+        x[0] = np.abs(x[0])
+        x[5] = np.abs(x[5])
+        #the difference between the fit/data series
         p_i = double_gauss_series(x, t_pts) - a_pts
         t_dif_0 = (t_pts-x[1])
         t_dif_1 = (t_pts-x[6])
-        exp_cos_0 = np.abs(x[0])*np.exp(-0.5*(t_dif_0/x[2])**2)*np.cos(x[3]*t_dif_0-x[4])
-        exp_sin_0 = np.abs(x[0])*np.exp(-0.5*(t_dif_0/x[2])**2)*np.sin(x[3]*t_dif_0-x[4])
-        exp_cos_1 = np.abs(x[5])*np.exp(-0.5*(t_dif_1/x[7])**2)*np.cos(x[3]*t_dif_0-x[4])
-        exp_sin_1 = np.abs(x[5])*np.exp(-0.5*(t_dif_1/x[7])**2)*np.sin(x[3]*t_dif_0-x[4])
+        exp_cos_0 = x[0]*np.exp(-0.5*(t_dif_0/x[2])**2)*np.cos(x[3]*t_dif_0-x[4])
+        exp_sin_0 = x[0]*np.exp(-0.5*(t_dif_0/x[2])**2)*np.sin(x[3]*t_dif_0-x[4])
+        exp_cos_1 = x[5]*np.exp(-0.5*(t_dif_1/x[7])**2)*np.cos(x[3]*t_dif_0-x[4])
+        exp_sin_1 = x[5]*np.exp(-0.5*(t_dif_1/x[7])**2)*np.sin(x[3]*t_dif_0-x[4])
         ret = np.zeros(8)
         ret[0] = 2*np.sum(p_i*exp_cos_0)/x[0]
         ret[1] = 2*np.sum(p_i*(t_dif_0*exp_cos_0/(x[2]**2) + x[3]*(exp_sin_0+exp_sin_1)))
         ret[2] = 2*np.sum(p_i*exp_cos_0*t_dif_0**2)/(x[2]**3)
-        ret[3] =-2*np.sum(p_i*t_dif_1*(exp_sin_0+exp_sin_1))
+        ret[3] =-2*np.sum(p_i*t_dif_0*(exp_sin_0+exp_sin_1))
         ret[4] = 2*np.sum(p_i*(exp_sin_0+exp_sin_1))
         ret[5] = 2*np.sum(p_i*exp_cos_1)/x[5]
         ret[6] = 2*np.sum(p_i*(t_dif_1*exp_cos_1/(x[7]**2)))
         ret[7] = 2*np.sum(p_i*exp_cos_1*t_dif_1**2)/(x[7]**3)
-        return ret
+        return np.real(ret)
 
     x0 = np.array([1.0, env_x[1], env_x[2], est_omega, est_phi, env_x[3]/env_x[0], env_x[4], env_x[5]])
     #super hacky way to account for pi phase shifts
