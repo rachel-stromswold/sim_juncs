@@ -476,7 +476,7 @@ parse_ercode scene::fail_exit(parse_ercode er, FILE* fp) {
     return er;
 }
 
-instance::instance(cgs_func decl) : type(decl.name) {
+/*instance::instance(cgs_func decl) : type(decl.name) {
     fields.reserve(decl.n_args);
     value def_val;def_val.n_els = 0;def_val.type = VAL_UNDEF;def_val.val.x = 0;
     for (size_t i = 0; i < decl.n_args; ++i) {
@@ -487,7 +487,7 @@ instance::instance(cgs_func decl) : type(decl.name) {
 	    fields.emplace_back(decl.args[i].val.s, def_val);
 	}
     }
-}
+}*/
 
 parse_ercode scene::read_file(const char* p_fname) {
     parse_ercode er = E_SUCCESS;
@@ -549,13 +549,13 @@ parse_ercode scene::read_file(const char* p_fname) {
 			    cur_func.name = CGS_trim_whitespace(cur_func.name + KEY_DEF_LEN, NULL);
 
 			    //TODO: finish
-			} else if (dectype_start = token_block(cur_func.name, "class")) {
+			}/* else if (dectype_start = token_block(cur_func.name, "class")) {
 			    cur_func.name = CGS_trim_whitespace(cur_func.name + KEY_CLASS_LEN, NULL);
 			    value tmp_val;
 			    tmp_val.type = VAL_INST;
 			    tmp_val.val.i = new instance(cur_func);
 			    tmp_val.n_els = cur_func.n_args;
-			}
+			}*/
 			//try interpreting the function as a geometric object
 			object* obj = NULL;
 			object_type type;

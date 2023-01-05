@@ -12,9 +12,10 @@
 
 //hints for dynamic buffer sizes
 #define BUF_SIZE 	1024
+#define LINE_SIZE 	512
 #define DEF_STACK_SIZE	16
 #define ARGS_BUF_SIZE 	256
-#define FUNC_BUF_SIZE 	8
+#define FUNC_BUF_SIZE 	256
 
 //keywords
 #define KEY_CLASS_LEN	5
@@ -29,7 +30,7 @@ typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
 typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED } parse_ercode;
-typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_INST} valtype;
+typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST} valtype;
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
 
 /** ======================================================== utility functions ======================================================== **/
@@ -40,6 +41,26 @@ char* strchr_block(char* str, char c);
 char* token_block(char* str, const char* comp);
 int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno);
 char* CGS_trim_whitespace(char* str, size_t* len);
+
+/** ============================ line_buffer ============================ **/
+
+class line_buffer {
+private:
+    char** lines;
+    size_t* line_sizes;
+    size_t n_lines;
+public:
+    line_buffer() { lines = NULL; line_sizes = NULL; n_lines = 0; }
+    line_buffer(char* p_fname);
+    line_buffer(const char** p_lines, size_t pn_lines);
+    line_buffer(const line_buffer& o);
+    line_buffer(line_buffer&& o);
+    ~line_buffer();
+    line_buffer get_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset = 0, bool include_delims=false);
+    char* get_line(size_t i) { return (i < n_lines) ? lines[i] : NULL; }
+    size_t get_n_lines() { return n_lines; }
+    char* flatten(char sep_char = 0);
+};
 
 /** ============================ stack ============================ **/
 
@@ -209,14 +230,15 @@ class CompositeObject;
 int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* line);
 //
 class value;
-class cgs_func;
-class instance;
+class context;
+class user_func;
 union V {
     char* s;
     double x;
     value* l;
     vec3* v;
-    instance* i;
+    context* c;
+    user_func* f;
     mat3x3* m;
 };
 struct value {
@@ -257,11 +279,11 @@ void cleanup_func(cgs_func* o);
 void swap(cgs_func* a, cgs_func* b);
 value lookup_named(const cgs_func f, const char* name);
 
-/** ============================ helper classes ============================ **/
+//collections (like python dicts) are simply aliases for functions under the hood
+typedef context collection;
+
 /**
- * A helper class for scene which maintains two parallel stacks used when constructing binary trees. The first specifies the integer code for the side occupied and the second stores pointers to objects. Each index specified in the side array is a "tribit" with 0 specifying the left side, 1 the right and 2 the end end of the stack
- * WARNING: The stack only handles pointers to objects. The caller is responsible for managing the lifetime of each object placed on the stack.
- * NOTE: the context performs a shallow copy of everything pushed onto it and does not perform any cleanup
+ * A class which stores a labeled value.
  */
 class name_val_pair {
 private:
@@ -280,13 +302,6 @@ public:
     bool name_matches(const char* str) const;
     value& get_val();
 };
-class instance {
-private:
-    std::vector<name_val_pair> fields;
-    std::string type;
-public:
-    instance(cgs_func decl);
-};
 struct type_ind_pair {
 public:
     block_type t;
@@ -299,17 +314,21 @@ public:
 /** ============================ context ============================ **/
 class context : public stack<name_val_pair> {
 private:
+    context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
 public:
+    context() : stack<name_val_pair>() { parent = NULL; }
+    context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
     //parse_ercode push(_uint side, CompositeObject* obj);
     void emplace(const char* p_name, value p_val) { name_val_pair inst(p_name, p_val);push(inst); }
     value lookup(const char* name) const;
     parse_ercode pop_n(size_t n);
     value parse_value(char* tok, parse_ercode& er);
-    cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end);
+    cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
     void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }
     parse_ercode set_value(const char* name, value new_val);
+    parse_ercode read_from_lines(line_buffer b);
 };
 /**
  * A class for functions defined by the user along with the implementation code
@@ -317,16 +336,14 @@ public:
 class user_func {
 private:
     cgs_func call_sig;
-    //this is a dynamic buffer for the number of lines
-    size_t n_lines;
-    char** code_lines;
+    line_buffer code_lines;
 public:
     //read the function with contents stored in the file pointer fp at the current file position
-    user_func(cgs_func sig, char** bufptr, size_t* n, FILE* fp);
+    user_func(cgs_func sig, line_buffer p_buf);
     ~user_func();
     user_func(const user_func& o);
     user_func(user_func&& o);
-    size_t get_n_lines() { return n_lines; }
+    line_buffer& get_buffer() { return code_lines; }
     value eval(context& c, cgs_func call, parse_ercode& er);
 };
 

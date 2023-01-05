@@ -83,6 +83,12 @@ char* token_block(char* str, const char* comp) {
 	    blk_stk.push(i);
 	} else if (str[i] == /*{*/'}') {
 	    blk_stk.pop(NULL);
+	} else if (i > 0 && str[i-1] == '/' && str[i] == '*') {
+	    blk_stk.push(i);
+	} else if (i > 0 && str[i-1] == '*' && str[i] == '/') {
+	    blk_stk.pop(NULL);
+	} else if (i > 0 && str[i-1] == '/' && str[i] == '/') {
+	    blk_stk.push(i);
 	} else if (str[i] == '\"'/*"*/) {
 	    //quotes are more complicated
 	    if (!blk_stk.is_empty() && str[blk_stk.peek()] == '\"')
@@ -117,7 +123,7 @@ int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
     if (buf) {
 	if (size == 0) return -2;
     } else {
-	size = BUF_SIZE;
+	size = LINE_SIZE;
 	buf = (char*)malloc(sizeof(char)*size);
     }
 
@@ -300,6 +306,159 @@ char* CGS_trim_whitespace(char* str, size_t* len) {
     str[last_non+1] = 0;
     if (len) *len = last_non - start_ind+1;
     return str+start_ind;
+}
+
+/** ============================ line_buffer ============================ **/
+
+line_buffer::line_buffer(char* p_fname) {
+    size_t buf_size = BUF_SIZE;
+    lines = (char**)malloc(sizeof(char*)*buf_size);
+    line_sizes = (size_t*)malloc(sizeof(size_t)*buf_size);
+    n_lines = 0;
+
+    FILE* fp = NULL;
+    if (p_fname) {
+        fp = fopen(p_fname, "r");
+    }
+    if (fp) {
+	size_t lineno = 1;
+	size_t line_len = 0;
+	do {
+	    //reallocate buffer if necessary
+	    if (n_lines >= buf_size) {
+		buf_size *= 2;
+		lines = (char**)realloc(lines, sizeof(char*)*buf_size);
+		line_sizes = (size_t*)realloc(line_sizes, sizeof(size_t)*buf_size);
+	    }
+	    //these need to be set to zero so that read_cgs_line() will allocate a buffer for us
+	    char* this_buf = NULL;
+	    line_len = read_cgs_line(&this_buf, &line_len, fp, &lineno);
+	    lines[n_lines] = this_buf;
+	    line_sizes[n_lines++] = line_len;
+	} while (line_len >= 0);
+	lines = (char**)realloc(lines, sizeof(char*)*n_lines);
+	line_sizes = (size_t*)realloc(line_sizes, sizeof(size_t)*n_lines);
+    } else {
+        printf("Error: couldn't open file %s for reading!\n", p_fname);
+	free(lines);
+	lines = NULL;
+    }
+}
+line_buffer::line_buffer(const char** p_lines, size_t pn_lines) {
+    n_lines = pn_lines;
+    lines = (char**)malloc(sizeof(char*)*n_lines);
+    line_sizes = (size_t*)malloc(sizeof(size_t)*n_lines);
+    for (size_t i = 0; i < n_lines; ++i) {
+	line_sizes[i] = strlen(p_lines[i]);
+	lines[i] = strdup(p_lines[i]);
+    }
+}
+line_buffer::~line_buffer() {
+    for (size_t i = 0; i < n_lines; ++i) free(lines[i]);
+    free(line_sizes);
+    free(lines);
+}
+line_buffer::line_buffer(const line_buffer& o) {
+    n_lines = o.n_lines;
+    line_sizes = (size_t*)malloc(sizeof(size_t)*n_lines);
+    lines = (char**)malloc(sizeof(char*)*n_lines);
+    for (size_t i = 0; i < n_lines; ++i) {
+	lines[i] = strdup(o.lines[i]);
+	line_sizes[i] = o.line_sizes[i];
+    }
+}
+line_buffer::line_buffer(line_buffer&& o) {
+    n_lines = o.n_lines;
+    line_sizes = o.line_sizes;
+    lines = o.lines;
+    o.n_lines = 0;
+    o.lines = NULL;
+}
+/**
+ * Find the line buffer starting on line start_line between the first instance of start_delim and the last instance of end_delim respecting nesting (i.e. if lines={"a {", "b {", "}", "} c"} then {"b {", "}"} is returned. Note that the result must be deallocated with a call to free().
+ * start_line: the line to start reading from
+ * start_delim: the character to be used as the starting delimiter. This needs to be supplied so that we find a matching end_delim at the root level
+ * end_delim: the character to be searched for
+ * line_offset: the character on line start_line to start reading from, this defaults to zero. Note that this only applies to the start_line, and not any subsequent lines in the buffer.
+ * include_delims: if true then the delimeters are included in the enclosed strings. defualts to false
+ * returns: an array of lines that must be deallocated by a call to free(). The number of lines is stored in n_lines.
+ */
+line_buffer line_buffer::get_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) {
+    //initialization
+    line_buffer ret;
+    if (n_lines == 0) {
+	ret.n_lines = 0;
+	ret.lines = NULL;
+	ret.line_sizes = NULL;
+	return ret;
+    }
+    ret.lines = (char**)malloc(sizeof(char*)*n_lines);
+    ret.line_sizes = (size_t*)malloc(sizeof(size_t)*n_lines);
+
+    //tracking variables
+    int depth = 0;
+    bool exit = false;
+
+    //iterate through lines
+    size_t k = 0;
+    long start_char = -1;
+    long j = line_offset;
+    for (size_t i = 0; !exit && i < n_lines; ++i) {
+	if (lines[i] == NULL) {
+	    ret.n_lines = i;
+	    exit = true;
+	} else {
+	    //this way we ensure that start char is always zero after the first start_delim is read
+	    if (start_char >= 0) start_char = 0;
+	    //iterate through characters in the line looking for an end_delim without a preceeding start_delim
+	    for (; lines[i][j]; ++j) {
+		if (lines[i][j] == start_delim) {
+		    if (depth == 0) {
+			start_char = j;
+			if (!include_delims) ++start_char;
+		    }
+		    ++depth;
+		} else if (lines[i][j] == end_delim) {
+		    --depth;
+		    if (depth <= 0) {
+			ret.n_lines = k;
+			exit = true;
+			if (include_delims) ++j;
+			break;
+		    }
+		}
+	    }
+	    //don't read empty lines
+	    if (start_char >= 0) {
+		ret.line_sizes[k] = j;
+		ret.lines[k++] = strndup(lines[i]+start_char, j+1);
+	    }
+	    j = 0;
+	}
+    }
+    return ret;
+}
+
+/**
+ * Returns a version of the line buffer which is flattened so that everything fits onto one line.
+ * sep_char: if this is not zero, then each newline in the buffer is replaced by a sep_char
+ */
+char* line_buffer::flatten(char sep_char) {
+    //figure out how much memory must be allocated
+    size_t tot_size = 1;
+    for (size_t i = 0; i < n_lines; ++i) { tot_size += line_sizes[i]; }
+    if (sep_char != 0) tot_size += n_lines;
+    //allocate the memory
+    char* ret = (char*)malloc(sizeof(char)*tot_size);
+    size_t k = 0;
+    for (size_t i = 0; i < n_lines; ++i) {
+	for (size_t j = 0; lines[i][j] && j < line_sizes[i]; ++j) {
+	    ret[k++] = lines[i][j];
+	}
+	if (k != 0 && sep_char != 0) ret[k++] = sep_char;
+    }
+    ret[k] = 0;
+    return ret;
 }
 
 /** ======================================================== builtin functions ======================================================== **/
@@ -521,8 +680,8 @@ void cleanup_val(value* v) {
 	delete v->val.m;
     } else if (v->type == VAL_3VEC && v->val.v) {
 	delete v->val.v;
-    } else if (v->type == VAL_INST && v->val.i) {
-	delete v->val.i;
+    } else if (v->type == VAL_INST && v->val.c) {
+	delete v->val.c;
     }
     v->val.x = 0;
 }
@@ -541,6 +700,10 @@ value copy_val(const value o) {
 	ret.val.m = new mat3x3(*(o.val.m));
     } else if (o.type == VAL_3VEC) {
 	ret.val.v = new vec3(o.val.v->el[0], o.val.v->el[1], o.val.v->el[2]);
+    } else if (o.type == VAL_INST) {
+	ret.val.c = new collection(*(o.val.c));
+    } else if (o.type == VAL_FUNC) {
+	ret.val.f = new user_func(*(o.val.f));
     } else {
 	ret.val.x = o.val.x;
     }
@@ -760,7 +923,7 @@ value& name_val_pair::get_val() {
     return val;
 }
 
-/** ======================================================== context ======================================================== **/
+/** ======================================================== cgs_func ======================================================== **/
 
 /**
  * Given the string starting at token, and the index of an open paren parse the result into a cgs_func struct.
@@ -768,9 +931,10 @@ value& name_val_pair::get_val() {
  * open_par_ind: the location of the open parenthesis
  * f: the cgs_func that information should be saved to
  * end: If not NULL, a pointer to the first character after the end of the string is stored here. If an error occurred during parsing end will be set to NULL.
+ * name_only: if set to true, then only the names of the function arguments will be set and all values will be set to undefined. This is useful for handling function declarations
  * returns: an errorcode if an invalid string was supplied.
  */
-cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, char** end) {
+cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, char** end, int name_only) {
     cgs_func f;
 
     //by default we want to indicate that we didn't get to the end
@@ -805,22 +969,31 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
 	free(list_els);
 	return f;
     }
-    for (size_t i = 0; list_els[i] && i < f.n_args; ++i) {
-	//handle named arguments
-	char* eq_loc = strchr(list_els[i], '=');
-	if (eq_loc) {
-	    f.arg_names[i] = list_els[i];
-	    *eq_loc = 0;
-	    list_els[i] = eq_loc+1;
-	} else {
-	    f.arg_names[i] = NULL;
-	}
-	f.args[i] = parse_value(list_els[i], er);
-	//if the evaluation of the name failed, then use it as a variable name instead
-	if (er != E_SUCCESS) {
+    if (name_only) {
+	for (size_t i = 0; list_els[i] && i < f.n_args; ++i) {
+	    f.arg_names[i] = strdup(list_els[i]);
 	    f.args[i].type = VAL_UNDEF;
-	    f.arg_names[i] = list_els[i];
-	    er = E_SUCCESS;
+	    f.args[i].n_els = 0;
+	    f.args[i].val.x = 0;
+	}
+    } else {
+	for (size_t i = 0; list_els[i] && i < f.n_args; ++i) {
+	    //handle named arguments
+	    char* eq_loc = strchr(list_els[i], '=');
+	    if (eq_loc) {
+		*eq_loc = 0;
+		f.arg_names[i] = strdup(list_els[i]);
+		list_els[i] = eq_loc+1;
+	    } else {
+		f.arg_names[i] = NULL;
+	    }
+	    f.args[i] = parse_value(list_els[i], er);
+	    //if the evaluation of the name failed, then use it as a variable name instead
+	    if (er != E_SUCCESS) {
+		f.args[i].type = VAL_UNDEF;
+		f.arg_names[i] = list_els[i];
+		er = E_SUCCESS;
+	    }
 	}
     }
     //cleanup and reset the string
@@ -828,6 +1001,8 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
     free(list_els);
     return f;
 }
+
+/** ======================================================== context ======================================================== **/
 
 /**
  * Iterate through the context and return a value to the variable with the matching name.
@@ -1085,6 +1260,18 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    //only set the end paren location if it hasn't been set yet and the stack has no more parenthesis to remove, TODO: make this work with other block types inside a set of parenthesis
 	    //if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
 	    last_close_ind = i;
+	} else if (str[i] == '{'/*}*/) {
+	    //keep track of open and close parenthesis, these will come in handy later
+	    blk_stk.push({BLK_CURLY, i});
+	    //TODO: decide if this is necessary
+	    ++nest_level;
+	    //only set the open index if this is the first match
+	    if (first_open_ind == -1) { first_open_ind = i; }
+	} else if (str[i] == /*{*/'}') {
+	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_CURLY) { er = E_BAD_SYNTAX;return sto; }
+	    --nest_level;
+	    //only set the end paren location if it hasn't been set yet and the stack has no more parenthesis to remove, TODO: make this work with other block types inside a set of parenthesis
+	    last_close_ind = i;
 	} else if (str[i] == '\"' && (i == 0 || str[i-1] != '\\')) {
 	    start_ind = blk_stk.peek();
 	    if (blk_stk.is_empty() || start_ind.t != BLK_QUOTE) {
@@ -1170,6 +1357,32 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    sto = parse_list(str+first_open_ind, er);
 	    sto.type = VAL_LIST;
 	    if (er != E_SUCCESS) return sto;
+	} else if (str[first_open_ind] == '{' && str[last_close_ind] == '}') {
+	    //now parse the argument as a context
+	    size_t n_els;
+	    str[last_close_ind] = 0;
+	    char** list_els = csv_to_list(str+first_open_ind+1, ';', &n_els, er);
+	    if (er != E_SUCCESS) { free(list_els);return sto; }
+	    //setup the context
+	    sto.val.c = new collection(this);
+	    sto.n_els = n_els;
+	    //insert context members
+	    for (size_t i = 0; list_els[i] && i < n_els; ++i) {
+		char* cur_name = NULL;
+		char* rval = list_els[i];
+		char* eq_loc = strchr_block(list_els[i], '=');
+		if (eq_loc) {
+		    *eq_loc = 0;
+		    cur_name = CGS_trim_whitespace(list_els[i], NULL);
+		    rval = eq_loc+1;
+		}
+		value tmp = sto.val.c->parse_value(rval, er);
+		if (er != E_SUCCESS) { free(list_els);sto.type=VAL_UNDEF;free(sto.val.c);sto.val.c = NULL;return sto; }
+		sto.val.c->emplace(cur_name, tmp);
+		cleanup_val(&tmp);
+	    }
+	    sto.type = VAL_INST;
+	    return sto;
 	} else if (str[first_open_ind] == '(' && str[last_close_ind] == ')') {
 	    //check to see if this is a function call (it is if there are any non-whitespace characters before the open paren
 	    int is_func = 0;
@@ -1213,6 +1426,126 @@ value context::parse_value(char* str, parse_ercode& er) {
     return sto;
 }
 
+/**
+ * Generate a context from a list of lines. This context will include function declarations, named variables, and subcontexts (instances).
+ * lines: the array of lines to read from
+ * n_lines: the size of the array
+ * returns: an errorcode if one was found or E_SUCCESS on success
+ */
+parse_ercode context::read_from_lines(line_buffer b) {
+    parse_ercode er = E_SUCCESS;
+    stack<block_type> blk_stack;
+
+    char last_char = 0;
+    size_t buf_size = BUF_SIZE;
+    char* buf = (char*)malloc(sizeof(char)*buf_size);
+    //iterate over each line in the file
+    for (size_t lineno = 0; lineno < b.get_n_lines(); ++lineno) {
+	char* line = b.get_line(lineno);
+	//check for class and function declarations
+	char* dectype_start = token_block(line, "def");
+	if (dectype_start) {
+	    char* endptr;
+	    cgs_func cur_func = parse_func(dectype_start + KEY_DEF_LEN, -1, er, &endptr, true);
+	    //jump ahead until after the end of the function
+	    if (er == E_SUCCESS) {
+		size_t i = 0;
+		for (; endptr[i] && (endptr[i] == ' ' || endptr[i] == '\t' || endptr[i] == '\n'); ++i) (void)0;
+		size_t n_enc = b.get_n_lines()-lineno;
+		line_buffer lines_enc(b.get_enclosed(lineno, '{', '}'));
+		//now we actually create the function
+		user_func tmp(cur_func, lines_enc);
+		value v;
+		v.type = VAL_FUNC;
+		v.val.f = &tmp;
+		v.n_els = n_enc;
+		emplace(cur_func.name, v);
+	    }
+	} else {
+	    char* lval = buf;
+	    char* rval = buf;
+	    size_t k = 0;
+	    //reapeat because we may have a "hanging block"
+	    while (lineno < b.get_n_lines()) {
+		bool started = false;
+		for (size_t i = 0; line[i]; ++i) {
+		    //handle comments
+		    if (line[i] == '/') {
+			if (line[i+1] == '/') {
+			    break;
+			} else if (line[i+1] == '*') {
+			    blk_stack.push(BLK_COMMENT);
+			} else if (i > 0 && line[i-1] == '*') {
+			    block_type tmp;
+			    er = blk_stack.pop(&tmp);
+			    if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
+			}
+		    }
+		    block_type cur_blkt = BLK_UNDEF;
+		    if (blk_stack.size() > 0) cur_blkt = blk_stack.peek();
+		    if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
+			if (k >= buf_size) {
+			    buf_size *= 2;
+			    buf = (char*)realloc(buf, sizeof(char)*buf_size);
+			}
+			//ignore preceeding whitespace
+			if (line[i] != ' ' || line[i] != '\t' || line[i] != '\n') started = true;
+			if (started) buf[k++] = line[i];
+			//check for assignment, otherwise handle blocks
+			if (line[i] == '=') {
+			    if (blk_stack.is_empty()) {
+				buf[k-1] = 0;
+				lval = CGS_trim_whitespace(buf, NULL);
+				rval = buf+k;
+			    }
+			} else if (line[i] == '(') {
+			    blk_stack.push(BLK_PAREN);
+			} else if (line[i] == ')') {
+			    block_type tmp;
+			    er = blk_stack.pop(&tmp);
+			    if (tmp != BLK_PAREN) { return E_BAD_SYNTAX; }
+			} else if (line[i] == '[') {
+			    blk_stack.push(BLK_SQUARE);
+			} else if (line[i] == ']') {
+			    block_type tmp;
+			    er = blk_stack.pop(&tmp);
+			    if (tmp != BLK_SQUARE) { return E_BAD_SYNTAX; }
+			} else if (blk_stack.is_empty() && line[i] == '{'/*}*/) {
+			    //curly braces are a little different since they define contexts
+			    blk_stack.push(BLK_CURLY);
+			    rval[k-1] = 0;
+			    value tmp_val = parse_value(rval, er);
+			    if (tmp_val.type == VAL_INST) {
+				line_buffer lines_enc( b.get_enclosed(lineno, '{', '}') );
+				tmp_val.val.c->read_from_lines(lines_enc);
+				emplace(lval, tmp_val);
+			    }
+			    cleanup_val(&tmp_val);
+			}
+		    }
+		}
+		//if the block stack isn't empty, then we need to read the next line and so on until it is
+		if (blk_stack.is_empty()) {
+		    buf[k] = 0;
+		    break;
+		} else {
+		    line = b.get_line(lineno++);
+		}
+	    }
+	    //make sure that we actually found a termination character
+	    if (!blk_stack.is_empty() || !rval) { free(buf); return E_BAD_SYNTAX; }
+	    value tmp_val = parse_value(rval, er);
+	    emplace(lval, tmp_val);
+	    cleanup_val(&tmp_val);
+	}
+    }
+    free(buf);
+
+    return er;
+}
+
+//
+
 /** ======================================================== user func ======================================================== **/
 /**
  * constructor
@@ -1221,70 +1554,76 @@ value context::parse_value(char* str, parse_ercode& er) {
  * n: the number of characters currently in the buffer, see read_cgs_line
  * fp: the file pointer to read from
  */
-user_func::user_func(cgs_func sig, char** bufptr, size_t* n, FILE* fp) {
+user_func::user_func(cgs_func sig, line_buffer b) : code_lines(b) {
     call_sig = copy_func(sig);
     //setup a buffer for code lines
-    size_t cur_buf_size = FUNC_BUF_SIZE;
-    code_lines = (char**)malloc(sizeof(char*)*cur_buf_size);
+    /*
+    n_lines = p_n_lines;
+    code_lines = (char**)malloc(sizeof(char*)*n_lines);
+
+    //exit keeps track of whether we should read more lines and started keeps track of whether the opening brace has been found
     //initialize tracking variables
-    n_lines = 0;
     int nest_level = 0;
-    int n_chars = read_cgs_line(bufptr, n, fp, &n_lines);
+    bool exit = false;
+    bool started = false;
     //iterate until we hit an error, or the end of the function (n_chars=-1 or nest_level=-1)
-    while (n_chars >= 0 && nest_level >= 0) {
-	//expand the buffer if necessary
-	if (n_lines == cur_buf_size) {
-	    cur_buf_size *= 2;
-	    code_lines = (char**)realloc(code_lines, sizeof(char*)*cur_buf_size);
-	}
-	char* cur_line = (char*)malloc(sizeof(char)*n_chars);
-	char* buf = *bufptr;
-	//copy the string and check to see if there was an open or close brace read
-	for (size_t j = 0; j < n_chars; ++j) {
-	    cur_line[j] = buf[j];
-	    if (buf[j] == '{')
+    for (size_t i = 0; !exit && i < n_lines; ++i) {
+	size_t buf_size = FUNC_BUF_SIZE;
+	char* buf = (char*)malloc(sizeof(char)*buf_size);
+	size_t k = 0;
+	for (size_t j = 0; bufptr[i][j]; ++j) {
+	    if (buf[j] == '{') {
 		++nest_level;
-	    else if (buf[j] == '}')
+		//if this is the first open brace then skip writing it
+		if (!started) {
+		    started = true;
+		    continue;
+		}
+	    } else if (buf[j] == '}') {
 		--nest_level;
+		//if we just closed the last brace then this is the end of the function so exit the loop
+		if (nest_level <= 0) {
+		    buf[j] = 0;
+		    exit = true;
+		    break;
+		}
+	    }
+	    //reallocate memory as needed
+	    if (k >= buf_size) {
+		buf_size *= 2;
+		buf = (char*)realloc(buf, sizeof(char)*buf_size);
+	    }
+	    if (started) buf[k++] = bufptr[i][j];
 	}
-	cur_line[n_chars-1] = 0;
-	code_lines[n_lines++] = CGS_trim_whitespace(cur_line, NULL);
-	n_chars = read_cgs_line(bufptr, n, fp, &n_lines);
-    }
+	buf[k] = 0;
+	code_lines[n_lines++] = CGS_trim_whitespace(buf, NULL);
+    }*/
 }
 //deallocation
 user_func::~user_func() {
     cleanup_func(&call_sig);
-    for (size_t j = 0; j < n_lines; ++j) free(code_lines[j]);
-    free(code_lines);
 }
 //copy constructor
-user_func::user_func(const user_func& o) {
+user_func::user_func(const user_func& o) : code_lines(o.code_lines) {
     call_sig = copy_func(o.call_sig);
-    n_lines = o.n_lines;
-    code_lines = (char**)malloc(sizeof(char*)*n_lines);
-    for (size_t j = 0; j < n_lines; ++j) code_lines[j] = strdup(o.code_lines[j]);
 }
 //move constructor
-user_func::user_func(user_func&& o) {
+user_func::user_func(user_func&& o) : code_lines(o.code_lines) {
     call_sig = o.call_sig;
-    n_lines = o.n_lines;
-    code_lines = o.code_lines;
     o.call_sig.name = NULL;
     o.call_sig.n_args = 0;
-    o.n_lines = 0;
-    o.code_lines = NULL;
 }
 /**
  * evaluate the function
  */
 value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
     er = E_SUCCESS;
-    size_t line = 0;
+    size_t lineno = 0;
     value bad_val;
-    while (line < n_lines) {
-	if (strncmp("return", code_lines[line], strlen("return")) == 0) {
-	    char* tmp_buf = CGS_trim_whitespace(code_lines[line]+strlen("return")+1, NULL);
+    while (lineno < code_lines.get_n_lines()) {
+	char* line = code_lines.get_line(lineno);
+	if (strncmp("return", line, strlen("return")) == 0) {
+	    char* tmp_buf = CGS_trim_whitespace(line+strlen("return")+1, NULL);
 	    value v = c.parse_value(tmp_buf, er);
 	    if (er != E_SUCCESS) {
 		std::string tmp(tmp_buf);
@@ -1295,9 +1634,9 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
 	    } else {
 		return v;
 	    }
-	} else if (strncmp("if", code_lines[line], strlen("if")) == 0){
+	} else if (strncmp("if", code_lines.get_line(lineno), strlen("if")) == 0){
 	    size_t len = 0;
-	    char* tmp_buf = CGS_trim_whitespace(code_lines[line]+strlen("if")+1, &len);
+	    char* tmp_buf = CGS_trim_whitespace(line+strlen("if")+1, &len);
 	}
     }
     //return an undefined value by default

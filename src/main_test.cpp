@@ -750,6 +750,66 @@ TEST_CASE("Test function parsing") {
     cleanup_func(&cur_func);
 }
 
+TEST_CASE("Test get_enclosed") {
+    context c;
+    const char* fun_contents[] = {"", "if a > 5 {", "return 1", "}", "return 0"};
+    const char* if_contents[] = {"", "return 1"};
+    size_t fun_n = sizeof(fun_contents)/sizeof(char*);
+    size_t if_n = sizeof(if_contents)/sizeof(char*);
+    const char* lines_1[] = { "def test_fun(a)", "{", "if a > 5 {", "return 1", "}", "return 0", "}" };
+    const char* lines_2[] = { "def test_fun(a) {", "if a > 5 {", "return 1", "}", "return 0", "}" };
+    size_t n_lines_1 = sizeof(lines_1)/sizeof(char*);
+    size_t n_lines_2 = sizeof(lines_2)/sizeof(char*);
+
+    //check the lines_1 (curly brace on new line)
+    line_buffer b_1(lines_1, n_lines_1);
+    for (size_t i = 0; i < n_lines_1; ++i) {
+	CHECK(strcmp(lines_1[i], b_1.get_line(i)) == 0);
+    }
+    line_buffer b_fun_con_1(b_1.get_enclosed(0, '{', '}'));
+    CHECK(b_fun_con_1.get_n_lines() == fun_n);
+    for (size_t i = 0; i < fun_n; ++i) {
+	CHECK(strcmp(fun_contents[i], b_fun_con_1.get_line(i)) == 0);
+    }
+    line_buffer b_if_con_1(b_fun_con_1.get_enclosed(0, '{', '}'));
+    CHECK(b_if_con_1.get_n_lines() == if_n);
+    for (size_t i = 0; i < if_n; ++i) CHECK(strcmp(if_contents[i], b_if_con_1.get_line(i)) == 0);
+    //try flattening
+    char* fun_flat = b_fun_con_1.flatten();
+    CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
+    free(fun_flat);
+    fun_flat = b_fun_con_1.flatten('|');
+    CHECK(strcmp(fun_flat, "if a > 5 {|return 1|}|return 0|") == 0);
+    free(fun_flat);
+
+    //check the lines_2 (curly brace on same line)
+    line_buffer b_2(lines_2, n_lines_2);
+    for (size_t i = 0; i < n_lines_2; ++i) {
+	CHECK(strcmp(lines_2[i], b_2.get_line(i)) == 0);
+    }
+    line_buffer b_fun_con_2(b_2.get_enclosed(0, '{', '}'));
+    CHECK(b_fun_con_2.get_n_lines() == fun_n);
+    for (size_t i = 0; i < fun_n; ++i) {
+	CHECK(strcmp(fun_contents[i], b_fun_con_2.get_line(i)) == 0);
+    }
+    line_buffer b_if_con_2(b_fun_con_2.get_enclosed(0, '{', '}'));
+    CHECK(b_if_con_2.get_n_lines() == if_n);
+    for (size_t i = 0; i < if_n; ++i) {
+	CHECK(strcmp(if_contents[i], b_if_con_2.get_line(i)) == 0);
+    }
+    //try flattening
+    fun_flat = b_fun_con_2.flatten();
+    CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
+    free(fun_flat);
+    fun_flat = b_fun_con_2.flatten('|');
+    CHECK(strcmp(fun_flat, "if a > 5 {|return 1|}|return 0|") == 0);
+    free(fun_flat);
+}
+
+TEST_CASE("Test context parsing") {
+    const char* lines_1[] = { "def test_fun(a)", "{", "if a > 5 {", "return {name = \"hi\"}", "}", "return 0", "}", "" };
+}
+
 TEST_CASE("Test volumes") {
     //initialize random state
     _uint state = lcg(lcg(TEST_SEED));
