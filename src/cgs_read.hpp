@@ -29,7 +29,7 @@ typedef matrix<3,3> mat3x3;
 typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
-typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED } parse_ercode;
+typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED, E_OUT_OF_RANGE } parse_ercode;
 typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST} valtype;
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
 
@@ -37,6 +37,7 @@ typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT
 
 bool is_char_sep(char c);
 bool is_token(const char* str, size_t i, size_t len);
+char* find_token_before(char* str, size_t i);
 char* strchr_block(char* str, char c);
 char* token_block(char* str, const char* comp);
 int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno);
@@ -56,7 +57,7 @@ public:
     line_buffer(const line_buffer& o);
     line_buffer(line_buffer&& o);
     ~line_buffer();
-    line_buffer get_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset = 0, bool include_delims=false);
+    line_buffer get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset = 0, bool include_delims=false);
     char* get_line(size_t i) { return (i < n_lines) ? lines[i] : NULL; }
     size_t get_n_lines() { return n_lines; }
     char* flatten(char sep_char = 0);
@@ -251,7 +252,7 @@ struct value {
     bool operator!=(std::string str);
     valtype get_type() { return type; }
     size_t size() { return n_els; }
-    V get_val() { return val; }
+    V& get_val() { return val; }
     char* to_c_str();
     double to_float();
     value cast_to(valtype type, parse_ercode& er) const;
@@ -293,6 +294,7 @@ public:
     void swap(name_val_pair& o);
     void copy(const name_val_pair& o);
     name_val_pair();
+    name_val_pair(int a);
     name_val_pair(const char* p_name, value p_val);
     name_val_pair(const name_val_pair& o);
     name_val_pair(name_val_pair&& o);

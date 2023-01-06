@@ -633,6 +633,28 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.val.v->z() == doctest::Approx(56.7));
 	cleanup_val(&tmp_val);
     }
+    SUBCASE("Ternary operators work") {
+	strncpy(buf, "(1 == 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 200);
+	strncpy(buf, "(2 == 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 100);
+	strncpy(buf, "(1 > 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 200);
+	strncpy(buf, "(1 < 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 100);
+    }
 }
 
 TEST_CASE("Test function parsing") {
@@ -645,6 +667,7 @@ TEST_CASE("Test function parsing") {
     const char* test_func_5 = "foo ( 1 , \"b , c\" )";
     const char* test_func_6 = "f(eps = 3.5)";
     const char* test_func_7 = "f(name = \"bar\")";
+    const char* test_func_8 = "f(a, b1, c2)";
     const char* bad_test_func_1 = "foo ( a , b , c";
     const char* bad_test_func_2 = "foo ( \"a\" , \"b\" , \"c\"";
 
@@ -738,6 +761,17 @@ TEST_CASE("Test function parsing") {
     CHECK(strcmp(cur_func.args[0].to_c_str(), "bar") == 0);
     CHECK(strcmp(cur_func.arg_names[0], "name") == 0);
     cleanup_func(&cur_func);
+    //check string 8 (function declaration parsing)
+    strncpy(buf, test_func_8, BUF_SIZE);buf[BUF_SIZE-1] = 0;
+    cur_func = sc.parse_func(buf, 1, er, NULL, true);
+    CHECK(er == E_SUCCESS);
+    CHECK(cur_func.n_args == 3);
+    INFO("func name=", cur_func.name);
+    CHECK(strcmp(cur_func.name, "f") == 0);
+    CHECK(strcmp(cur_func.arg_names[0], "a") == 0);
+    CHECK(strcmp(cur_func.arg_names[1], "b1") == 0);
+    CHECK(strcmp(cur_func.arg_names[2], "c2") == 0);
+    cleanup_func(&cur_func);
     //check bad string 1
     strncpy(buf, bad_test_func_1, BUF_SIZE);buf[BUF_SIZE-1] = 0;
     cur_func = sc.parse_func(buf, 4, er, NULL);
@@ -751,64 +785,169 @@ TEST_CASE("Test function parsing") {
 }
 
 TEST_CASE("Test get_enclosed") {
-    context c;
-    const char* fun_contents[] = {"", "if a > 5 {", "return 1", "}", "return 0"};
-    const char* if_contents[] = {"", "return 1"};
+    const char* fun_contents[] = {"", "if a > 5 {", "return 1", "}", "return 0", ""};
+    const char* if_contents[] = {"", "return 1", ""};
     size_t fun_n = sizeof(fun_contents)/sizeof(char*);
     size_t if_n = sizeof(if_contents)/sizeof(char*);
-    const char* lines_1[] = { "def test_fun(a)", "{", "if a > 5 {", "return 1", "}", "return 0", "}" };
-    const char* lines_2[] = { "def test_fun(a) {", "if a > 5 {", "return 1", "}", "return 0", "}" };
-    size_t n_lines_1 = sizeof(lines_1)/sizeof(char*);
-    size_t n_lines_2 = sizeof(lines_2)/sizeof(char*);
 
-    //check the lines_1 (curly brace on new line)
-    line_buffer b_1(lines_1, n_lines_1);
-    for (size_t i = 0; i < n_lines_1; ++i) {
-	CHECK(strcmp(lines_1[i], b_1.get_line(i)) == 0);
-    }
-    line_buffer b_fun_con_1(b_1.get_enclosed(0, '{', '}'));
-    CHECK(b_fun_con_1.get_n_lines() == fun_n);
-    for (size_t i = 0; i < fun_n; ++i) {
-	CHECK(strcmp(fun_contents[i], b_fun_con_1.get_line(i)) == 0);
-    }
-    line_buffer b_if_con_1(b_fun_con_1.get_enclosed(0, '{', '}'));
-    CHECK(b_if_con_1.get_n_lines() == if_n);
-    for (size_t i = 0; i < if_n; ++i) CHECK(strcmp(if_contents[i], b_if_con_1.get_line(i)) == 0);
-    //try flattening
-    char* fun_flat = b_fun_con_1.flatten();
-    CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
-    free(fun_flat);
-    fun_flat = b_fun_con_1.flatten('|');
-    CHECK(strcmp(fun_flat, "if a > 5 {|return 1|}|return 0|") == 0);
-    free(fun_flat);
+    long end_ind;
 
-    //check the lines_2 (curly brace on same line)
-    line_buffer b_2(lines_2, n_lines_2);
-    for (size_t i = 0; i < n_lines_2; ++i) {
-	CHECK(strcmp(lines_2[i], b_2.get_line(i)) == 0);
+    SUBCASE("open brace on a different line") {
+	const char* lines[] = { "def test_fun(a)", "{", "if a > 5 {", "return 1", "}", "return 0", "}" };
+	size_t n_lines = sizeof(lines)/sizeof(char*);
+	//check the lines (curly brace on new line)
+	line_buffer b_1(lines, n_lines);
+	for (size_t i = 0; i < n_lines; ++i) {
+	    CHECK(strcmp(lines[i], b_1.get_line(i)) == 0);
+	}
+	line_buffer b_fun_con(b_1.get_enclosed(0, &end_ind, '{', '}'));
+	CHECK(b_fun_con.get_n_lines() == fun_n);
+	CHECK(end_ind == 6);
+	for (size_t i = 0; i < fun_n; ++i) {
+	    CHECK(strcmp(fun_contents[i], b_fun_con.get_line(i)) == 0);
+	}
+	line_buffer b_if_con(b_fun_con.get_enclosed(0, &end_ind, '{', '}'));
+	CHECK(b_if_con.get_n_lines() == if_n);
+	CHECK(end_ind == 3);
+	for (size_t i = 0; i < if_n; ++i) CHECK(strcmp(if_contents[i], b_if_con.get_line(i)) == 0);
+	//try flattening
+	char* fun_flat = b_fun_con.flatten();
+	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
+	free(fun_flat);
+	fun_flat = b_fun_con.flatten('|');
+	CHECK(strcmp(fun_flat, "if a > 5 {|return 1|}|return 0||") == 0);
+	free(fun_flat);
     }
-    line_buffer b_fun_con_2(b_2.get_enclosed(0, '{', '}'));
-    CHECK(b_fun_con_2.get_n_lines() == fun_n);
-    for (size_t i = 0; i < fun_n; ++i) {
-	CHECK(strcmp(fun_contents[i], b_fun_con_2.get_line(i)) == 0);
+
+    SUBCASE("open brace on the same line") {
+	const char* lines[] = { "def test_fun(a) {", "if a > 5 {", "return 1", "}", "return 0", "}" };
+	size_t n_lines = sizeof(lines)/sizeof(char*);
+	//check the lines (curly brace on same line)
+	line_buffer b_2(lines, n_lines);
+	for (size_t i = 0; i < n_lines; ++i) {
+	    CHECK(strcmp(lines[i], b_2.get_line(i)) == 0);
+	}
+	line_buffer b_fun_con_2(b_2.get_enclosed(0, &end_ind, '{', '}'));
+	CHECK(b_fun_con_2.get_n_lines() == fun_n);
+	CHECK(end_ind == 5);
+	for (size_t i = 0; i < fun_n; ++i) {
+	    CHECK(strcmp(fun_contents[i], b_fun_con_2.get_line(i)) == 0);
+	}
+	line_buffer b_if_con_2(b_fun_con_2.get_enclosed(0, &end_ind, '{', '}'));
+	CHECK(b_if_con_2.get_n_lines() == if_n);
+	CHECK(end_ind == 3);
+	for (size_t i = 0; i < if_n; ++i) {
+	    CHECK(strcmp(if_contents[i], b_if_con_2.get_line(i)) == 0);
+	}
+	//try flattening
+	char* fun_flat = b_fun_con_2.flatten();
+	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
+	free(fun_flat);
+	fun_flat = b_fun_con_2.flatten('|');
+	CHECK(strcmp(fun_flat, "if a > 5 {|return 1|}|return 0||") == 0);
+	free(fun_flat);
     }
-    line_buffer b_if_con_2(b_fun_con_2.get_enclosed(0, '{', '}'));
-    CHECK(b_if_con_2.get_n_lines() == if_n);
-    for (size_t i = 0; i < if_n; ++i) {
-	CHECK(strcmp(if_contents[i], b_if_con_2.get_line(i)) == 0);
+
+    SUBCASE("everything on one line") {
+	const char* lines[] = { "def test_fun(a) {if a > 5 {return 1}return 0}" };
+	size_t n_lines = sizeof(lines)/sizeof(char*);
+	//check the lines (curly brace on new line)
+	line_buffer b_1(lines, n_lines);
+	for (size_t i = 0; i < n_lines; ++i) {
+	    CHECK(strcmp(lines[i], b_1.get_line(i)) == 0);
+	}
+	line_buffer b_fun_con(b_1.get_enclosed(0, &end_ind, '{', '}'));
+	CHECK(b_fun_con.get_n_lines() == 1);
+	CHECK(end_ind == 0);
+	CHECK(strcmp("if a > 5 {return 1}return 0", b_fun_con.get_line(0)) == 0);
+	line_buffer b_if_con(b_fun_con.get_enclosed(0, &end_ind, '{', '}'));
+	CHECK(b_if_con.get_n_lines() == 1);
+	CHECK(end_ind == 0);
+	CHECK(strcmp("return 1", b_if_con.get_line(0)) == 0);
+	//try flattening
+	char* fun_flat = b_fun_con.flatten();
+	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
+	free(fun_flat);
+	fun_flat = b_fun_con.flatten('|');
+	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0|") == 0);
+	free(fun_flat);
     }
-    //try flattening
-    fun_flat = b_fun_con_2.flatten();
-    CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
-    free(fun_flat);
-    fun_flat = b_fun_con_2.flatten('|');
-    CHECK(strcmp(fun_flat, "if a > 5 {|return 1|}|return 0|") == 0);
-    free(fun_flat);
 }
 
-TEST_CASE("Test context parsing") {
-    const char* lines_1[] = { "def test_fun(a)", "{", "if a > 5 {", "return {name = \"hi\"}", "}", "return 0", "}", "" };
-}
+/*TEST_CASE("Test context parsing") {
+    SUBCASE ("without nesting") {
+	const char* lines[] = { "a = 1", "\"b\"", "c = [\"d\", \"e\"]" }; 
+	size_t n_lines = sizeof(lines)/sizeof(char*);
+	line_buffer b_1(lines, n_lines);
+	context c;
+	parse_ercode er = c.read_from_lines(b_1);
+	CHECK(er == E_SUCCESS);
+	//lookup the named values
+	value val_a = c.lookup("a");
+	CHECK(val_a.type == VAL_NUM);
+	CHECK(val_a.val.x == 1);
+	value val_c = c.lookup("c");
+	CHECK(val_c.type == VAL_LIST);
+	CHECK(val_c.n_els == 2);
+	CHECK(val_c.val.l[0].type == VAL_STR);
+	CHECK(val_c.val.l[1].type == VAL_STR);
+	//lookup the stack value
+	name_val_pair pair_b = c.peek(2);
+	value val_b = pair_b.get_val();
+	CHECK(val_b.type == VAL_STR);
+	printf("val_b = %s", val_b.val.s);
+	CHECK(strcmp(val_b.val.s, "b") == 0);
+    }
+    SUBCASE ("with nesting") {
+	const char* lines[] = { "a = {name = \"apple\"; values = [20, 11]}", "b = a.values[0]", "c = b + a.values[1]" }; 
+	size_t n_lines = sizeof(lines)/sizeof(char*);
+	line_buffer b_1(lines, n_lines);
+	context c;
+	parse_ercode er = c.read_from_lines(b_1);
+	CHECK(er == E_SUCCESS);
+	//lookup the named values
+	value val_a = c.lookup("a");
+	CHECK(val_a.type == VAL_INST);
+	value val_a_name = val_a.val.c->lookup("name");
+	CHECK(val_a_name.type == VAL_STR);
+	CHECK(strcmp(val_a_name.val.s, "apple") == 0);
+	value val_a_value = val_a.val.c->lookup("value");
+	CHECK(val_a_value.type == VAL_NUM);
+	CHECK(val_a_value.val.x == 10);
+	value val_b = c.lookup("b");
+	CHECK(val_b.type == VAL_NUM);
+	CHECK(val_b.val.x == 20);
+	value val_c = c.lookup("c");
+	CHECK(val_c.type == VAL_NUM);
+	CHECK(val_c.val.x == 31);
+    }
+    SUBCASE ("user defined functions") {
+	const char* lines[] = { "def test_fun(a)", "{", "if (a > 5) {", "return {name = \"hi\"}", "}", "return a", "}", "a = test_fun(1)", "b=test_fun(10)" };
+	size_t n_lines = sizeof(lines)/sizeof(char*);
+	line_buffer b_1(lines, n_lines);
+	context c;
+	parse_ercode er = c.read_from_lines(b_1);
+	CHECK(er == E_SUCCESS);
+	if (!er) {
+	    //make sure that the function is there
+	    value val_fun = c.lookup("test_fun");
+	    CHECK(val_fun.type == VAL_FUNC);
+	    cleanup_val(&val_fun);
+	    //make sure that the number value a is there
+	    value val_a = c.lookup("a");
+	    CHECK(val_a.type == VAL_NUM);
+	    CHECK(val_a.val.x == 1);
+	    cleanup_val(&val_a);
+	    value val_b = c.lookup("a");
+	    CHECK(val_b.type == VAL_INST);
+	    cleanup_val(&val_b);
+	    value val_b_name = val_b.val.c->lookup("name");
+	    CHECK(val_b_name.type == VAL_STR);
+	    CHECK(strcmp(val_b_name.val.s, "hi") == 0);
+	    cleanup_val(&val_b_name);
+	}
+    }
+}*/
 
 TEST_CASE("Test volumes") {
     //initialize random state

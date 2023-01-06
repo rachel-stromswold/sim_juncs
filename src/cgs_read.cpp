@@ -6,7 +6,7 @@
  * Helper function for is_token which tests whether the character c is a token terminator
  */
 bool is_char_sep(char c) {
-    if (c == 0 || c == ' ' || c == '\t'  || c == '\n')
+    if (c == 0 || c == ' ' || c == '\t' || c == '\n' || c == ';' || c == '+'  || c == '-' || c == '*'  || c == '/')
 	return true;
     else
 	return false;
@@ -19,6 +19,17 @@ bool is_token(const char* str, size_t i, size_t len) {
     if (i > 0 && !is_char_sep(str[i-1])) return false;
     if (!is_char_sep(str[i+len])) return false;
     return true;
+}
+
+/**
+ * Helper function that finds the start of first token before the index i in the string str. Note that this is not null terminated and includes characters including and after str[i] (unless str[i] = 0).
+ */
+char* find_token_before(char* str, size_t i) {
+    while (i > 0) {
+	--i;
+	if (is_char_sep(str[i])) return str+i+1;
+    }
+    return str;
 }
 
 /**
@@ -377,15 +388,17 @@ line_buffer::line_buffer(line_buffer&& o) {
 /**
  * Find the line buffer starting on line start_line between the first instance of start_delim and the last instance of end_delim respecting nesting (i.e. if lines={"a {", "b {", "}", "} c"} then {"b {", "}"} is returned. Note that the result must be deallocated with a call to free().
  * start_line: the line to start reading from
+ * end_line: if this value is not NULL, then the index of the line on which end_delim was found is stored here
  * start_delim: the character to be used as the starting delimiter. This needs to be supplied so that we find a matching end_delim at the root level
  * end_delim: the character to be searched for
  * line_offset: the character on line start_line to start reading from, this defaults to zero. Note that this only applies to the start_line, and not any subsequent lines in the buffer.
  * include_delims: if true then the delimeters are included in the enclosed strings. defualts to false
  * returns: an array of lines that must be deallocated by a call to free(). The number of lines is stored in n_lines.
  */
-line_buffer line_buffer::get_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) {
+line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) {
     //initialization
     line_buffer ret;
+    if (end_line) *end_line = -1;
     if (n_lines == 0) {
 	ret.n_lines = 0;
 	ret.lines = NULL;
@@ -421,9 +434,10 @@ line_buffer line_buffer::get_enclosed(size_t start_line, char start_delim, char 
 		} else if (lines[i][j] == end_delim) {
 		    --depth;
 		    if (depth <= 0) {
-			ret.n_lines = k;
+			ret.n_lines = k+1;
 			exit = true;
 			if (include_delims) ++j;
+			if (end_line) *end_line = i;
 			break;
 		    }
 		}
@@ -431,7 +445,7 @@ line_buffer line_buffer::get_enclosed(size_t start_line, char start_delim, char 
 	    //don't read empty lines
 	    if (start_char >= 0) {
 		ret.line_sizes[k] = j;
-		ret.lines[k++] = strndup(lines[i]+start_char, j+1);
+		ret.lines[k++] = strndup(lines[i]+start_char, j-start_char);
 	    }
 	    j = 0;
 	}
@@ -871,7 +885,10 @@ void name_val_pair::swap(name_val_pair& o) {
  * Copy the name_val pair into *this
  */
 void name_val_pair::copy(const name_val_pair& o) {
-    name = strdup(o.name);
+    if (o.name)
+	name = strdup(o.name);
+    else
+	name = NULL;
     val = copy_val(o.val);
 }
 /**
@@ -883,8 +900,17 @@ name_val_pair::name_val_pair() {
     val.val.x = 0;
     val.n_els = 0;
 }
+name_val_pair::name_val_pair(int a) {
+    name = NULL;
+    val.type = VAL_UNDEF;
+    val.val.x = 0;
+    val.n_els = 0;
+}
 name_val_pair::name_val_pair(const char* p_name, value p_val) {
-    name = strdup(p_name);
+    if (p_name)
+	name = strdup(p_name);
+    else
+	name = NULL;
     val = copy_val(p_val);
 }
 name_val_pair::name_val_pair(const name_val_pair& o) {
@@ -913,6 +939,7 @@ name_val_pair& name_val_pair::operator=(const name_val_pair& o) {
  * test whether the name of this pair matches the search string
  */
 bool name_val_pair::name_matches(const char* str) const {
+    if (!name) return false;
     if (strcmp(str, name) == 0) return true;
     return false;
 }
@@ -1060,6 +1087,7 @@ value context::parse_list(char* str, parse_ercode& er) {
     value sto;
     //find the start and the end of the vector
     char* start = strchr(str, '[');
+    if (!start) { er = E_BAD_SYNTAX;return sto; }
     //make sure that the string is null terminated
     char* end = strchr_block(start+1, ']');
     if (!end) { er = E_BAD_SYNTAX;return sto; }
@@ -1136,16 +1164,44 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
     sto.type = VAL_UNDEF;
     sto.val.x = 0;
     sto.n_els = 0;
+    //some operators (==, >=, <=) take up more than one character, test for these
+    int op_width = 1;
+    if (str[i+1] == '=') op_width = 2;
     //Store the operation before setting it to zero
     char term_char = str[i];
     str[i] = 0;
+
+    //ternary operators and dereferences are special cases
+    if (term_char == '?') {
+	//the colon must be present
+	char* col_ind = strchr_block(str+i+1, ':');
+	if (!col_ind) { er = E_BAD_SYNTAX;return sto; }
+	value tmp_l = parse_value(str, er);
+	if (er != E_SUCCESS) return sto;
+	//false branch
+	if (tmp_l.type == VAL_UNDEF || tmp_l.val.x == 0) {
+	    sto = parse_value(col_ind+1, er);
+	    return sto;
+	} else {
+	    //true branch
+	    *col_ind = 0;
+	    sto = parse_value(str+i+op_width, er);
+	    *col_ind = ':';
+	    return sto;
+	}
+    } else if (term_char == '.') {
+	value inst_val = lookup(find_token_before(str, i));
+	if (inst_val.type != VAL_INST) { er = E_BAD_TYPE;return sto; }
+	str[i] = term_char;
+	return inst_val.val.c->parse_value(str+i+1, er);
+    }
+
     //parse right and left values
     value tmp_l = parse_value(str, er);
     if (er != E_SUCCESS) return sto;
-    value tmp_r = parse_value(str+i+1, er);
+    value tmp_r = parse_value(str+i+op_width, er);
     if (er != E_SUCCESS) return sto;
     sto.type = VAL_NUM;
-
     //handle equality comparisons
     if (term_char == '=') {
 	if (tmp_l.type != tmp_r.type) {
@@ -1156,7 +1212,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    else
 		sto.val.x = 0;
 	} else if (tmp_l.type == VAL_NUM) {
-	    sto.val.x = 1 - (tmp_l.val.x - tmp_r.val.x);
+	    sto.val.x = (tmp_l.val.x == tmp_r.val.x)? 1: 0;
 	}
 	++i;
     } else if (term_char == '>') {
@@ -1175,6 +1231,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	} else {
 	    sto.val.x = (tmp_l.val.x < tmp_r.val.x)? 1: 0;
 	}
+    //handle arithmetic
     } else if (term_char == '+' && (i == 0 || str[i-1] != 'e')) {
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {	
 	    sto.val.x = tmp_l.val.x + tmp_r.val.x;
@@ -1230,13 +1287,17 @@ value context::parse_value(char* str, parse_ercode& er) {
     stack<type_ind_pair> blk_stk;
     type_ind_pair start_ind;
 
+    //iterate until we hit a non whitespace character
+    while (str[0] == ' ' || str[0] == '\n' || str[0] == '\t') ++str;
+    //variable names are not allowed to start with '+', '-', or a digit and may not contain any '.' symbols. Use this to check whether the value is numeric
+    bool is_numeric = (str[0] == '+' || str[0] == '-' || str[0] == '.' || (str[0] >= '0' && str[0] <= '9'));
     //keep track of the nesting level within parenthetical statements
     int nest_level = 0;
 
     //keep track of the precedence of the orders of operation (lower means executed later) ">,=,>=,==,<=,<"=4 "+,-"=3, "*,/"=2, "**"=1
     char op_prec = 0;
     size_t op_loc = 0;
-    size_t reset_ind = 0;
+    size_t reset_ind = 0; 
     for (_uint i = 0; str[i] != 0; ++i) {
 	if (str[i] == '['/*]*/) {
 	    blk_stk.push({BLK_SQUARE, i});
@@ -1291,8 +1352,15 @@ value context::parse_value(char* str, parse_ercode& er) {
 	if (nest_level == 0) {
 	    //keep track of the number of characters used by the operator
 	    int code_n_chars = 1;
+	    //handle requests for instance members
+	    if (!is_numeric && str[i] == '.' && op_prec < 6) {
+		op_prec = 6;
+		op_loc = i;
 	    //check if we found a numeric operation symbol
-	    if (((str[i] == '=' && str[i+1] == '=') || str[i] == '>' || str[i] == '<') && op_prec < 4) {
+	    } else if (((str[i] == '=' && str[i+1] == '=') || str[i] == '>' || str[i] == '<') && op_prec < 5) {
+		op_prec = 5;
+		op_loc = i;
+	    } else if (str[i] == '?' && op_prec < 4) {
 		op_prec = 4;
 		op_loc = i;
 	    } else if (i != 0 && (str[i] == '+' || str[i] == '-') && str[i-1] != 'e' && op_prec < 3) {
@@ -1350,13 +1418,33 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    sto.n_els = last_close_ind-first_open_ind;
 	    //allocate memory and copy
 	    sto.val.s = (char*)malloc(sizeof(char)*sto.n_els);
-	    for (size_t i = 0; i < sto.n_els-1; ++i) sto.val.s[i] = str[first_open_ind+i+1];
+	    for (size_t j = 0; j < sto.n_els-1; ++j) sto.val.s[j] = str[first_open_ind+j+1];
 	    sto.val.s[sto.n_els-1] = 0;
 	} else if (str[first_open_ind] == '[' && str[last_close_ind] == ']') {
-	    //now parse the argument as a list
-	    sto = parse_list(str+first_open_ind, er);
-	    sto.type = VAL_LIST;
-	    if (er != E_SUCCESS) return sto;
+	    //first check to see if the user is trying to access an element
+	    str[first_open_ind] = 0;
+	    char* pre_list_name = find_token_before(str, first_open_ind);
+	    //if the string is empty then we're creating a new list, otherwise we're accessing an existing list
+	    if (pre_list_name[0] == 0) {
+		str[first_open_ind] = '[';//]
+		sto = parse_list(str+first_open_ind, er);
+		sto.type = VAL_LIST;
+		if (er != E_SUCCESS) return sto;
+	    } else {
+		value tmp_lst = lookup(pre_list_name);
+		str[first_open_ind] = '[';//]
+		if (tmp_lst.type != VAL_LIST) { cleanup_val(&tmp_lst);er = E_BAD_TYPE;return sto; }
+		str[last_close_ind] = 0;
+		value contents = parse_value(str+first_open_ind+1, er);
+		str[last_close_ind] = /*[*/']';
+		//check that we found the list and that it was valid
+		if (contents.type != VAL_NUM) { cleanup_val(&contents);er = E_BAD_TYPE;return sto; }
+		//now figure out the index
+		long ind = (long)(contents.val.x);
+		if (ind < 0) ind = tmp_lst.n_els+ind;
+		if (ind >= tmp_lst.n_els || ind < 0) { er = E_OUT_OF_RANGE;return sto; }
+		return copy_val(tmp_lst.val.l[ind]);
+	    }
 	} else if (str[first_open_ind] == '{' && str[last_close_ind] == '}') {
 	    //now parse the argument as a context
 	    size_t n_els;
@@ -1367,13 +1455,13 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    sto.val.c = new collection(this);
 	    sto.n_els = n_els;
 	    //insert context members
-	    for (size_t i = 0; list_els[i] && i < n_els; ++i) {
+	    for (size_t j = 0; list_els[j] && j < n_els; ++j) {
 		char* cur_name = NULL;
-		char* rval = list_els[i];
-		char* eq_loc = strchr_block(list_els[i], '=');
+		char* rval = list_els[j];
+		char* eq_loc = strchr_block(list_els[j], '=');
 		if (eq_loc) {
 		    *eq_loc = 0;
-		    cur_name = CGS_trim_whitespace(list_els[i], NULL);
+		    cur_name = CGS_trim_whitespace(list_els[j], NULL);
 		    rval = eq_loc+1;
 		}
 		value tmp = sto.val.c->parse_value(rval, er);
@@ -1386,8 +1474,8 @@ value context::parse_value(char* str, parse_ercode& er) {
 	} else if (str[first_open_ind] == '(' && str[last_close_ind] == ')') {
 	    //check to see if this is a function call (it is if there are any non-whitespace characters before the open paren
 	    int is_func = 0;
-	    for (size_t i = 0; i < first_open_ind; ++i) {
-		if (str[i] != ' ' && str[i] != '\t' && str[i] != '\n') {
+	    for (size_t j = 0; j < first_open_ind; ++j) {
+		if (str[j] != ' ' && str[j] != '\t' && str[j] != '\n') {
 		    //we can't leave this as zero in case the user needs to do some more operations
 		    char term_char = str[last_close_ind+1];
 		    str[last_close_ind+1] = 0;
@@ -1414,7 +1502,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    //otherwise interpret this as a parenthetical expression
 	    str[last_close_ind] = 0;
 	    char* tmp_str = CGS_trim_whitespace(str+first_open_ind+1, &reset_ind);
-	    sto = parse_value(str, er);
+	    sto = parse_value(tmp_str, er);
 	    tmp_str[reset_ind] = ' ';
 	    str[first_open_ind] = '(';
 	    str[last_close_ind] = ')';
@@ -1440,19 +1528,21 @@ parse_ercode context::read_from_lines(line_buffer b) {
     size_t buf_size = BUF_SIZE;
     char* buf = (char*)malloc(sizeof(char)*buf_size);
     //iterate over each line in the file
-    for (size_t lineno = 0; lineno < b.get_n_lines(); ++lineno) {
+    for (long lineno = 0; lineno < b.get_n_lines(); ++lineno) {
 	char* line = b.get_line(lineno);
 	//check for class and function declarations
 	char* dectype_start = token_block(line, "def");
 	if (dectype_start) {
 	    char* endptr;
 	    cgs_func cur_func = parse_func(dectype_start + KEY_DEF_LEN, -1, er, &endptr, true);
+	    size_t func_end = endptr - (dectype_start + KEY_DEF_LEN);
 	    //jump ahead until after the end of the function
 	    if (er == E_SUCCESS) {
 		size_t i = 0;
 		for (; endptr[i] && (endptr[i] == ' ' || endptr[i] == '\t' || endptr[i] == '\n'); ++i) (void)0;
 		size_t n_enc = b.get_n_lines()-lineno;
-		line_buffer lines_enc(b.get_enclosed(lineno, '{', '}'));
+		line_buffer lines_enc(b.get_enclosed(lineno, &lineno, '{', '}', func_end));
+		if (lineno < 0) { free(buf);return E_BAD_SYNTAX; }
 		//now we actually create the function
 		user_func tmp(cur_func, lines_enc);
 		value v;
@@ -1460,83 +1550,83 @@ parse_ercode context::read_from_lines(line_buffer b) {
 		v.val.f = &tmp;
 		v.n_els = n_enc;
 		emplace(cur_func.name, v);
+		//we have to advance to the line after end of the function declaration
+		++lineno;
 	    }
 	} else {
-	    char* lval = buf;
-	    char* rval = buf;
+	    //char* lval = NULL;
+	    size_t rval_start = 0;
 	    size_t k = 0;
-	    //reapeat because we may have a "hanging block"
-	    while (lineno < b.get_n_lines()) {
-		bool started = false;
-		for (size_t i = 0; line[i]; ++i) {
-		    //handle comments
-		    if (line[i] == '/') {
-			if (line[i+1] == '/') {
-			    break;
-			} else if (line[i+1] == '*') {
-			    blk_stack.push(BLK_COMMENT);
-			} else if (i > 0 && line[i-1] == '*') {
-			    block_type tmp;
-			    er = blk_stack.pop(&tmp);
-			    if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
-			}
-		    }
-		    block_type cur_blkt = BLK_UNDEF;
-		    if (blk_stack.size() > 0) cur_blkt = blk_stack.peek();
-		    if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
-			if (k >= buf_size) {
-			    buf_size *= 2;
-			    buf = (char*)realloc(buf, sizeof(char)*buf_size);
-			}
-			//ignore preceeding whitespace
-			if (line[i] != ' ' || line[i] != '\t' || line[i] != '\n') started = true;
-			if (started) buf[k++] = line[i];
-			//check for assignment, otherwise handle blocks
-			if (line[i] == '=') {
-			    if (blk_stack.is_empty()) {
-				buf[k-1] = 0;
-				lval = CGS_trim_whitespace(buf, NULL);
-				rval = buf+k;
-			    }
-			} else if (line[i] == '(') {
-			    blk_stack.push(BLK_PAREN);
-			} else if (line[i] == ')') {
-			    block_type tmp;
-			    er = blk_stack.pop(&tmp);
-			    if (tmp != BLK_PAREN) { return E_BAD_SYNTAX; }
-			} else if (line[i] == '[') {
-			    blk_stack.push(BLK_SQUARE);
-			} else if (line[i] == ']') {
-			    block_type tmp;
-			    er = blk_stack.pop(&tmp);
-			    if (tmp != BLK_SQUARE) { return E_BAD_SYNTAX; }
-			} else if (blk_stack.is_empty() && line[i] == '{'/*}*/) {
-			    //curly braces are a little different since they define contexts
-			    blk_stack.push(BLK_CURLY);
-			    rval[k-1] = 0;
-			    value tmp_val = parse_value(rval, er);
-			    if (tmp_val.type == VAL_INST) {
-				line_buffer lines_enc( b.get_enclosed(lineno, '{', '}') );
-				tmp_val.val.c->read_from_lines(lines_enc);
-				emplace(lval, tmp_val);
-			    }
-			    cleanup_val(&tmp_val);
-			}
+	    bool started = false; 
+	    size_t i = 0;
+	    for (; line[i]; ++i) {
+		//handle comments
+		if (line[i] == '/') {
+		    if (line[i+1] == '/') {
+			break;
+		    } else if (line[i+1] == '*') {
+			blk_stack.push(BLK_COMMENT);
+		    } else if (i > 0 && line[i-1] == '*') {
+			block_type tmp;
+			er = blk_stack.pop(&tmp);
+			if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
 		    }
 		}
-		//if the block stack isn't empty, then we need to read the next line and so on until it is
-		if (blk_stack.is_empty()) {
-		    buf[k] = 0;
-		    break;
-		} else {
-		    line = b.get_line(lineno++);
+		block_type cur_blkt = BLK_UNDEF;
+		if (blk_stack.size() > 0) cur_blkt = blk_stack.peek();
+		if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
+		    if (k >= buf_size) {
+			buf_size *= 2;
+			buf = (char*)realloc(buf, sizeof(char)*buf_size);
+		    }
+		    //ignore preceeding whitespace
+		    if (line[i] != ' ' || line[i] != '\t' || line[i] != '\n') started = true;
+		    if (started) buf[k++] = line[i];
+		    //check for assignment, otherwise handle blocks
+		    char match_tok = 0;
+		    char sep_tok = 0;
+		    if (line[i] == '=') {
+			if (blk_stack.is_empty()) {
+			    buf[k-1] = 0;
+			    //lval = CGS_trim_whitespace(buf, NULL);
+			    rval_start = k;
+			}
+		    } else if (line[i] == '(') {
+			match_tok = ')';
+		    } else if (line[i] == '[') {
+			match_tok = ']';
+		    } else if (line[i] == '{') {
+			match_tok = '}';
+			sep_tok = ';';
+		    }
+		    if (match_tok != 0 && i > rval_start) {
+			line_buffer lines_enc(b.get_enclosed(lineno, &lineno, line[i], match_tok, i, true));
+			if (lineno < 0) { free(buf);return E_BAD_SYNTAX; }
+			++lineno;
+			//we have to advance to the end of the function declaration
+			char* enc = lines_enc.flatten(sep_tok);
+			//concatenate the string using thingies
+			size_t dest_len = (k - rval_start) + strlen(enc) + 2;
+			buf = (char*)realloc(buf, sizeof(char)*(k+dest_len));
+			strcpy(buf+k-1, enc);
+			free(enc);
+			//parse the value
+			value tmp_val = parse_value(buf+rval_start, er);
+			if (er != E_SUCCESS) { free(buf);return er; }
+			emplace(CGS_trim_whitespace(buf, NULL), tmp_val);
+			cleanup_val(&tmp_val);
+			break;
+		    }
 		}
 	    }
-	    //make sure that we actually found a termination character
-	    if (!blk_stack.is_empty() || !rval) { free(buf); return E_BAD_SYNTAX; }
-	    value tmp_val = parse_value(rval, er);
-	    emplace(lval, tmp_val);
-	    cleanup_val(&tmp_val);
+	    //only set the rval if we haven't done so already
+	    if (line[i] == 0) {
+		buf[k] = 0;
+		value tmp_val = parse_value(buf+rval_start, er);
+		if (er != E_SUCCESS) { free(buf);return er; }
+		emplace(CGS_trim_whitespace(buf, NULL), tmp_val);
+		cleanup_val(&tmp_val);
+	    }
 	}
     }
     free(buf);
@@ -1613,6 +1703,10 @@ user_func::user_func(user_func&& o) : code_lines(o.code_lines) {
     o.call_sig.name = NULL;
     o.call_sig.n_args = 0;
 }
+
+const char* token_names[] = {"if", "for", "while", "return"};
+const size_t n_token_names = sizeof(token_names)/sizeof(char*);
+typedef enum {TOK_NONE, TOK_IF, TOK_FOR, TOK_WHILE, TOK_RETURN} token_type;
 /**
  * evaluate the function
  */
@@ -1622,21 +1716,18 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
     value bad_val;
     while (lineno < code_lines.get_n_lines()) {
 	char* line = code_lines.get_line(lineno);
-	if (strncmp("return", line, strlen("return")) == 0) {
-	    char* tmp_buf = CGS_trim_whitespace(line+strlen("return")+1, NULL);
-	    value v = c.parse_value(tmp_buf, er);
-	    if (er != E_SUCCESS) {
-		std::string tmp(tmp_buf);
-		/*if (local_vars.count(tmp) > 0)
-		    return local_vars[tmp];
-		else
-		    return bad_val;*/
-	    } else {
-		return v;
+	//search for tokens
+	token_type this_tok = TOK_NONE;
+	char* token = NULL;
+	for (size_t i = 0; i < n_token_names; ++i) {
+	    token = token_block(line, token_names[i]);
+	    if (token) {
+		this_tok = (token_type)i;
 	    }
-	} else if (strncmp("if", code_lines.get_line(lineno), strlen("if")) == 0){
-	    size_t len = 0;
-	    char* tmp_buf = CGS_trim_whitespace(line+strlen("if")+1, &len);
+	}
+	switch (this_tok) {
+	    //TODO
+	    defualt: break;
 	}
     }
     //return an undefined value by default
