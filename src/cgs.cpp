@@ -673,6 +673,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 			value v = named_items.parse_value(val, er);
 			if (er == E_SUCCESS) named_items.set_value(tok, v);
 			cleanup_val(&v);
+			break;
 		    }
 		} else {
 		    //check if we reached the end of a comment or string literal block

@@ -1113,6 +1113,18 @@ TEST_CASE("Test File Parsing") {
     CHECK(strcmp(name_val.to_c_str(), "foo") == 0);
     CHECK(strcmp(ntry_val.to_c_str(), "bar,(arr),[blah]") == 0);
     CHECK(num_val.to_float() == 3);
+    //look at context variables
+    context c = s.get_context();
+    value offset = c.lookup("offset");
+    value list = c.lookup("list");
+    value sum_list = c.lookup("sum_list");
+    value prod_list = c.lookup("prod_list");
+    value acid_test = c.lookup("acid_test");
+    CHECK(offset.type == VAL_NUM);CHECK(offset.val.x == 0.2);
+    CHECK(list.type == VAL_LIST);
+    CHECK(sum_list.type == VAL_NUM);CHECK(sum_list.val.x == 10);
+    CHECK(prod_list.type == VAL_NUM);CHECK(prod_list.val.x == 24.2);
+    CHECK(acid_test.type == VAL_NUM);CHECK(acid_test.val.x == 16);
 
     //test geometric information
     std::vector<composite_object*> roots_vec = s.get_roots();

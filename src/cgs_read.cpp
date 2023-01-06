@@ -1355,25 +1355,22 @@ value context::parse_value(char* str, parse_ercode& er) {
 	if (nest_level == 0) {
 	    //keep track of the number of characters used by the operator
 	    int code_n_chars = 1;
-	    //handle requests for instance members
-	    if (!is_numeric && str[i] == '.' && op_prec < 6) {
-		op_prec = 6;
-		op_loc = i;
-	    //check if we found a numeric operation symbol
-	    } else if (((str[i] == '=' && str[i+1] == '=') || str[i] == '>' || str[i] == '<') && op_prec < 5) {
+
+	    //check if we found a comparison operation symbol
+	    if (((str[i] == '=' && str[i+1] == '=') || str[i] == '>' || str[i] == '<') && op_prec < 5) {
 		op_prec = 5;
 		op_loc = i;
-	    } else if (str[i] == '?' && op_prec < 4) {
+	    } else if (i != 0 && (str[i] == '+' || str[i] == '-') && str[i-1] != 'e' && op_prec < 4) {
+		//remember to recurse after we finish looping
 		op_prec = 4;
 		op_loc = i;
-	    } else if (i != 0 && (str[i] == '+' || str[i] == '-') && str[i-1] != 'e' && op_prec < 3) {
-		//remember to recurse after we finish looping
+	    } else if (str[i] == '^' && op_prec < 3) {
 		op_prec = 3;
 		op_loc = i;
-	    } else if (str[i] == '^' && op_prec < 2) {
+	    } else if ((str[i] == '*' || str[i] == '/') && op_prec < 2) {
 		op_prec = 2;
 		op_loc = i;
-	    } else if ((str[i] == '*' || str[i] == '/') && op_prec < 1) {
+	    } else if (op_prec < 1 && (str[i] == '?' || (str[i] == '.' && !is_numeric))) {
 		op_prec = 1;
 		op_loc = i;
 	    }

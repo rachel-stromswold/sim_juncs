@@ -1,4 +1,9 @@
 offset = 0.2
+list = [1, 2, 3, 4]
+sum_list = list[0] + list[1] + list[2] + list[3]
+prod_list = list[0]*list[1]*list[2]*list[3] + offset
+acid_test = 100*offset - ((list[2] < list[1]) ? list[2] : list[1] + (list[1] > list[0]) ? list[1] : list[2])
+
 data(name = "foo", entry = "bar,(arr),[blah]", num = 3)
 data(type = "field_source", envelope = ["Gaussian", "Ey", 1.333333, 3.0, 0.2, 5.0, 4.2, 7.0]) {
     Box([0,0,.2], [.4,.4,.2]);
@@ -17,7 +22,7 @@ Composite(eps = 3.5, susceptibilities = [[1.0, 0.48, 68.5971845, "drude"],[8.0, 
     intersect() {
 	difference() {
 	    Box([.6,.4,.4], [.6+offset, .6, 0.4+offset]);
-	    Plane([.6,.4,.6], [.8,.4,.6], [.6,.6,.4]);
+	    Plane([.6,.4,.6], [8/sum_list,.4,.6], [.6,.6,.4]);
 	}
 	Cylinder([0.7,.5,.4], .2, .1);
     }
