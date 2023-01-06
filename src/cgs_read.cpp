@@ -810,7 +810,10 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 
 void cleanup_func(cgs_func* f) {
     if (f) {
-	for (size_t i = 0; i < f->n_args; ++i) cleanup_val(f->args + i);
+	for (size_t i = 0; i < f->n_args; ++i) {
+	    cleanup_val(f->args + i);
+	    if (f->arg_names[i]) free(f->arg_names[i]);
+	}
     }
 }
 cgs_func copy_func(const cgs_func o) {
@@ -1016,11 +1019,11 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
 	    }
 	    f.args[i] = parse_value(list_els[i], er);
 	    //if the evaluation of the name failed, then use it as a variable name instead
-	    if (er != E_SUCCESS) {
+	    /*if (er != E_SUCCESS) {
 		f.args[i].type = VAL_UNDEF;
 		f.arg_names[i] = list_els[i];
 		er = E_SUCCESS;
-	    }
+	    }*/
 	}
     }
     //cleanup and reset the string
