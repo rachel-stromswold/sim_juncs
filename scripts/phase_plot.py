@@ -19,6 +19,7 @@ plt.rc('ytick', labelsize=12)
 N_COLS = 1
 
 AMP_RANGE = (0, 1.1)
+OMG_RANGE = (0, 4.0)
 SIG_RANGE = (0, 10.0)
 PHI_RANGE = (-1.0, 1.0)
 PAD_FACTOR = 1.05
@@ -93,6 +94,19 @@ class phase_finder:
         self.freq_range = np.linspace(-FREQ_0-3/avg_sig_0, -FREQ_0+3/avg_sig_0, num=N_FREQ_COMPS)
         self.freq_comps = avg_field_0*avg_sig_0*np.exp(-1j*avg_phase_0-((self.freq_range+FREQ_0)*avg_sig_0)**2/2)/np.sqrt(2*np.pi)
 
+    def get_wavelen(self):
+        return self.f['info']['sources']['wavelen']
+    def get_width(self):
+        return self.f['info']['sources']['width']
+    def get_phase(self):
+        return self.f['info']['sources']['phase']
+    def get_start_time(self):
+        return self.f['info']['sources']['start_time']
+    def get_end_time(self):
+        return self.f['info']['sources']['end_time']
+    def get_amplitude(self):
+        return self.f['info']['sources']['amplitude']
+
     def get_clust_location(self, clust):
         '''return the location of the cluster with the name clust along the propagation direction (z if slice_dir=x x if slice_dir=z)'''
         return self.geom.meep_len_to_um(self.f[clust]['locations'][slice_name][0] - self.geom.t_junc)
@@ -126,6 +140,7 @@ class phase_finder:
         amp_arr = np.zeros((2,n_z_pts))
         t_0_arr = np.zeros((2,n_z_pts))
         sig_arr = np.zeros((2,n_z_pts))
+        omega_arr = np.zeros((2,n_z_pts))
         phase_arr = np.zeros((2,n_z_pts))
         good_zs = []
         phase_cor = 0
@@ -155,6 +170,8 @@ class phase_finder:
                 t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/(err_2*self.n_t_pts))
                 sig_arr[0,jj] = sig
                 sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig*self.n_t_pts))
+                omega_arr[0,jj] = omega
+                omega_arr[1,jj] = np.sqrt(res.hess_inv[3][3]/(err_2*self.n_t_pts))
                 phase_arr[0,jj] = cep/np.pi
                 phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi*self.n_t_pts))
             else:
@@ -175,11 +192,13 @@ class phase_finder:
             new_size += 1
         print(phase_arr[0])
         print(phase_arr[1])
+        print("new_size={}, good_z.len={}, i_zer={}, i_cent={}".format(new_size, len(good_zs), i_zer,i_cent))
         if new_size > len(good_zs):
             new_good_zs = np.zeros(new_size)
             amp_arr = np.resize(amp_arr, (2, new_size))
             t_0_arr = np.resize(t_0_arr, (2, new_size))
             sig_arr = np.resize(sig_arr, (2, new_size))
+            omega_arr = np.resize(omega_arr, (2, new_size))
             phase_arr = np.resize(phase_arr, (3, new_size))
             #average data points to the right of the center
             for ii in range(len(good_zs)-i_zer):
@@ -189,6 +208,8 @@ class phase_finder:
                 t_0_arr[1,i_cent-ii] = np.sqrt(t_0_arr[1,i_cent-ii]**2 + t_0_arr[1,i_zer+ii]**2)
                 sig_arr[0,i_cent-ii] = (sig_arr[0,i_cent-ii] + sig_arr[0,i_zer+ii])/2
                 sig_arr[1,i_cent-ii] = np.sqrt(sig_arr[1,i_cent-ii]**2 + sig_arr[1,i_zer+ii]**2)
+                omega_arr[0,i_cent-ii] = (omega_arr[0,i_cent-ii] + omega_arr[0,i_zer+ii])/2
+                omega_arr[1,i_cent-ii] = np.sqrt(omega_arr[1,i_cent-ii]**2 + omega_arr[1,i_zer+ii]**2)
                 phase_arr[0,i_zer-ii] = (phase_arr[0,i_cent-ii] + phase_arr[0,i_zer+ii])/2
                 phase_arr[1,i_zer-ii] = np.sqrt(phase_arr[1,i_cent-ii]**2 + phase_arr[1,i_zer+ii]**2)
             for ii in range(new_size-i_zer):
@@ -200,6 +221,8 @@ class phase_finder:
                 t_0_arr[1,i_zer+ii] = t_0_arr[1,i_cent-ii]
                 sig_arr[0,i_zer+ii] = sig_arr[0,i_cent-ii]
                 sig_arr[1,i_zer+ii] = sig_arr[1,i_cent-ii]
+                omega_arr[0,i_zer+ii] = omega_arr[0,i_cent-ii]
+                omega_arr[1,i_zer+ii] = omega_arr[1,i_cent-ii]
                 phase_arr[0,i_zer+ii] = phase_arr[0,i_cent-ii]
                 phase_arr[1,i_zer+ii] = phase_arr[1,i_cent-ii]
         else:
@@ -207,10 +230,11 @@ class phase_finder:
             amp_arr = np.resize(amp_arr, (2, new_size))
             t_0_arr = np.resize(t_0_arr, (2, new_size))
             sig_arr = np.resize(sig_arr, (2, new_size))
+            omega_arr = np.resize(omega_arr, (2, new_size))
             phase_arr = np.resize(phase_arr, (3, new_size))
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
         print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_dif/n_evals))
-        return new_good_zs, amp_arr, sig_arr, phase_arr
+        return new_good_zs, amp_arr, sig_arr, omega_arr, phase_arr
 
     def get_junc_bounds(self):
         return self.geom.meep_len_to_um(self.geom.l_junc - self.geom.z_center), self.geom.meep_len_to_um(self.geom.r_junc - self.geom.z_center)
@@ -220,46 +244,36 @@ class phase_finder:
         data_name = '{}/dat_{}'.format(args.prefix, clust_name)
         if recompute or not os.path.exists(data_name):
             #figure out data by phase fitting
-            dat_xs, amp_arr, sig_arr, phase_arr = self.read_cluster(clust_name)
+            dat_xs, amp_arr, sig_arr, omega_arr, phase_arr = self.read_cluster(clust_name)
             with open(data_name, 'wb') as fh:
-                pickle.dump([dat_xs, amp_arr, sig_arr, phase_arr], fh)
-            return dat_xs, amp_arr, sig_arr, phase_arr  
+                pickle.dump([dat_xs, amp_arr, sig_arr, omega_arr, phase_arr], fh)
+            return dat_xs, amp_arr, sig_arr, omega_arr, phase_arr  
         else:
             with open(data_name, 'rb') as fh:
                 vals = pickle.load(fh)
-            return vals[0], vals[1], vals[2], vals[3]
+            return vals[0], vals[1], vals[2], vals[3], vals[4]
 
     def get_field_amps(self, x_pts, z, diel_const, vac_wavelen=0.7, n_modes=HIGHEST_MODE):
-        #omega = 2*np.pi*.299792458 / vac_wavelen
-        #kc = 2*np.pi / (vac_wavelen*np.sqrt(diel_const))
-        #L_c = vac_wavelen*np.sqrt(diel_const)/2
-        kc_2 = diel_const
         length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
-        #alphas = (self.freq_range**2+0j)/0.08988
-        l_by_lc_sq = np.ones(self.freq_range.shape[0])*diel_const*( 2*np.pi*length/vac_wavelen )**2
-        #l_by_lc_sq = np.ones(self.freq_range.shape[0])*diel_const*( 0.177*length/(0.3*np.pi) )**2
-        pi_by_l_sq = (np.pi/length)**2
-        #print("L_c={}, L={}".format(L_c, length))
+        #these are some useful constants that we define. Note that lc is just the wavelength inside the dielectric, kc_sq is the square of 2pi/lc and l_rat_sq is (lc/2l)^2 where l is the length of the sample. We derived the expression beta^2 = kc^2 (1 - l_rat_sq*n^2), so neg_beta_sq is just -beta^2.
+        #lc = vac_wavelen/np.sqrt(np.real(diel_const))
+        lc = vac_wavelen/np.real(diel_const)
+        kc_sq = (2*np.pi / lc)**2
+        l_rat_sq = 0.25*(lc/length)**2
         fields = 1j*np.zeros(len(x_pts))
+        print("length={}, L_c={}, kc^2={}, ratio^2={}".format(length, lc, kc_sq, l_rat_sq))
+        phaseless_comps = self.freq_comps*np.exp(1j*self.get_phase())
         for k in range(n_modes):
             n = 2*k + 1
-            #beta_sq = ((np.pi/L_c)**2)*(1 - (n*L_c/length)**2)
-            #beta = np.sqrt(alphas*diel_const - (n*np.pi/length)**2)
-            neg_beta_sq = pi_by_l_sq*(n**2 - l_by_lc_sq)
+            neg_beta_sq = kc_sq*(l_rat_sq*(n**2) - 1)
+            print("beta^2={}".format(-neg_beta_sq))
             #real beta implies propagation, no decay
-            if z > 0 and neg_beta_sq[neg_beta_sq.shape[0]//2] > 0:
-                fields = fields + ( np.sin(n*np.pi*(x_pts+length/2)/length)/n )*np.sum( self.freq_comps*np.exp(-z*np.sqrt(neg_beta_sq)) )*self.df
-                #fields = fields + ( np.sin(n*np.pi*(x_pts+length/2)/length)/n )*np.exp(1j*z*beta)*self.df
+            if z > 0 and neg_beta_sq > 0:
+                fields = fields + ( np.sin(n*np.pi*(x_pts+length/2)/length)/n )*np.sum( phaseless_comps*np.exp(-z*np.sqrt(neg_beta_sq)) )*self.df
             else:
-                fields += np.sin(n*np.pi*(x_pts+length/2)/length)*np.sum(self.freq_comps)*self.df/n
-            '''if beta_sq > 0 or z < 0:
-                #print("n={}, z.beta_sq={}, kc={}".format(n, z*np.sqrt(np.abs(beta_sq)), kc))
-                amps += np.sin(n*np.pi*(x_pts+length/2)/length)/n
-            else:
-                #print("n={}, z.beta_sq={}j, kc={}".format(n, z*np.sqrt(-beta_sq), kc))
-                amps += np.sin(n*np.pi*(x_pts+length/2)/length)*np.exp(-z*np.sqrt(-beta_sq))/n'''
-        #return 4*field_0*np.abs(np.real(amps))/np.pi
-        return 4*np.real(fields)/np.pi
+                fields += np.sin(n*np.pi*(x_pts+length/2)/length)*np.sum(phaseless_comps)*self.df/n
+        #the factor of 0.5 comes because only half of the field is propagating towards the junction, the other half is going away
+        return 4*0.5*self.get_amplitude()*np.real(fields)/np.pi
 
     def get_field_phases(self, x_pts, z, diel_const, inc_phase, n_modes=HIGHEST_MODE):
         length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
@@ -379,7 +393,7 @@ class phase_finder:
 def get_axis(axs_list, ind):
     #matplotlib is annoying and the axes it gives have a different type depending on the column
     if N_COLS == 1:
-        return axs_list[ind]   
+        return axs_list[ind]
     else:
         return axs_amp[ind//N_COLS,ind%N_COLS]
 
@@ -418,6 +432,7 @@ def make_fits(pf, axs_mapping=None):
     #initialize plots
     fig_amp, axs_amp = plt.subplots(n_mapped//N_COLS, N_COLS)
     fig_phs, axs_phs = plt.subplots(n_mapped//N_COLS, N_COLS)
+    fig_omg, axs_omg = plt.subplots(n_mapped//N_COLS, N_COLS)
     #set up axes first
     for i in range(n_mapped):
         tmp_axs = get_axis(axs_amp, i)
@@ -432,8 +447,14 @@ def make_fits(pf, axs_mapping=None):
         tmp_axs.set_ylim(PHI_RANGE)
         tmp_axs.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
         tmp_axs.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs = get_axis(axs_omg, i)
+        tmp_axs.set_xlim(pf.x_range)
+        tmp_axs.set_ylim(OMG_RANGE)
+        tmp_axs.fill_between(l_gold, OMG_RANGE[0], OMG_RANGE[1], color='yellow', alpha=0.3)
+        tmp_axs.fill_between(r_gold, OMG_RANGE[0], OMG_RANGE[1], color='yellow', alpha=0.3)
     #make a plot of average fits
-    fig_amp.suptitle(r"amplitude across a junction $E_1=1/\sqrt{2}$, $E_2=0")
+    fig_amp.suptitle(r"amplitude across a junction $E_1=1/\sqrt{2}$, $E_2=0$")
+    fig_phs.suptitle(r"phases across a junction $E_1=1/\sqrt{2}$, $E_2=0$")
     fig_fits, axs_fits = plt.subplots(2)
     fit_xs = np.zeros((3, n_mapped))
     x_cnt = np.linspace(junc_bounds[0], junc_bounds[1], num=100)
@@ -444,21 +465,28 @@ def make_fits(pf, axs_mapping=None):
     #now perform a plot using the average of fits
     avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
     for i, clust in zip(axs_mapping, pf.clust_names):
-        dat_xs,amp_arr,sig_arr,phs_arr = pf.lookup_fits(clust)
-        amps_fit = np.abs(pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 4.5, vac_wavelen=0.7))
-        phss_fit = np.abs(pf.get_field_phases(x_cnt, pf.get_clust_location(clust), 4.5, -np.pi/2))
+        dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust)
+        amps_fit = np.abs(pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 10.48, vac_wavelen=0.7))
+        phss_fit = np.abs(pf.get_field_phases(x_cnt, pf.get_clust_location(clust), 10.48, -np.pi/2))
         #plot amplitudes
         tmp_axs = get_axis(axs_amp, i)
-        tmp_axs.plot(x_cnt, amps_fit)
+        tmp_axs.plot(x_cnt, amps_fit, color='gray', linestyle=':')
         tmp_axs.scatter(dat_xs, amp_arr[0], s=3)
         #plot phases
         tmp_axs = get_axis(axs_phs, i)
-        tmp_axs.plot(x_cnt, phss_fit)
-        tmp_axs.scatter(dat_xs, phs_arr[0])
+        #tmp_axs.plot(x_cnt, phss_fit)
+        phase_th = -pf.get_phase()[0]/np.pi
+        tmp_axs.plot([x_cnt[0], x_cnt[-1]], [phase_th, phase_th], color='gray', linestyle=':')
+        tmp_axs.scatter(dat_xs, phs_arr[0], s=3)
+        tmp_axs = get_axis(axs_omg, i)
+        omega_th = 2*np.pi*.299792458/pf.get_wavelen()[0] #2*pi*c/lambda
+        tmp_axs.plot([x_cnt[0], x_cnt[-1]], [omega_th, omega_th], color='gray', linestyle=':')
+        tmp_axs.scatter(dat_xs, omega_arr[0], s=3)
 
     #save the figures
     fig_amp.savefig(args.prefix+"/amps_theory.pdf")
     fig_phs.savefig(args.prefix+"/phases_theory.pdf")
+    fig_omg.savefig(args.prefix+"/omega_sim.pdf")
     fig_fits.savefig(args.prefix+"/fit_plt.pdf")
 
 def make_plots(pf):

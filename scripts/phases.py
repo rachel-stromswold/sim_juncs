@@ -507,7 +507,7 @@ def opt_pulse_env(t_pts, a_pts, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name='')
         env_fig_name_2 = fig_name+"_env_2"
 
     #the maximum of the derivative on a_pts(t_pts) and use this to get a conservative estimate of the variance on each of the sample points. Note that for an RV Y with P(Y|X)=N(mX+x0, s) we have V(Y) = s^2 + m^2 V(X). We take X to follow a continuous uniform distribution between (t_pts[i], t_pts[i+SKIP])
-    max_diff = np.max(np.diff(a_pts))
+    max_diff = np.max(np.diff(np.abs(a_pts)))
     skip_sigma_sq = a_sigmas_sq + (max_diff**2)/12
     #find the extrema
     env_fit = EnvelopeFitter(t_pts, a_pts)
