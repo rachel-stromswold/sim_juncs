@@ -874,7 +874,23 @@ TEST_CASE("Test get_enclosed") {
     }
 }
 
-/*TEST_CASE("Test context parsing") {
+value test_fun_call(context& c, cgs_func f, parse_ercode& er) {
+    value ret;
+    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
+    double a = f.args[0].val.x;
+    if (a > 5) {
+	ret.type = VAL_INST;
+	ret.val.c = new context();
+	value name_contents = make_val_str("hi");
+	ret.val.c->emplace("name", name_contents);
+	cleanup_val(&name_contents);
+	return ret;
+    }
+    return f.args[0];
+}
+
+TEST_CASE("Test context parsing") {
     SUBCASE ("without nesting") {
 	const char* lines[] = { "a = 1", "\"b\"", "c = [\"d\", \"e\"]" }; 
 	size_t n_lines = sizeof(lines)/sizeof(char*);
@@ -911,9 +927,13 @@ TEST_CASE("Test get_enclosed") {
 	value val_a_name = val_a.val.c->lookup("name");
 	CHECK(val_a_name.type == VAL_STR);
 	CHECK(strcmp(val_a_name.val.s, "apple") == 0);
-	value val_a_value = val_a.val.c->lookup("value");
-	CHECK(val_a_value.type == VAL_NUM);
-	CHECK(val_a_value.val.x == 10);
+	value val_a_value = val_a.val.c->lookup("values");
+	CHECK(val_a_value.type == VAL_LIST);
+	CHECK(val_a_value.n_els == 2);
+	CHECK(val_a_value.val.l[0].type == VAL_NUM);
+	CHECK(val_a_value.val.l[1].type == VAL_NUM);
+	CHECK(val_a_value.val.l[0].val.x == 20);
+	CHECK(val_a_value.val.l[1].val.x == 11);
 	value val_b = c.lookup("b");
 	CHECK(val_b.type == VAL_NUM);
 	CHECK(val_b.val.x == 20);
@@ -922,32 +942,45 @@ TEST_CASE("Test get_enclosed") {
 	CHECK(val_c.val.x == 31);
     }
     SUBCASE ("user defined functions") {
-	const char* lines[] = { "def test_fun(a)", "{", "if (a > 5) {", "return {name = \"hi\"}", "}", "return a", "}", "a = test_fun(1)", "b=test_fun(10)" };
+	const char* fun_name = "test_fun";
+	char* tmp_name = strdup(fun_name);
+	cgs_func call_sig;
+	call_sig.n_args = 1;
+	call_sig.args[0].type = VAL_UNDEF;
+	call_sig.args[0].val.x = 0;
+	call_sig.args[0].n_els = 0;
+	call_sig.arg_names[0] = NULL;
+	call_sig.name = tmp_name;
+
+	const char* lines[] = { "a = test_fun(1)", "b=test_fun(10)" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	line_buffer b_1(lines, n_lines);
 	context c;
+	value tmp_f = make_val_func("test_fun", 1, &test_fun_call);
+	c.emplace("test_fun", tmp_f);
+	cleanup_val(&tmp_f);
 	parse_ercode er = c.read_from_lines(b_1);
 	CHECK(er == E_SUCCESS);
 	if (!er) {
 	    //make sure that the function is there
 	    value val_fun = c.lookup("test_fun");
 	    CHECK(val_fun.type == VAL_FUNC);
-	    cleanup_val(&val_fun);
 	    //make sure that the number value a is there
 	    value val_a = c.lookup("a");
 	    CHECK(val_a.type == VAL_NUM);
 	    CHECK(val_a.val.x == 1);
-	    cleanup_val(&val_a);
-	    value val_b = c.lookup("a");
+	    value val_b = c.lookup("b");
 	    CHECK(val_b.type == VAL_INST);
-	    cleanup_val(&val_b);
 	    value val_b_name = val_b.val.c->lookup("name");
 	    CHECK(val_b_name.type == VAL_STR);
 	    CHECK(strcmp(val_b_name.val.s, "hi") == 0);
-	    cleanup_val(&val_b_name);
+	    /*cleanup_val(&val_fun);
+	    cleanup_val(&val_a);
+	    cleanup_val(&val_b);*/
 	}
+	free(tmp_name);
     }
-}*/
+}
 
 TEST_CASE("Test volumes") {
     //initialize random state
@@ -1326,8 +1359,7 @@ TEST_CASE("Test geometry file reading") {
     args.len = 2.0;
 
     //check the susceptibilities
-    context defcon;
-    bound_geom geometry(args, defcon, &er);
+    bound_geom geometry(args, &er);
 
     SUBCASE("Test reading of susceptibilities") {
 	CHECK(er == E_SUCCESS);
@@ -1413,8 +1445,7 @@ TEST_CASE("Test that spans of monitor locations are read correctly") {
     free(name_dup);
 
     //try creating the geometry object
-    context defcon;
-    bound_geom geometry(args, defcon, &er);
+    bound_geom geometry(args, &er);
     const size_t SPAN = 4;
     CHECK(er == E_SUCCESS);
     //(2/0.1)^2 == 400
@@ -1459,9 +1490,18 @@ TEST_CASE("Test running with a very small system") {
     args.resolution = 5.0;
 
     //try creating the geometry object
-    context defcon;
-    bound_geom geometry(args, defcon, &er);
+    bound_geom geometry(args, &er);
     CHECK(er == E_SUCCESS);
+
+    //check that the problem was initialized correctly
+    std::vector<meep::vec> mon_locs = geometry.get_monitor_locs();
+    CHECK(mon_locs.size() == 2);
+    CHECK(mon_locs[0].x() == 1.0);
+    CHECK(mon_locs[0].y() == 1.0);
+    CHECK(mon_locs[0].z() == 1.0);
+    CHECK(mon_locs[1].x() == 2.0);
+    CHECK(mon_locs[1].y() == 4.0);
+    CHECK(mon_locs[1].z() == 1.1);
 
     //make sure that monitor locations were added
     geometry.run(args.out_dir);
@@ -1470,9 +1510,7 @@ TEST_CASE("Test running with a very small system") {
     CHECK(field_times.size() > 0);
 
     //check that writing hdf5 files works
-    std::vector<meep::vec> mon_locs = geometry.get_monitor_locs();
-    CHECK(mon_locs.size() > 0);
-    CHECK(mon_locs.size() == field_times.size());
+    CHECK(field_times.size() == mon_locs.size());
     geometry.save_field_times(args.out_dir);
     
     //We need to create an hdf5 data type for complex values

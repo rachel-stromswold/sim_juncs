@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
 
     //create the geometry object
     auto start = std::chrono::steady_clock::now();
-    bound_geom geom(args, scene_con, &ercode);
+    bound_geom geom(args, &ercode);
     if (ercode) return (int)ercode;
     //time benchmarking
     auto end_init = std::chrono::steady_clock::now();

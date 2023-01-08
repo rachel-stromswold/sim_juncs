@@ -268,12 +268,14 @@ struct cgs_func {
     size_t n_args;
     cgs_func() { name = NULL;n_args = 0; }
 };
+value make_val_undef();
 value make_val_num(double x);
 value make_val_str(const char* s);
 value make_val_std_str(std::string s);
 value make_val_list(const value* vs, size_t n_vs);
 value make_val_mat(mat3x3 m);
 value make_val_vec3(vec3 vec);
+value make_val_func(const char* name, size_t n_args, value (*p_exec)(context&, cgs_func, parse_ercode&));
 cgs_func parse_func_decl(char* str);
 cgs_func copy_func(const cgs_func o);
 void cleanup_func(cgs_func* o);
@@ -331,6 +333,8 @@ public:
     void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }
     parse_ercode set_value(const char* name, value new_val);
     parse_ercode read_from_lines(line_buffer b);
+
+    void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
 };
 /**
  * A class for functions defined by the user along with the implementation code
@@ -339,9 +343,11 @@ class user_func {
 private:
     cgs_func call_sig;
     line_buffer code_lines;
+    value (*exec)(context&, cgs_func, parse_ercode&);
 public:
     //read the function with contents stored in the file pointer fp at the current file position
     user_func(cgs_func sig, line_buffer p_buf);
+    user_func(value (*p_exec)(context&, cgs_func, parse_ercode&));
     ~user_func();
     user_func(const user_func& o);
     user_func(user_func&& o);

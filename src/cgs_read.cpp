@@ -416,7 +416,7 @@ line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char st
     size_t k = 0;
     long start_char = -1;
     long j = line_offset;
-    for (size_t i = 0; !exit && i < n_lines; ++i) {
+    for (size_t i = start_line; !exit && i < n_lines; ++i) {
 	if (lines[i] == NULL) {
 	    ret.n_lines = i;
 	    exit = true;
@@ -639,6 +639,13 @@ value flatten_list(cgs_func tmp_f, parse_ercode& er) {
     return sto;
 }
 /** ======================================================== value ======================================================== **/
+value make_val_undef() {
+    value v;
+    v.type = VAL_UNDEF;
+    v.n_els = 0;
+    v.val.x = 0;
+    return v;
+}
 value make_val_num(double x) {
     value v;
     v.type = VAL_NUM;
@@ -684,6 +691,24 @@ value make_val_vec3(vec3 vec) {
     v.val.v = new vec3(vec.el[0], vec.el[1], vec.el[2]);
     return v;
 }
+/**
+ * Add a new callable function with the signature sig and function pointer corresponding to the executed code. This function must accept a function and a pointer to an error code and return a value.
+ */
+value make_val_func(const char* name, size_t n_args, value (*p_exec)(context&, cgs_func, parse_ercode&)) {
+    /*cgs_func sig;
+    sig.name = strdup(name);
+    sig.n_args = n_args;
+    for (size_t i = 0; i < n_args; ++i) {
+	sig.args[i] = make_val_num(0);
+	sig.arg_names[i] = NULL;
+    }*/
+
+    value ret;
+    ret.type = VAL_FUNC;
+    ret.n_els = n_args;
+    ret.val.f = new user_func(p_exec);
+    return ret;
+}
 void cleanup_val(value* v) {
     if (v->type == VAL_STR && v->val.s) {
 	free(v->val.s);
@@ -696,6 +721,8 @@ void cleanup_val(value* v) {
 	delete v->val.v;
     } else if (v->type == VAL_INST && v->val.c) {
 	delete v->val.c;
+    } else if (v->type == VAL_FUNC && v->val.f) {
+	delete v->val.f;
     }
     v->val.x = 0;
 }
@@ -818,7 +845,7 @@ void cleanup_func(cgs_func* f) {
 }
 cgs_func copy_func(const cgs_func o) {
     cgs_func f;
-    f.name = strdup(o.name);
+    if (o.name) f.name = strdup(o.name);
     f.n_args = o.n_args;
     for (size_t i = 0; i < f.n_args; ++i) {
 	f.args[i] = copy_val(o.args[i]);
@@ -1469,6 +1496,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 		sto.val.c->emplace(cur_name, tmp);
 		cleanup_val(&tmp);
 	    }
+	    free(list_els);
 	    sto.type = VAL_INST;
 	    return sto;
 	} else if (str[first_open_ind] == '(' && str[last_close_ind] == ')') {
@@ -1484,7 +1512,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 		    tmp_f = parse_func(str, first_open_ind, er, &f_end);
 		    if (er != E_SUCCESS) { return sto; }
 		    //TODO: allow user defined functions
-		    er = E_BAD_TOKEN;
+		    //er = E_BAD_TOKEN;
 		    if (strcmp(tmp_f.name, "vec") == 0) {
 			sto = make_vec(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "range") == 0) {
@@ -1493,6 +1521,17 @@ value context::parse_value(char* str, parse_ercode& er) {
 			sto = make_linspace(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "flatten") == 0) {
 			sto = flatten_list(tmp_f, er);
+		    } else {
+			//otherwise lookup the function
+			value func_val = lookup(tmp_f.name);
+			if (func_val.type == VAL_FUNC) {
+			    //make sure that the function was found and that sufficient arguments were provided
+			    if (func_val.n_els <= tmp_f.n_args) {
+				sto = func_val.val.f->eval(*this, tmp_f, er);
+			    }
+			} else {
+			    er = E_BAD_TYPE;
+			}
 		    }
 		    str[last_close_ind+1] = term_char;
 		    cleanup_func(&tmp_f);
@@ -1551,7 +1590,6 @@ parse_ercode context::read_from_lines(line_buffer b) {
 		v.n_els = n_enc;
 		emplace(cur_func.name, v);
 		//we have to advance to the line after end of the function declaration
-		++lineno;
 	    }
 	} else {
 	    //char* lval = NULL;
@@ -1602,7 +1640,6 @@ parse_ercode context::read_from_lines(line_buffer b) {
 		    if (match_tok != 0 && i > rval_start) {
 			line_buffer lines_enc(b.get_enclosed(lineno, &lineno, line[i], match_tok, i, true));
 			if (lineno < 0) { free(buf);return E_BAD_SYNTAX; }
-			++lineno;
 			//we have to advance to the end of the function declaration
 			char* enc = lines_enc.flatten(sep_tok);
 			//concatenate the string using thingies
@@ -1646,48 +1683,17 @@ parse_ercode context::read_from_lines(line_buffer b) {
  */
 user_func::user_func(cgs_func sig, line_buffer b) : code_lines(b) {
     call_sig = copy_func(sig);
-    //setup a buffer for code lines
-    /*
-    n_lines = p_n_lines;
-    code_lines = (char**)malloc(sizeof(char*)*n_lines);
-
-    //exit keeps track of whether we should read more lines and started keeps track of whether the opening brace has been found
-    //initialize tracking variables
-    int nest_level = 0;
-    bool exit = false;
-    bool started = false;
-    //iterate until we hit an error, or the end of the function (n_chars=-1 or nest_level=-1)
-    for (size_t i = 0; !exit && i < n_lines; ++i) {
-	size_t buf_size = FUNC_BUF_SIZE;
-	char* buf = (char*)malloc(sizeof(char)*buf_size);
-	size_t k = 0;
-	for (size_t j = 0; bufptr[i][j]; ++j) {
-	    if (buf[j] == '{') {
-		++nest_level;
-		//if this is the first open brace then skip writing it
-		if (!started) {
-		    started = true;
-		    continue;
-		}
-	    } else if (buf[j] == '}') {
-		--nest_level;
-		//if we just closed the last brace then this is the end of the function so exit the loop
-		if (nest_level <= 0) {
-		    buf[j] = 0;
-		    exit = true;
-		    break;
-		}
-	    }
-	    //reallocate memory as needed
-	    if (k >= buf_size) {
-		buf_size *= 2;
-		buf = (char*)realloc(buf, sizeof(char)*buf_size);
-	    }
-	    if (started) buf[k++] = bufptr[i][j];
-	}
-	buf[k] = 0;
-	code_lines[n_lines++] = CGS_trim_whitespace(buf, NULL);
-    }*/
+    exec = NULL;
+}
+/**
+ * constructor
+ * sig: this specifies the signature of the function used when calling it
+ * bufptr: a buffer to be used for line reading, see read_cgs_line
+ * n: the number of characters currently in the buffer, see read_cgs_line
+ * fp: the file pointer to read from
+ */
+user_func::user_func(value (*p_exec)(context&, cgs_func, parse_ercode&)) : call_sig() {
+    exec = p_exec;
 }
 //deallocation
 user_func::~user_func() {
@@ -1696,11 +1702,14 @@ user_func::~user_func() {
 //copy constructor
 user_func::user_func(const user_func& o) : code_lines(o.code_lines) {
     call_sig = copy_func(o.call_sig);
+    exec = o.exec;
 }
 //move constructor
 user_func::user_func(user_func&& o) : code_lines(o.code_lines) {
     call_sig = o.call_sig;
+    exec = o.exec;
     o.call_sig.name = NULL;
+    o.exec = NULL;
     o.call_sig.n_args = 0;
 }
 
@@ -1711,7 +1720,13 @@ typedef enum {TOK_NONE, TOK_IF, TOK_FOR, TOK_WHILE, TOK_RETURN} token_type;
  * evaluate the function
  */
 value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
-    er = E_SUCCESS;
+    value sto;
+    if (exec) {
+	value ret = (*exec)(c, call, er);
+	return ret;
+    }
+    return sto;
+    /*er = E_SUCCESS;
     size_t lineno = 0;
     value bad_val;
     while (lineno < code_lines.get_n_lines()) {
@@ -1731,5 +1746,5 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
 	}
     }
     //return an undefined value by default
-    value ret;ret.type = VAL_UNDEF;ret.val.x = 0;return ret;
+    value ret;ret.type = VAL_UNDEF;ret.val.x = 0;return ret;*/
 }

@@ -2,16 +2,43 @@
 
 const double eps_cutoff = 10;
 
+value um_to_l(context& c, cgs_func f, parse_ercode& er) {
+    value ret;
+    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
+    //lookup the length scale
+    value l_per_um = c.lookup("l_per_um");
+    if (l_per_um.type != VAL_NUM) { er = E_NOT_DEFINED;return ret; }
+    return make_val_num( (l_per_um.val.x)*(f.args[0].val.x) );
+}
+value fs_to_t(context& c, cgs_func f, parse_ercode& er) {
+    value ret;
+    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
+    //lookup the length scale
+    value l_per_um = c.lookup("l_per_um");
+    if (l_per_um.type != VAL_NUM) { er = E_NOT_DEFINED;return ret; }
+    return make_val_num( LIGHT_SPEED*(l_per_um.val.x)*(f.args[0].val.x) );
+}
+
 /**
  * Load variables specified in the parse_settings struct s into the context con
  * TODO: place this in context to handle this more elegantly
  */
-context context_from_settings(parse_settings& args) {
+context context_from_settings(const parse_settings& args) {
     context con;
     con.emplace("pml_thickness", make_val_num(args.pml_thickness));
     con.emplace("sim_length", make_val_num(args.len));
     con.emplace("length", make_val_num(2*args.pml_thickness + args.len));
     con.emplace("l_per_um", make_val_num(args.um_scale));
+    //helpful functions
+    value tmp_f = make_val_func("um_to_l", 1, &um_to_l);
+    con.emplace("um_to_l", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("fs_to_t", 1, &fs_to_t);
+    con.emplace("fs_to_t", tmp_f);
+    cleanup_val(&tmp_f);
+    //add user defined options
     if (args.user_opts) {
 	char* save;
 	char* line = strtok_r(args.user_opts, ";", &save);
@@ -646,8 +673,8 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
  * s: parse_settings object to read.
  * ercode: if an error occurs while parsing the .geom file and ercode is not NULL, a code for the error is saved there
  */
-bound_geom::bound_geom(const parse_settings& s, context con, parse_ercode* ercode) :
-    problem(s.geom_fname, con, ercode),
+bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
+    problem(s.geom_fname, context_from_settings(s), ercode),
     strct(structure_from_settings(s, problem, ercode)),
     fields(strct)
 {

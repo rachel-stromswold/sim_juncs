@@ -24,6 +24,8 @@
 #define CAM_Y	1.1
 #define CAM_Z	1.1
 
+#define LIGHT_SPEED	0.299792458
+
 #define CLUSTER_NAME "cluster_"
 #define POINT_NAME "point_"
 
@@ -45,7 +47,7 @@ typedef struct {
 } region_scale_pair;
 
 //TODO: place this in context to handle this more elegantly
-context context_from_settings(parse_settings& args);
+context context_from_settings(const parse_settings& args);
 
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
@@ -137,7 +139,7 @@ struct sto_vec {
 
 class bound_geom {
 public:
-    bound_geom(const parse_settings& s, context con, parse_ercode* ercode=NULL);
+    bound_geom(const parse_settings& s, parse_ercode* ercode=NULL);
     ~bound_geom();
     std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
     std::vector<std::vector<complex>> get_field_times() { return field_times; }
