@@ -45,6 +45,20 @@ char* CGS_trim_whitespace(char* str, size_t* len);
 
 /** ============================ line_buffer ============================ **/
 
+/*class cgs_error {
+private:
+    char* message;
+    parse_ercode er;
+
+public:
+    cgs_error(cgs_error type, const char* message);
+    cgs_error(const cgs_error& o);
+    cgs_error(cgs_error&& o);
+    cgs_error& operator=(cgs_error& o);
+    char* msg() { return message; }
+    parse_ercode type() { return er; }
+};*/
+
 class line_buffer {
 private:
     char** lines;

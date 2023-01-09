@@ -638,6 +638,25 @@ value flatten_list(cgs_func tmp_f, parse_ercode& er) {
     er = E_SUCCESS;
     return sto;
 }
+/**
+ * print the elements to the console
+ */
+value print(cgs_func tmp_f, parse_ercode& er) {
+    value ret;ret.type = VAL_UNDEF;ret.val.x = 0;ret.n_els = 0;
+    for (size_t i = 0; i < tmp_f.n_args; ++i) {
+	if (tmp_f.args[i].type == VAL_NUM) {
+	    printf("%f", tmp_f.args[i].val.x);
+	} else if (tmp_f.args[i].type == VAL_STR) {
+	    printf("%s", tmp_f.args[i].val.s);
+	} else if (tmp_f.args[i].type == VAL_3VEC) {
+	    printf("(%f,%f,%f)", tmp_f.args[i].val.v->x(), tmp_f.args[i].val.v->y(), tmp_f.args[i].val.v->z());
+	} else {
+	    printf("<object at %p>", tmp_f.args[i].val.l);
+	}
+    }
+    printf("\n");
+    return ret;
+}
 /** ======================================================== value ======================================================== **/
 value make_val_undef() {
     value v;
@@ -824,8 +843,23 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	} else if (type == VAL_MAT) {
 	    //TODO
 	}
-    } else if (type == VAL_STR) {
-	//TODO
+    } else if (t == VAL_STR) {
+	ret.val.s = (char*)malloc(sizeof(char)*BUF_SIZE);
+	int n_write = 0;
+	if (type == VAL_STR) {
+	    free(ret.val.s);
+	    ret.val.s = strdup(val.s);
+	    return ret;//skip resizing
+	} else if (type == VAL_NUM) {
+	    n_write = snprintf(ret.val.s, BUF_SIZE, "%f", val.x);
+	} else if (type == VAL_LIST) {
+	    //TODO
+	} else if (type == VAL_3VEC) {
+	    n_write = ret.val.v->to_str(ret.val.s, BUF_SIZE);
+	} else if (type == VAL_MAT) {
+	    n_write = ret.val.m->to_str(ret.val.s, BUF_SIZE);
+	}
+	ret.val.s = (char*)realloc(ret.val.s, sizeof(char)*(n_write+1));
     }
     //if we reach this point in execution then there was an error
     ret.type = VAL_UNDEF;
@@ -1334,7 +1368,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    ++nest_level;
 	    if (first_open_ind == -1) { first_open_ind = i; }
 	} else if (str[i] == /*[*/']') {
-	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_SQUARE) { er = E_BAD_SYNTAX;return sto; }
+	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_SQUARE) { printf(/*[*/"unexpected ]\n");er = E_BAD_SYNTAX;return sto; }
 	    --nest_level;
 	    //if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
 	    last_close_ind = i;
@@ -1346,7 +1380,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    //only set the open index if this is the first match
 	    if (first_open_ind == -1) { first_open_ind = i; }
 	} else if (str[i] == /*(*/')') {
-	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_PAREN) { er = E_BAD_SYNTAX;return sto; }
+	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_PAREN) { printf(/*(*/"unexpected )\n");er = E_BAD_SYNTAX;return sto; }
 	    --nest_level;
 	    //only set the end paren location if it hasn't been set yet and the stack has no more parenthesis to remove, TODO: make this work with other block types inside a set of parenthesis
 	    //if (blk_stk.is_empty() && last_close_ind < 0) last_close_ind = i;
@@ -1359,7 +1393,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    //only set the open index if this is the first match
 	    if (first_open_ind == -1) { first_open_ind = i; }
 	} else if (str[i] == /*{*/'}') {
-	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_CURLY) { er = E_BAD_SYNTAX;return sto; }
+	    if (blk_stk.pop(&start_ind) != E_SUCCESS || start_ind.t != BLK_CURLY) { printf(/*{*/"unexpected }\n");er = E_BAD_SYNTAX;return sto; }
 	    --nest_level;
 	    //only set the end paren location if it hasn't been set yet and the stack has no more parenthesis to remove, TODO: make this work with other block types inside a set of parenthesis
 	    last_close_ind = i;
@@ -1432,6 +1466,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 		errno = 0;
 		sto.val.x = strtod(str, NULL);
 		if (errno) {
+		    printf("undefined token %s\n", str);
 		    er = E_NOT_DEFINED;
 		    return sto;
 		}
@@ -1521,6 +1556,8 @@ value context::parse_value(char* str, parse_ercode& er) {
 			sto = make_linspace(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "flatten") == 0) {
 			sto = flatten_list(tmp_f, er);
+		    } else if (strcmp(tmp_f.name, "print") == 0) {
+			sto = print(tmp_f, er);
 		    } else {
 			//otherwise lookup the function
 			value func_val = lookup(tmp_f.name);

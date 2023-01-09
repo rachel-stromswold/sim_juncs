@@ -105,6 +105,33 @@ public:
 	}
 	return ret;
     }
+    int to_str(char* str, size_t n) {
+	//we subtract 2*M characters for the open and close brackets for each row, M-1 for the commas separating rows, and M*(N-1) for the commas in columns
+	//(n/MN) - 2M - (M-1) - M(N-1) - 2 = (n/MN) - 2M - MN -1
+	size_t c_per_el = (n / (M*N)) - 2*M - M*N - 1;
+	if (str && c_per_el > 0 && n > 2) {
+	    str[0] = '[';str[1] = '[';//]]
+	    int off = 2;
+	    for (size_t i = 0; i < M; ++i) {
+		for (size_t j = 0; j < N; ++j) {
+		    //make sure we don't go past the end
+		    if (off >= n-2) {
+			str[n-1] = 0;
+			return off;
+		    }
+		    //write the row with a terminating ',' or not depending on whether we're at the end
+		    if (j < N-1)
+			off += snprintf(str+off, c_per_el, "%f,", el[N*i+j]);
+		    else
+			off += snprintf(str+off, c_per_el, "%f", el[N*i+j]);
+		}
+		if (i < M-1) str[off++] = ',';
+	    }
+	    return off;
+	}
+	if (str && n > 0) str[0] = 0;
+	return 0;
+    }
 };
 template <size_t M,size_t N> inline matrix<M,N> operator*(_ftype s, const matrix<M,N>& m) { return m*s; }
 

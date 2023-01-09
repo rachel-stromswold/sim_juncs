@@ -11,3 +11,4 @@ Composite(eps = 3.5) {
     Box([tot_len/2+0.1,0,0], [tot_len,tot_len,tot_len]);
     snapshot("/tmp/run.pgm", [3,3,3], look=[-1,-1,-1]);
 }
+a = print("left box goes until ", tot_len/2-0.1, " right box goes until", tot_len/2+0.1)
