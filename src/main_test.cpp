@@ -763,6 +763,8 @@ TEST_CASE("Test function parsing") {
 }
 
 TEST_CASE("Test operations") {
+    parse_ercode er;
+    context sc;
     char buf[BUF_SIZE];
     SUBCASE("Arithmetic works") {
         //single operations
@@ -771,13 +773,13 @@ TEST_CASE("Test operations") {
         CHECK(er == E_SUCCESS);
         CHECK(tmp_val.type == VAL_NUM);
         CHECK(tmp_val.val.x == 2.1);
-        strncpy(buf, "2-1.1", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        strncpy(buf, "2-1.25", BUF_SIZE);buf[BUF_SIZE-1] = 0;
         tmp_val = sc.parse_value(buf, er);
         CHECK(er == E_SUCCESS);
         CHECK(tmp_val.type == VAL_NUM);
-        CHECK(tmp_val.val.x == 0.9);
+        CHECK(tmp_val.val.x == 0.75);
         strncpy(buf, "2*1.1", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-        value tmp_val = sc.parse_value(buf, er);
+        tmp_val = sc.parse_value(buf, er);
         CHECK(er == E_SUCCESS);
         CHECK(tmp_val.type == VAL_NUM);
         CHECK(tmp_val.val.x == 2.2);
@@ -788,20 +790,20 @@ TEST_CASE("Test operations") {
         CHECK(tmp_val.val.x == 1.1);
         //order of operations
         strncpy(buf, "1+3/2", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-        value tmp_val = sc.parse_value(buf, er);
+        tmp_val = sc.parse_value(buf, er);
         CHECK(er == E_SUCCESS);
         CHECK(tmp_val.type == VAL_NUM);
-        CHECK(tmp_val.val.x == 1.5);
+        CHECK(tmp_val.val.x == 2.5);
         strncpy(buf, "(1+3)/2", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-        value tmp_val = sc.parse_value(buf, er);
+        tmp_val = sc.parse_value(buf, er);
         CHECK(er == E_SUCCESS);
         CHECK(tmp_val.type == VAL_NUM);
         CHECK(tmp_val.val.x == 2.0);
-        strncpy(buf, "2*3/4*5", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-        value tmp_val = sc.parse_value(buf, er);
+        strncpy(buf, "2*9/4*3", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
         CHECK(er == E_SUCCESS);
         CHECK(tmp_val.type == VAL_NUM);
-        CHECK(tmp_val.val.x == 7.5);
+        CHECK(tmp_val.val.x == 1.5);
     }
     SUBCASE("String concatenation works") {
         //single operations

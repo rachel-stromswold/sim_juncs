@@ -818,8 +818,8 @@ double value::to_float() {
  */
 int value::rep_string(char* sto, size_t n) const {
 	if (type == VAL_STR) {
-        char* end = stpncpy(sto, val.s, n-1);
-        *end = 0;
+	    char* end = stpncpy(sto, val.s, n-1);
+	    *end = 0;
 	    return end-sto;
 	} else if (type == VAL_NUM) {
 	    return snprintf(sto, n, "%f", val.x);
@@ -1080,7 +1080,7 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
     } else {
 	for (size_t i = 0; list_els[i] && i < f.n_args; ++i) {
 	    //handle named arguments
-	    char* eq_loc = strchr(list_els[i], '=');
+	    char* eq_loc = strchr_block(list_els[i], '=');
 	    if (eq_loc) {
 		*eq_loc = 0;
 		f.arg_names[i] = strdup(list_els[i]);
@@ -1272,9 +1272,9 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 
     //parse right and left values
     value tmp_l = parse_value(str, er);
-    if (er != E_SUCCESS) return sto;
+    if (er != E_SUCCESS) { cleanup_val(&tmp_l);return sto; }
     value tmp_r = parse_value(str+i+op_width, er);
-    if (er != E_SUCCESS) return sto;
+    if (er != E_SUCCESS) { cleanup_val(&tmp_r);return sto; }
     sto.type = VAL_NUM;
     //handle equality comparisons
     if (term_char == '=') {
@@ -1290,7 +1290,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	}
 	++i;
     } else if (term_char == '>') {
-	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_BAD_VALUE;return sto; }
 	if (str[i+1] == '=') {
 	    sto.val.x = (tmp_l.val.x >= tmp_r.val.x)? 1: 0;
 	    ++i;
@@ -1298,7 +1298,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.x = (tmp_l.val.x > tmp_r.val.x)? 1: 0;
 	}
     } else if (term_char == '<') {
-	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_BAD_VALUE;return sto; }
+	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_BAD_VALUE;return sto; }
 	if (str[i+1] == '=') {
 	    sto.val.x = (tmp_l.val.x <= tmp_r.val.x)? 1: 0;
 	    ++i;
@@ -1312,12 +1312,12 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
         } else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
             sto.type = VAL_MAT;
             sto.val.m = new mat3x3(*tmp_l.val.m + *tmp_r.val.m);
-        } else if (tmp_l.type == VAL_STR) {
+        } else if (tmp_l.type == VAL_STR || tmp_r.type == VAL_STR) {
             sto.type = VAL_STR;
             sto.val.s = (char*)malloc(sizeof(char)*BUF_SIZE);
             int n_write = tmp_l.rep_string(sto.val.s, BUF_SIZE);
             if (n_write > 0 && n_write < BUF_SIZE)
-                n_write += tmp_r.rep_string(sto.val.s+n_write-1, BUF_SIZE-n_write);
+                n_write += tmp_r.rep_string(sto.val.s+n_write, BUF_SIZE-n_write);
         }
     } else if (term_char == '-') {
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
@@ -1337,7 +1337,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.m = new mat3x3((*tmp_l.val.m) * (*tmp_r.val.m));
 	}
     } else if (term_char == '/') {
-	if (tmp_r.val.x == 0) { er = E_NAN;return sto; }//TODO: return a nan?
+	if (tmp_r.val.x == 0) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_NAN;return sto; }//TODO: return a nan?
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
 	    sto.val.x = tmp_l.val.x / tmp_r.val.x;
 	} else if (tmp_r.type == VAL_NUM && tmp_l.type == VAL_MAT) {	
@@ -1350,6 +1350,8 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	sto.val.x = pow(tmp_l.val.x, tmp_r.val.x);
     }
     str[i] = term_char;
+    cleanup_val(&tmp_l);
+    cleanup_val(&tmp_r);
     return sto;
 }
 
@@ -1487,6 +1489,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 		er = E_SUCCESS;
 		sto.type = VAL_NUM;
 	    }
+	    sto = copy_val(sto);
 	    str[reset_ind] = ' ';//all whitespace is treated identically so it doesn't matter
 	} else if (str[first_open_ind] == '\"' && str[last_close_ind] == '\"') {
 	    //this is a string

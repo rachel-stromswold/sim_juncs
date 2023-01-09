@@ -54,7 +54,6 @@ int main(int argc, char **argv) {
 
     //initialize a context for the scene based on parameters
     parse_ercode ercode = E_SUCCESS;
-    context scene_con = context_from_settings(args);
 
     //test hdf5
     int has_insert_member = test_h5_funcs();

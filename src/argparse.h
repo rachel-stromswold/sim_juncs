@@ -88,7 +88,7 @@ inline void set_ercode(int* sto, int er) {
 }
 
 inline void cleanup_settings(parse_settings* s) {
-    if (s->geom_fname) free(s->geom_fname_al);
+    if (s->geom_fname_al) free(s->geom_fname_al);
     if (s->monitor_locs) free(s->monitor_locs);
     if (s->user_opts) free(s->user_opts);
 }
@@ -144,6 +144,7 @@ inline void handle_pair(parse_settings* s, char* const tok, _uint toklen, char* 
         s->ambient_eps = strtod(val, NULL);
     } else if (strcmp(tok, "geom_fname") == 0 && !s->geom_fname_al) {
         //copy only the non whitespace portion
+	if (s->geom_fname_al) free(s->geom_fname_al);
         s->geom_fname_al = strdup(val);
         s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);
     } else if (strcmp(tok, "monitor_locations") == 0 && !s->monitor_locs) {
@@ -339,6 +340,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		    printf("Usage: meep --opts \"<name1=value1;name2=value2>\"");
 		    return 0;
 		} else {
+		    if (a->user_opts) free(a->user_opts);
 		    a->user_opts = strdup(argv[i+1]);
 		    to_rm = 2;
 		}

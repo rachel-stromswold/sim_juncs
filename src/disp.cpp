@@ -44,7 +44,8 @@ context context_from_settings(const parse_settings& args) {
     //add user defined options
     if (args.user_opts) {
 	char* save;
-	char* line = strtok_r(args.user_opts, ";", &save);
+	char* tmp_opts = strdup(args.user_opts);
+	char* line = strtok_r(tmp_opts, ";", &save);
 	while (line) {
 	    char* eq_loc = strchr(line, '=');
 	    if (eq_loc) {
@@ -58,6 +59,7 @@ context context_from_settings(const parse_settings& args) {
 	    }
 	    line = strtok_r(NULL, ";", &save);
 	}
+	free(tmp_opts);
     }
     return con;
 }

@@ -1,22 +1,29 @@
+meep_thick = um_to_l(thick)
+meep_width = um_to_l(width)
+mid = length/2
+top = (length - meep_thick)/2
+bot = (length + meep_thick)/2
+left = (length - meep_width)/2
+rght = (length + meep_width)/2
+print_res = print("top = ", top, ", bot = ", bot, ", left = ", left, ", right = ", rght)
+
 //unit amplitude linearly polarized 45 deg.
 data(type = "field_source", envelope = ["Gaussian", "Ex", 0.7, 1.0, 1.570796, 0.0, 3.5, 0.707107]) {
     Box([0,0,1], [18,18,1]);
 }
 
-data(type = "monitor", locations = [vec(x, 9.0, $TOP-0.1) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+1.5) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+3.0) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+3.5) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+4.0) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+4.5) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.0, $TOP+5.0) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP-0.1) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+1.5) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+3.0) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+3.5) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+4.0) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+4.5) for x in linspace($LEFT-2,9,20)]) {}
-data(type = "monitor", locations = [vec(x, 9.2, $TOP+5.0) for x in linspace($LEFT-2,9,20)]) {}
+data(type = "monitor", locations = [vec(x, mid, top-0.1*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid, top+0.1*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid, top+0.3*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid, top+0.5*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid, top+0.7*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid, top+0.9*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid+0.2, top-0.1*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid+0.2, top+0.1*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid+0.2, top+0.3*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid+0.2, top+0.5*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid+0.2, top+0.7*meep_thick) for x in linspace(left-2, mid, 20)]) {}
+data(type = "monitor", locations = [vec(x, mid+0.2, top+0.9*meep_thick) for x in linspace(left-2, mid, 20)]) {}
 
 //Au
 //elemental metals from A.D. Rakic et al., Applied Optics, Vol. 37, No. 22, pp. 5271-83 (1998)
@@ -25,15 +32,15 @@ Composite(eps = 1.0, color=42, susceptibilities = [[1e-10, 0.04274738474121455, 
     intersect() {
 	union() {
 	    intersect() {
-		Plane([$LEFT-9, 0, $TOP], [$LEFT, 9, $TOP], [$LEFT, 9, $BOT]);
-		Plane([$LEFT-9, 18, $TOP], [$LEFT, 9, $BOT], [$LEFT, 9, $TOP]);
+		Plane([left-mid, 0, 	top], [left, mid, top], [left, mid, bot]);
+		Plane([left-mid, length,top], [left, mid, bot], [left, mid, top]);
 	    }
 	    intersect() {
-		Plane([$RGHT+9, 0, $TOP], [$RGHT, 9, $BOT], [$RGHT, 9, $TOP]);
-		Plane([$RGHT+9, 18, $TOP], [$RGHT, 9, $TOP], [$RGHT, 9, $BOT]);
+		Plane([rght+mid, 0,	top], [rght, mid, bot], [rght, mid, top]);
+		Plane([rght+mid, length,top], [rght, mid, top], [rght, mid, bot]);
 	    }
 	}
-	Box([0, 0, $TOP], [18,    18, $BOT]);
+	Box([0,0,top], [length,length,bot]);
     }
 }
 
@@ -44,17 +51,17 @@ Composite(eps = 1.0, susceptibilities = 9.67865314895427, 0.08065544290795199, 1
     intersect() {
 	intersect() {
 	    union() {
-		Plane([$LEFT-9, 0, $TOP], [$LEFT, 9, $BOT], [$LEFT, 9, $TOP]);
-		Plane([$LEFT-9, 18, $TOP], [$LEFT, 9, $TOP], [$LEFT, 9, $BOT]);
+		Plane([left-mid, 0,	top], [left, mid, bot], [left, mid, top]);
+		Plane([left-mid, length,top], [left, mid, top], [left, mid, bot]);
 	    }
 	    union() {
-		Plane([$RGHT+9, 0, $TOP], [$RGHT, 9, $TOP], [$RGHT, 9, $BOT]);
-		Plane([$RGHT+9, 18, $TOP], [$RGHT, 9, $BOT], [$RGHT, 9, $TOP]);
+		Plane([rght+mid, 0,	top], [rght, mid, top], [rght, mid, bot]);
+		Plane([rght+mid, length,top], [rght, mid, bot], [rght, mid, top]);
 	    }
 	}
-	Box([0, 0, $TOP], [18,    18, $BOT]);
+	Box([0,0,top], [length,length,bot]);
     }
-    Box([0, 0, $BOT], [18,    18, 18]);
+    Box([0, 0, bot], [length,length,length]);
 }
 
 snapshot("tri_junc.pgm", [2,2,2], look=[18,18,18], resolution=512, scale=12)
