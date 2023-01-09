@@ -64,4 +64,6 @@ Composite(eps = 1.0, susceptibilities = 9.67865314895427, 0.08065544290795199, 1
     Box([0, 0, bot], [length,length,length]);
 }
 
-snapshot("tri_junc.pgm", [2,2,2], look=[18,18,18], resolution=512, scale=12)
+snap_file = out_dir+"/tri_junc.pgm"
+print_res = print("saving snapshot to ", snap_file)
+snapshot(snap_file, [2,2,2], look=[18,18,18], resolution=512, scale=12)

@@ -364,6 +364,47 @@ line_buffer::line_buffer(const char** p_lines, size_t pn_lines) {
 	lines[i] = strdup(p_lines[i]);
     }
 }
+/**
+ * Create a line buffer from a single line separated by characters of the type sep such that sep are not contained inside any blocks specified by ignore_blocks. Seperation characters are not included.
+ * ignore_blocks: if specified then we search for instances of block pairs and make sure we are at the root level. ignore_blocks should have an even number of characters with even index characters specifying open block delimeters and odd index characters specifying close block delimeters.
+ */
+line_buffer::line_buffer(const char* str, char sep, const char* ignore_blocks) {
+    n_lines = 0;
+    if (!ignore_blocks) ignore_blocks = "";
+    //by doing this we allocate once since we have a guaranteed upper limit on the number of lines that might exist
+    size_t line_buf_size = strlen(str);
+    lines = (char**)malloc(sizeof(char*)*line_buf_size);
+    line_sizes = (size_t*)malloc(sizeof(size_t)*line_buf_size);
+    int nest_level = 0;
+    size_t last_sep = 0;
+    size_t i = 0;
+    for (;;++i) {
+	//iterate through pairs of open/close block delimeters
+	for (size_t j = 0; ignore_blocks[j] && ignore_blocks[j+1]; j += 2) {
+	    if (ignore_blocks[j] == ignore_blocks[j+1]) {
+		//there's a special case for things like quotations, skip ahead until we find the end
+		++i;
+		for (;str[i] && str[i] != ignore_blocks[j]; ++i) (void)0;
+		break;
+	    } else {
+		if (str[i] == ignore_blocks[j])
+		    ++nest_level;
+		else if (str[i] == ignore_blocks[j+1])
+		    --nest_level;
+	    }
+	}
+	if (nest_level <= 0 && (str[i] == sep || str[i] == 0)) {
+	    line_sizes[n_lines] = i-last_sep;
+	    lines[n_lines] = (char*)malloc(sizeof(char)*(line_sizes[n_lines]+1));
+	    for (size_t j = last_sep; j < i; ++j)
+		lines[n_lines][j] = str[j];
+	    lines[n_lines][line_sizes[n_lines]] = 0;
+	    last_sep = i+1;
+	    ++n_lines;
+	    if (str[i] == 0) break;
+	}
+    }
+}
 line_buffer::~line_buffer() {
     for (size_t i = 0; i < n_lines; ++i) free(lines[i]);
     free(line_sizes);
@@ -1124,7 +1165,7 @@ value context::lookup(const char* str) const {
 }
 
 /**
- * Iterate through the context and assign a new value to the variable with the matching name.
+ * Iterate through the context and assign a new value to the variable with the matching name. NOTE: this function only performs a shallow copy.
  * name: the name of the variable to set
  * new_val: the value to set the variable to
  * returns: E_SUCCESS if the variable with a matching name was found or E_NOT_DEFINED otherwise
@@ -1132,7 +1173,7 @@ value context::lookup(const char* str) const {
 parse_ercode context::set_value(const char* str, value new_val) {
     for (long i = stack_ptr-1; i >= 0; --i) {
 	if (buf[i].name_matches(str)) {
-	    buf[i].get_val() = new_val;
+	    buf[i].get_val() = copy_val(new_val);
 	    return E_SUCCESS;
 	}
     }
@@ -1318,6 +1359,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
             int n_write = tmp_l.rep_string(sto.val.s, BUF_SIZE);
             if (n_write > 0 && n_write < BUF_SIZE)
                 n_write += tmp_r.rep_string(sto.val.s+n_write, BUF_SIZE-n_write);
+	    sto.n_els = n_write+1;
         }
     } else if (term_char == '-') {
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {

@@ -45,9 +45,9 @@ context context_from_settings(const parse_settings& args) {
     if (args.user_opts) {
 	char* save;
 	char* tmp_opts = strdup(args.user_opts);
-	char* line = strtok_r(tmp_opts, ";", &save);
+	char* line = strtok_r(args.user_opts, ";", &save);
 	while (line) {
-	    char* eq_loc = strchr(line, '=');
+	    char* eq_loc = strchr_block(line, '=');
 	    if (eq_loc) {
 		*eq_loc = 0;
 		parse_ercode er = E_SUCCESS;
@@ -60,6 +60,8 @@ context context_from_settings(const parse_settings& args) {
 	    line = strtok_r(NULL, ";", &save);
 	}
 	free(tmp_opts);
+	line_buffer lb(args.user_opts, ';');
+	con.read_from_lines(lb);
     }
     return con;
 }

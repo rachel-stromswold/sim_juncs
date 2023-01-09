@@ -68,6 +68,7 @@ public:
     line_buffer() { lines = NULL; line_sizes = NULL; n_lines = 0; }
     line_buffer(char* p_fname);
     line_buffer(const char** p_lines, size_t pn_lines);
+    line_buffer(const char* line, char sep, const char* ignore_blocks = "\"\"()[]{}");
     line_buffer(const line_buffer& o);
     line_buffer(line_buffer&& o);
     ~line_buffer();
