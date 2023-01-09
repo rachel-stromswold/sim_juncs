@@ -269,6 +269,7 @@ struct value {
     V& get_val() { return val; }
     char* to_c_str();
     double to_float();
+    int rep_string(char* sto, size_t n) const;
     value cast_to(valtype type, parse_ercode& er) const;
 };
 void cleanup_val(value* o);

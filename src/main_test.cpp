@@ -633,28 +633,6 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.val.v->z() == doctest::Approx(56.7));
 	cleanup_val(&tmp_val);
     }
-    SUBCASE("Ternary operators work") {
-	strncpy(buf, "(1 == 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	tmp_val = sc.parse_value(buf, er);
-	CHECK(er == E_SUCCESS);
-	CHECK(tmp_val.type == VAL_NUM);
-	CHECK(tmp_val.val.x == 200);
-	strncpy(buf, "(2 == 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	tmp_val = sc.parse_value(buf, er);
-	CHECK(er == E_SUCCESS);
-	CHECK(tmp_val.type == VAL_NUM);
-	CHECK(tmp_val.val.x == 100);
-	strncpy(buf, "(1 > 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	tmp_val = sc.parse_value(buf, er);
-	CHECK(er == E_SUCCESS);
-	CHECK(tmp_val.type == VAL_NUM);
-	CHECK(tmp_val.val.x == 200);
-	strncpy(buf, "(1 < 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
-	tmp_val = sc.parse_value(buf, er);
-	CHECK(er == E_SUCCESS);
-	CHECK(tmp_val.type == VAL_NUM);
-	CHECK(tmp_val.val.x == 100);
-    }
 }
 
 TEST_CASE("Test function parsing") {
@@ -782,6 +760,80 @@ TEST_CASE("Test function parsing") {
     cur_func = sc.parse_func(buf, 4, er, NULL);
     CHECK(er == E_BAD_SYNTAX);
     cleanup_func(&cur_func);
+}
+
+TEST_CASE("Test operations") {
+    char buf[BUF_SIZE];
+    SUBCASE("Arithmetic works") {
+        //single operations
+        strncpy(buf, "1+1.1", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        value tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_NUM);
+        CHECK(tmp_val.val.x == 2.1);
+        strncpy(buf, "2-1.1", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_NUM);
+        CHECK(tmp_val.val.x == 0.9);
+        strncpy(buf, "2*1.1", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        value tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_NUM);
+        CHECK(tmp_val.val.x == 2.2);
+        strncpy(buf, "2.2/2", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_NUM);
+        CHECK(tmp_val.val.x == 1.1);
+        //order of operations
+        strncpy(buf, "1+3/2", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        value tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_NUM);
+        CHECK(tmp_val.val.x == 1.5);
+        strncpy(buf, "(1+3)/2", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        value tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_NUM);
+        CHECK(tmp_val.val.x == 2.0);
+        strncpy(buf, "2*3/4*5", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        value tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_NUM);
+        CHECK(tmp_val.val.x == 7.5);
+    }
+    SUBCASE("String concatenation works") {
+        //single operations
+        strncpy(buf, "\"foo\"+\"bar\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+        value tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val.type == VAL_STR);
+        CHECK(strcmp(tmp_val.val.s, "foobar") == 0);
+        cleanup_val(&tmp_val);
+    }
+    SUBCASE("Ternary operators work") {
+	strncpy(buf, "(1 == 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	value tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 200);
+	strncpy(buf, "(2 == 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 100);
+	strncpy(buf, "(1 > 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 200);
+	strncpy(buf, "(1 < 2) ? 100 : 200", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == 100);
+    }
 }
 
 TEST_CASE("Test get_enclosed") {

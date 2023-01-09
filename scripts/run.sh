@@ -55,9 +55,8 @@ mkdir $h5dir/fit_figs
 
 if [ $run_simuls == "t" ]; then
     rm -f $h5dir/*
-    #valgrind --leak-check=full --track-origins=yes ./sim_geom --out-dir $h5dir --grid-res ${resolutions[$((SLURM_ARRAY_TASK_ID-1))]}
-    python set_dims.py ${widths[$((SLURM_ARRAY_TASK_ID-1))]} $thickness > $h5dir/junc.geom
-    ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file "$h5dir"/junc.geom
+    cp junc_template.geom $h5dir/junc.geom
+    ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file "$h5dir"/junc.geom --opts "width=${widths[$((SLURM_ARRAY_TASK_ID-1))]};thick=$thickness"
 fi
 #make the test plots in check_enes.py
 mkdir "$pname"/figures

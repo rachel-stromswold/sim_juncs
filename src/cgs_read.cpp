@@ -810,6 +810,29 @@ double value::to_float() {
     return 0;
 }
 /**
+ * Convert a value to a string representation. The string is saved to sto.
+ * v: the value to convert to a string
+ * sto: the string to write to
+ * n: the size of the buffer sto
+ * returns: the number of characters written excluding the null terminator
+ */
+int value::rep_string(char* sto, size_t n) const {
+	if (type == VAL_STR) {
+        char* end = stpncpy(sto, val.s, n-1);
+        *end = 0;
+	    return end-sto;
+	} else if (type == VAL_NUM) {
+	    return snprintf(sto, n, "%f", val.x);
+	} else if (type == VAL_LIST) {
+	    //TODO
+	} else if (type == VAL_3VEC) {
+	    return val.v->to_str(sto, n);
+	} else if (type == VAL_MAT) {
+	    return val.m->to_str(sto, n);
+	}
+    return 0;
+}
+/**
  * Perform an in-place cast of the instance to the type t. An error is returned if a cast is impossible.
  */
 value value::cast_to(valtype t, parse_ercode& er) const {
@@ -845,20 +868,7 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	}
     } else if (t == VAL_STR) {
 	ret.val.s = (char*)malloc(sizeof(char)*BUF_SIZE);
-	int n_write = 0;
-	if (type == VAL_STR) {
-	    free(ret.val.s);
-	    ret.val.s = strdup(val.s);
-	    return ret;//skip resizing
-	} else if (type == VAL_NUM) {
-	    n_write = snprintf(ret.val.s, BUF_SIZE, "%f", val.x);
-	} else if (type == VAL_LIST) {
-	    //TODO
-	} else if (type == VAL_3VEC) {
-	    n_write = ret.val.v->to_str(ret.val.s, BUF_SIZE);
-	} else if (type == VAL_MAT) {
-	    n_write = ret.val.m->to_str(ret.val.s, BUF_SIZE);
-	}
+	int n_write = rep_string(ret.val.s, BUF_SIZE);
 	ret.val.s = (char*)realloc(ret.val.s, sizeof(char)*(n_write+1));
     }
     //if we reach this point in execution then there was an error
@@ -1297,14 +1307,18 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	}
     //handle arithmetic
     } else if (term_char == '+' && (i == 0 || str[i-1] != 'e')) {
-	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {	
-	    sto.val.x = tmp_l.val.x + tmp_r.val.x;
-	} else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
-	    sto.type = VAL_MAT;
-	    sto.val.m = new mat3x3(*tmp_l.val.m + *tmp_r.val.m);
-	} else if (tmp_l.type == VAL_STR) {
-	    //TODO: implement string concatenation
-	}
+        if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {	
+            sto.val.x = tmp_l.val.x + tmp_r.val.x;
+        } else if (tmp_l.type == VAL_MAT && tmp_r.type == VAL_MAT) {	
+            sto.type = VAL_MAT;
+            sto.val.m = new mat3x3(*tmp_l.val.m + *tmp_r.val.m);
+        } else if (tmp_l.type == VAL_STR) {
+            sto.type = VAL_STR;
+            sto.val.s = (char*)malloc(sizeof(char)*BUF_SIZE);
+            int n_write = tmp_l.rep_string(sto.val.s, BUF_SIZE);
+            if (n_write > 0 && n_write < BUF_SIZE)
+                n_write += tmp_r.rep_string(sto.val.s+n_write-1, BUF_SIZE-n_write);
+        }
     } else if (term_char == '-') {
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
 	    sto.val.x = tmp_l.val.x - tmp_r.val.x;

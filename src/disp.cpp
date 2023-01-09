@@ -31,6 +31,9 @@ context context_from_settings(const parse_settings& args) {
     con.emplace("sim_length", make_val_num(args.len));
     con.emplace("length", make_val_num(2*args.pml_thickness + args.len));
     con.emplace("l_per_um", make_val_num(args.um_scale));
+    value tmp_out = make_val_str(args.out_dir);
+    con.emplace("out_dir", tmp_out);
+    cleanup_val(&tmp_out);
     //helpful functions
     value tmp_f = make_val_func("um_to_l", 1, &um_to_l);
     con.emplace("um_to_l", tmp_f);
