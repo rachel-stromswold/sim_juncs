@@ -466,12 +466,14 @@ def make_fits(pf, axs_mapping=None):
     avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
     for i, clust in zip(axs_mapping, pf.clust_names):
         dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust)
-        amps_fit = np.abs(pf.get_field_amps(x_cnt, pf.get_clust_location(clust), 10.48, vac_wavelen=0.7))
-        phss_fit = np.abs(pf.get_field_phases(x_cnt, pf.get_clust_location(clust), 10.48, -np.pi/2))
+        clust_z = pf.get_clust_location(clust)
+        amps_fit = np.abs(pf.get_field_amps(x_cnt, clust_z, 10.48, vac_wavelen=0.7))
+        phss_fit = np.abs(pf.get_field_phases(x_cnt, clust_z, 10.48, -np.pi/2))
         #plot amplitudes
         tmp_axs = get_axis(axs_amp, i)
         tmp_axs.plot(x_cnt, amps_fit, color='gray', linestyle=':')
         tmp_axs.scatter(dat_xs, amp_arr[0], s=3)
+        tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 2)), (0.01, 0.68), xycoords='axes fraction')
         #plot phases
         tmp_axs = get_axis(axs_phs, i)
         #tmp_axs.plot(x_cnt, phss_fit)
@@ -479,6 +481,7 @@ def make_fits(pf, axs_mapping=None):
         tmp_axs.plot([x_cnt[0], x_cnt[-1]], [phase_th, phase_th], color='gray', linestyle=':')
         tmp_axs.scatter(dat_xs, phs_arr[0], s=3)
         tmp_axs = get_axis(axs_omg, i)
+        tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 2)), (0.01, 0.68), xycoords='axes fraction')
         omega_th = 2*np.pi*.299792458/pf.get_wavelen()[0] #2*pi*c/lambda
         tmp_axs.plot([x_cnt[0], x_cnt[-1]], [omega_th, omega_th], color='gray', linestyle=':')
         tmp_axs.scatter(dat_xs, omega_arr[0], s=3)
@@ -587,4 +590,4 @@ def make_plots(pf):
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
 #make_plots(pf)
 #make_theory_plots(pf)
-make_fits(pf, axs_mapping=[0,1,2,3,4,5,6,0,1,2,3,4,5,6])
+make_fits(pf, axs_mapping=[0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7])
