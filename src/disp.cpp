@@ -43,23 +43,6 @@ context context_from_settings(const parse_settings& args) {
     cleanup_val(&tmp_f);
     //add user defined options
     if (args.user_opts) {
-	char* save;
-	char* tmp_opts = strdup(args.user_opts);
-	char* line = strtok_r(args.user_opts, ";", &save);
-	while (line) {
-	    char* eq_loc = strchr_block(line, '=');
-	    if (eq_loc) {
-		*eq_loc = 0;
-		parse_ercode er = E_SUCCESS;
-		value tmp = con.parse_value(eq_loc+1, er);
-		line = CGS_trim_whitespace(line, NULL);
-		if (er == E_SUCCESS) con.emplace(line, tmp);
-		cleanup_val(&tmp);
-		*eq_loc = '=';
-	    }
-	    line = strtok_r(NULL, ";", &save);
-	}
-	free(tmp_opts);
 	line_buffer lb(args.user_opts, ';');
 	con.read_from_lines(lb);
     }

@@ -381,23 +381,22 @@ line_buffer::line_buffer(const char* str, char sep, const char* ignore_blocks) {
     for (;;++i) {
 	//iterate through pairs of open/close block delimeters
 	for (size_t j = 0; ignore_blocks[j] && ignore_blocks[j+1]; j += 2) {
-	    if (ignore_blocks[j] == ignore_blocks[j+1]) {
+	    if (str[i] == ignore_blocks[j] && ignore_blocks[j] == ignore_blocks[j+1]) {
 		//there's a special case for things like quotations, skip ahead until we find the end
 		++i;
 		for (;str[i] && str[i] != ignore_blocks[j]; ++i) (void)0;
 		break;
-	    } else {
-		if (str[i] == ignore_blocks[j])
-		    ++nest_level;
-		else if (str[i] == ignore_blocks[j+1])
-		    --nest_level;
+	    } else if (str[i] == ignore_blocks[j]) {
+		++nest_level;
+	    } else if (str[i] == ignore_blocks[j+1]) {
+		--nest_level;
 	    }
 	}
 	if (nest_level <= 0 && (str[i] == sep || str[i] == 0)) {
 	    line_sizes[n_lines] = i-last_sep;
 	    lines[n_lines] = (char*)malloc(sizeof(char)*(line_sizes[n_lines]+1));
 	    for (size_t j = last_sep; j < i; ++j)
-		lines[n_lines][j] = str[j];
+		lines[n_lines][j-last_sep] = str[j];
 	    lines[n_lines][line_sizes[n_lines]] = 0;
 	    last_sep = i+1;
 	    ++n_lines;

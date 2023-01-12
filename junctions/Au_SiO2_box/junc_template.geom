@@ -8,7 +8,7 @@ rght = (length + meep_width)/2
 print_res = print("top = ", top, ", bot = ", bot, ", left = ", left, ", right = ", rght)
 
 //unit amplitude linearly polarized 45 deg.
-data(type = "field_source", envelope = ["Gaussian", "Ex", 0.7, 1.0, 1.570796, 0.0, 3.5, 0.707107]]) {
+data(type = "field_source", envelope = ["Gaussian", "Ex", 0.7, 1.0, 1.570796, 0.0, 3.5, 0.707107]) {
     Box([0,0,1], [18,18,1]);
 }
 
