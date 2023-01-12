@@ -93,12 +93,17 @@ protected:
 	size_t old_size = buf_len;
 	buf_len = new_size;
 
-	T* tmp_buf = (T*)realloc(buf, sizeof(T)*buf_len);
+	T* tmp_buf = (T*)malloc(sizeof(T)*buf_len);
 	if (tmp_buf) {
+	    for (size_t i = 0; i < stack_ptr; ++i) {
+		tmp_buf[i] = std::move(buf[i]);
+	    }
 	    buf = tmp_buf;
 	    char* clear_buf = (char*)(tmp_buf+old_size);
-	    size_t clear_len = sizeof(T)*(buf_len-old_size);
-	    for (size_t i = 0; i < clear_len; ++i) clear_buf[i] = 0;
+	    if (buf_len > old_size) {
+		size_t clear_len = sizeof(T)*(buf_len-old_size);
+		for (size_t i = 0; i < clear_len; ++i) clear_buf[i] = 0;
+	    }
 	} else {
 	    buf_len = old_size;
 	    return E_NOMEM;

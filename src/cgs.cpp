@@ -388,8 +388,6 @@ parse_ercode scene::make_object(const cgs_func& f, object** ptr, object_type* ty
  * Produce an appropriate transformation matrix
  */
 parse_ercode scene::make_transformation(const cgs_func& f, mat3x3& res) const {
-    parse_ercode er = E_SUCCESS;
-
     if (!f.name) return E_BAD_TOKEN;
     //switch between all potential types
     if (strcmp(f.name, "rotate") == 0) {
@@ -532,12 +530,12 @@ parse_ercode scene::read_file(const char* p_fname) {
 			cur_func = named_items.parse_func(buf, i, er, &endptr);
 			switch (er) {
 			    case E_BAD_TOKEN:
-				printf("Error on line %d: Invalid function name \"%s\"\n", lineno, buf);
+				printf("Error on line %lu: Invalid function name \"%s\"\n", lineno, buf);
 				free(buf);
 				cleanup_func(&cur_func);
 				return fail_exit(er, fp);
 			    case E_BAD_SYNTAX:
-				printf("Error on line %d: Invalid syntax\n", lineno);
+				printf("Error on line %lu: Invalid syntax\n", lineno);
 				free(buf);
 				cleanup_func(&cur_func);
 				return fail_exit(er, fp);
@@ -593,7 +591,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 					if (scale_val.type == VAL_NUM) scale = (size_t)(scale_val.val.x);
 					//ensure that all parameters passed are valid
 					if (cam_look.norm() == 0 || up_vec.norm() == 0 || res == 0 || n_samples == 0) {
-					    printf("invalid parameters passed to snapshot on line %d\n", lineno);
+					    printf("invalid parameters passed to snapshot on line %lu\n", lineno);
 					} else {
 					    //make the drawing
 					    rvector<2> scale_vec;
@@ -613,7 +611,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 			} else {
 			    if (type == CGS_ROOT) {
 				if (!tree_pos.is_empty()) {
-				    printf("Error on line %d: Root composites may not be nested\n", lineno);
+				    printf("Error on line %lu: Root composites may not be nested\n", lineno);
 				} else {
 				    last_comp = (composite_object*)obj;
 				    last_type = BLK_ROOT;
@@ -649,8 +647,8 @@ parse_ercode scene::read_file(const char* p_fname) {
 			blk_stack.push(last_type);
 			last_type = BLK_UNDEF;
 		    } else if (buf[i] == '}') {
-			block_type bt;
-			if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf("Error on line %d: unexpected '}'\n", lineno);
+			block_type bt = BLK_UNDEF;
+			if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf(/*{*/"Error on line %lu: unexpected '}'\n", lineno);
 			switch (bt) {
 			    case BLK_INVERT: invert = 1 - invert;break;
 			    case BLK_ROOT: tree_pos.reset();
@@ -818,7 +816,7 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
 	if (!got_color) hues[k] = (_uint8)((k*256)/roots.size());
     }
     _uint8 cur_col[3];
-    fprintf(fp, "P3\n%d %d\n%d\n", res_x, res_y, IM_DEPTH);
+    fprintf(fp, "P3\n%lu %lu\n%d\n", res_x, res_y, IM_DEPTH);
     //iterate through the image buffer and write
     for (size_t yy = 0; yy < res_y; ++yy) {
 	for (size_t xx = 0; xx < res_x; ++xx) {
@@ -878,7 +876,9 @@ void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up
     for (long ii = 0; ii < res_x; ++ii) {
 	for (long jj = res_y-1; jj >= 0; --jj) {
 	    //orthographic projection
-	    vec3 disp = scale.el[0]*(2*(double)ii-res_x)*x_comp + scale.el[1]*(2*(double)jj-res_y)*y_comp;
+	    double xx = 2*(double)ii-res_x;
+	    double yy = 2*(double)jj-res_y;
+	    vec3 disp = scale.el[0]*xx*x_comp + scale.el[1]*yy*y_comp;
 	    vec3 r0 = cam_pos+disp;
 	    //take small steps until we hit the object
 	    bool itz = true;
