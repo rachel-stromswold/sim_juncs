@@ -105,13 +105,13 @@ public:
 	}
 	return ret;
     }
-    int to_str(char* str, size_t n) {
+    size_t to_str(char* str, size_t n) {
 	//we subtract 2*M characters for the open and close brackets for each row, M-1 for the commas separating rows, and M*(N-1) for the commas in columns
 	//(n/MN) - 2M - (M-1) - M(N-1) - 2 = (n/MN) - 2M - MN -1
 	size_t c_per_el = (n / (M*N)) - 2*M - M*N - 1;
 	if (str && c_per_el > 0 && n > 2) {
 	    str[0] = '[';str[1] = '[';//]]
-	    int off = 2;
+	    size_t off = 2;
 	    for (size_t i = 0; i < M; ++i) {
 		for (size_t j = 0; j < N; ++j) {
 		    //make sure we don't go past the end
@@ -145,7 +145,8 @@ struct rvector : public matrix<N,1> {
 	for (size_t i = 0; i < N; ++i) this->el[i] = o.el[i];
     }
     rvector<N>& operator=(const matrix<1,N>& o) {
-	for (size_t i = 0; i < N; ++i) this->el[i] = o.el[i];return this;
+	for (size_t i = 0; i < N; ++i) this->el[i] = o.el[i];
+	return this;
     }
     /**
      * create an NxN matrix with elements from the rvector along the diagonal

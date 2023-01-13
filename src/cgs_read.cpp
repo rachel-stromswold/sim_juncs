@@ -783,6 +783,7 @@ void cleanup_val(value* v) {
     } else if (v->type == VAL_FUNC && v->val.f) {
 	delete v->val.f;
     }
+    v->type = VAL_UNDEF;
     v->val.x = 0;
 }
 value copy_val(const value o) {
@@ -1471,9 +1472,6 @@ value context::parse_value(char* str, parse_ercode& er) {
 	}
 
 	if (nest_level == 0) {
-	    //keep track of the number of characters used by the operator
-	    int code_n_chars = 1;
-
 	    //check if we found a comparison operation symbol
 	    if (((str[i] == '=' && str[i+1] == '=') || str[i] == '>' || str[i] == '<') && op_prec < 5) {
 		op_prec = 5;
@@ -1560,9 +1558,11 @@ value context::parse_value(char* str, parse_ercode& er) {
 		//check that we found the list and that it was valid
 		if (contents.type != VAL_NUM) { cleanup_val(&contents);er = E_BAD_TYPE;return sto; }
 		//now figure out the index
-		long ind = (long)(contents.val.x);
-		if (ind < 0) ind = tmp_lst.n_els+ind;
-		if (ind >= tmp_lst.n_els || ind < 0) { er = E_OUT_OF_RANGE;return sto; }
+		long tmp = (long)(contents.val.x);
+		if (tmp < 0) tmp = tmp_lst.n_els+tmp;
+		if (tmp < 0) { er = E_OUT_OF_RANGE;return sto; }
+		size_t ind = (size_t)tmp;
+		if (ind >= tmp_lst.n_els) { er = E_OUT_OF_RANGE;return sto; }
 		return copy_val(tmp_lst.val.l[ind]);
 	    }
 	} else if (str[first_open_ind] == '{' && str[last_close_ind] == '}') {
@@ -1585,7 +1585,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 		    rval = eq_loc+1;
 		}
 		value tmp = sto.val.c->parse_value(rval, er);
-		if (er != E_SUCCESS) { free(list_els);sto.type=VAL_UNDEF;free(sto.val.c);sto.val.c = NULL;return sto; }
+		if (er != E_SUCCESS) { free(list_els);sto.type=VAL_UNDEF;cleanup_val(&sto);return sto; }
 		sto.val.c->emplace(cur_name, tmp);
 		cleanup_val(&tmp);
 	    }
@@ -1594,7 +1594,6 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    return sto;
 	} else if (str[first_open_ind] == '(' && str[last_close_ind] == ')') {
 	    //check to see if this is a function call (it is if there are any non-whitespace characters before the open paren
-	    int is_func = 0;
 	    for (size_t j = 0; j < first_open_ind; ++j) {
 		if (str[j] != ' ' && str[j] != '\t' && str[j] != '\n') {
 		    //we can't leave this as zero in case the user needs to do some more operations
@@ -1658,11 +1657,10 @@ parse_ercode context::read_from_lines(line_buffer b) {
     parse_ercode er = E_SUCCESS;
     stack<block_type> blk_stack;
 
-    char last_char = 0;
     size_t buf_size = BUF_SIZE;
     char* buf = (char*)malloc(sizeof(char)*buf_size);
     //iterate over each line in the file
-    for (long lineno = 0; lineno < b.get_n_lines(); ++lineno) {
+    for (size_t lineno = 0; lineno < b.get_n_lines(); ++lineno) {
 	char* line = b.get_line(lineno);
 	//check for class and function declarations
 	char* dectype_start = token_block(line, "def");
@@ -1675,8 +1673,10 @@ parse_ercode context::read_from_lines(line_buffer b) {
 		size_t i = 0;
 		for (; endptr[i] && (endptr[i] == ' ' || endptr[i] == '\t' || endptr[i] == '\n'); ++i) (void)0;
 		size_t n_enc = b.get_n_lines()-lineno;
-		line_buffer lines_enc(b.get_enclosed(lineno, &lineno, '{', '}', func_end));
-		if (lineno < 0) { free(buf);return E_BAD_SYNTAX; }
+		long t_line = lineno;
+		line_buffer lines_enc(b.get_enclosed(lineno, &t_line, '{', '}', func_end));
+		if (t_line < 0) { free(buf);return E_BAD_SYNTAX; }
+		lineno = (size_t)t_line;
 		//now we actually create the function
 		user_func tmp(cur_func, lines_enc);
 		value v;
@@ -1700,7 +1700,7 @@ parse_ercode context::read_from_lines(line_buffer b) {
 		    } else if (line[i+1] == '*') {
 			blk_stack.push(BLK_COMMENT);
 		    } else if (i > 0 && line[i-1] == '*') {
-			block_type tmp;
+			block_type tmp = BLK_UNDEF;
 			er = blk_stack.pop(&tmp);
 			if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
 		    }
@@ -1733,8 +1733,10 @@ parse_ercode context::read_from_lines(line_buffer b) {
 			sep_tok = ';';
 		    }
 		    if (match_tok != 0 && i > rval_start) {
-			line_buffer lines_enc(b.get_enclosed(lineno, &lineno, line[i], match_tok, i, true));
-			if (lineno < 0) { free(buf);return E_BAD_SYNTAX; }
+			long tmp = lineno;
+			line_buffer lines_enc(b.get_enclosed(lineno, &tmp, line[i], match_tok, i, true));
+			if (tmp < 0) { free(buf);return E_BAD_SYNTAX; }
+			lineno = (size_t)tmp;
 			//we have to advance to the end of the function declaration
 			char* enc = lines_enc.flatten(sep_tok);
 			//concatenate the string using thingies
