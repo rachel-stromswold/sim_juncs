@@ -588,7 +588,10 @@ parse_ercode scene::read_file(const char* p_fname) {
 					if (n_val.type == VAL_NUM) n_samples = (size_t)(n_val.val.x);
 					value scale_val = lookup_named(cur_func, "scale");
 					double scale = cam_look.norm();
-					if (scale_val.type == VAL_NUM) scale = (size_t)(scale_val.val.x);
+					if (scale_val.type == VAL_NUM) scale = (double)(scale_val.val.x);
+					value step_val = lookup_named(cur_func, "step");
+					double step = WALK_STEP;
+					if (step_val.type == VAL_NUM) step = (double)(step_val.val.x);
 					//ensure that all parameters passed are valid
 					if (cam_look.norm() == 0 || up_vec.norm() == 0 || res == 0 || n_samples == 0) {
 					    printf("invalid parameters passed to snapshot on line %lu\n", lineno);
@@ -597,7 +600,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 					    rvector<2> scale_vec;
 					    scale_vec.el[0] = scale;
 					    scale_vec.el[1] = scale;
-					    draw(cur_func.args[0].val.s, cam_pos, cam_look, up_vec, scale_vec, res, res, n_samples);
+					    draw(cur_func.args[0].val.s, cam_pos, cam_look, up_vec, scale_vec, res, res, n_samples, step);
 					}
 					cleanup_val(&look_val);
 					cleanup_val(&up_val);
@@ -756,6 +759,7 @@ scene::~scene() {
 void hsvtorgb(int h, int s, int v, _uint8* rgb) {
     int g_start = 85;//floor(256/3)
     int b_start = 170;//floor(256*2/3)
+    //int r_start = 255;
     if (rgb) {
 	int r,g,b;
 	int s_comp = 255-s;
@@ -785,27 +789,6 @@ void hsvtorgb(int h, int s, int v, _uint8* rgb) {
 	rgb[2] = (_uint8)b;
     }
 }
-/**
- * Helper function that returns a list of hues (in hsv color codes) associated with each root.
- * returns: an array of size roots.size() which has a hue associated with each root. These hues are arbitrarily assigned or set to a user specified value
- */
-_uint8* scene::get_hues() {
-     _uint8* hues = (_uint8*)malloc(sizeof(_uint8)*roots.size());
-    for (size_t k = 0; k < roots.size(); ++k) {
-	bool got_color = false;
-	//check if the user specified a valid color for this object
-	if (roots[k]->has_metadata("color")) {
-	    value col_val = roots[k]->fetch_metadata("color");
-	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) {
-		hues[k] = (_uint8)col_val.val.x;
-		got_color = true;
-	    }
-	}
-	//otherwise use an arbitrary color
-	if (!got_color) hues[k] = (_uint8)((k*256)/roots.size());
-    }
-    return hues;
-}
 /*
  * Save the image specified by z_buf and c_buf to out_fname with the specified resolution
  * z_buf: the z buffer. This must have a size res*res
@@ -821,7 +804,20 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
     } else {
 	fp = stdout;
     }
-    _uint8* hues = get_hues();
+    _uint8* hues = (_uint8*)malloc(sizeof(_uint8)*roots.size());
+    for (size_t k = 0; k < roots.size(); ++k) {
+	bool got_color = false;
+	//check if the user specified a valid color for this object
+	if (roots[k]->has_metadata("color")) {
+	    value col_val = roots[k]->fetch_metadata("color");
+	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) {
+		hues[k] = (_uint8)col_val.val.x;
+		got_color = true;
+	    }
+	}
+	//otherwise use an arbitrary color
+	if (!got_color) hues[k] = (_uint8)((k*256)/roots.size());
+    }
     _uint8 cur_col[3];
     fprintf(fp, "P3\n%lu %lu\n%d\n", res_x, res_y, IM_DEPTH);
     //iterate through the image buffer and write
@@ -839,7 +835,6 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
 	fprintf(fp, "\n");
     }
     fclose(fp);
-    free(hues);
 }
 /**
  * Render the object and save the image to out_fname
@@ -851,7 +846,7 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
  * res: the resolution of the saved image, only 1x1 aspect ratios are allowed
  * n_samples: the number of random samples to take, a higher value results in a cleaner image but takes longer to generate.
  */
-void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x, size_t res_y, size_t n_samples) {
+void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x, size_t res_y, size_t n_samples, double walk_step) {
     //depth scale factors and sampling region are determined by the magnitude of cam_look. Calculated these and then normalize cam_look
     double aa = 1/cam_look.norm();
     double max_draw_z = 2*cam_look.norm();
@@ -883,13 +878,11 @@ void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up
     for (long ii = 0; ii < res_x; ++ii) {
 	for (long jj = res_y-1; jj >= 0; --jj) {
 	    //orthographic projection
-	    double xx = 2*(double)ii-res_x;
-	    double yy = 2*(double)jj-res_y;
-	    vec3 disp = scale.el[0]*xx*x_comp + scale.el[1]*yy*y_comp;
+	    vec3 disp = scale.el[0]*(2*(double)ii-res_x)*x_comp + scale.el[1]*(2*(double)jj-res_y)*y_comp;
 	    vec3 r0 = cam_pos+disp;
 	    //take small steps until we hit the object
 	    bool itz = true;
-	    for (double z = 0; itz && z < max_draw_z; z += WALK_STEP*max_draw_z) {
+	    for (double z = 0; itz && z < max_draw_z; z += walk_step*max_draw_z) {
 		vec3 r = r0 + z*cam_look;
 		for (size_t k = 0; k < roots.size(); ++k) {
 		    if (roots[k]->in(r)) {

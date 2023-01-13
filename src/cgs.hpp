@@ -180,7 +180,6 @@ private:
     //let users define constants
     context named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
-    _uint8* get_hues();
     void save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y);
 
 public:
@@ -202,7 +201,7 @@ public:
     context& get_context() { return named_items; }
     //void cleanup_func(cgs_func& f);
     void draw_stochastic(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
-    void draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x=DEF_IM_RES, size_t res_y=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
+    void draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x=DEF_IM_RES, size_t res_y=DEF_IM_RES, size_t n_samples=DEF_TEST_N, double walk_step=WALK_STEP);
     void draw(const char* out_fname, vec3 cam_pos);
 };
 
