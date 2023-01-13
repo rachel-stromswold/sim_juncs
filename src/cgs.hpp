@@ -42,6 +42,7 @@ protected:
 public:
     object(int p_invert=0);
     object(const quaternion& orientation, int p_invert=0);
+    virtual ~object() { return; }
     virtual int in(const vec3& r) = 0;
     void set_inversion(int p_invert);
     void rescale(const vec3& components);
@@ -179,6 +180,7 @@ private:
     //let users define constants
     context named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
+    _uint8* get_hues();
     void save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y);
 
 public:

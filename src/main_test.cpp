@@ -40,9 +40,9 @@ TEST_CASE("Test Fourier transforms") {
     SUBCASE("the fourier transform of a gaussian is a gaussian") {
 	const _ftype gauss_sigma_sq = 2;
 	const int k_0 = 8;//use ints to make k-k_0 and k_0-k both valid. Totally not sketch :p
-	for (int k = 0; k < dat.size; ++k) {
+	for (_uint k = 0; k < dat.size; ++k) {
 	    //fill up each index with a pseudo random number between 0 and 1
-	    dat.buf[k].re = exp( (k-k_0)*(k_0-k)/(2*gauss_sigma_sq) );
+	    dat.buf[k].re = exp( ((int)k-k_0)*(k_0-(int)k)/(2*gauss_sigma_sq) );
 	    dat.buf[k].im = 0.0; 
 	}
 	//print out the result
@@ -61,7 +61,6 @@ TEST_CASE("Test Fourier transforms") {
 
 	//check that the inverse fft of the fft is approximately the original
 	_ftype omega_scale = 2*M_PI/dat.size;
-	_ftype k_0_by_sigma = k_0/sqrt(gauss_sigma_sq);
 	for (size_t k = 0; k < fft_dat.size; ++k) {
 	    _ftype omega = omega_scale*k;
 	    //the phase should be -\frac{\sigma^2\omega^2}{2} - i\omega k_0
@@ -80,7 +79,7 @@ TEST_CASE("Test Fourier transforms") {
 	complex x = {0.0, 0.0};
 	_ftype N = (_ftype)dat.size;
 	//generate a pseudo-random walk
-	for (int k = 0; k < dat.size; ++k) {
+	for (size_t k = 0; k < dat.size; ++k) {
 	    //fill up each index with a pseudo random number between 0 and 1
 	    dat.buf[k].re = x.re;
 	    dat.buf[k].im = x.im;
@@ -1303,7 +1302,7 @@ TEST_CASE("Test reading of configuration files") {
 
     SUBCASE("Reading just a config file works") {
 	parse_settings args;
-	int ret = parse_conf_file(&args, name_dup);
+	parse_conf_file(&args, name_dup);
 
 	CHECK(args.n_dims == 3);
 	CHECK(args.pml_thickness == 2.0);
@@ -1328,7 +1327,7 @@ TEST_CASE("Test reading of configuration files") {
 	//parse commandline arguments
 	std::string sim_argv_cpp[] = { "./test", "--conf-file", "blah.conf", "--geom-file", "blah.geom", "--out-dir", "/blah", "--grid-res", "3.0", "--length", "9.0", "--eps1", "2.0", "--opts", "a = 0.1; b_option = [1,\"blah\"]" };
 	//gcc doesn't like using string literals as c-strings, ugh.
-	int n_args = sizeof(sim_argv_cpp)/sizeof(std::string);
+	size_t n_args = sizeof(sim_argv_cpp)/sizeof(std::string);
 	//need to create two lists since parse_args modifies the list in place. The second list is only used so that we know which addresses to free.
 	char** sim_argv_c = (char**)malloc(sizeof(char*)*n_args);
 	char** post_sim_argv_c = (char**)malloc(sizeof(char*)*n_args);
@@ -1339,7 +1338,7 @@ TEST_CASE("Test reading of configuration files") {
 
 	//finally we can parse the command line arguments
 	int post_n_args = n_args;
-	int ret = parse_args(&args, &post_n_args, sim_argv_c);
+	parse_args(&args, &post_n_args, sim_argv_c);
 	CHECK(post_n_args == 1);
 
 	//this is used when calling parse_args, so it should be checked before everything else
@@ -1347,7 +1346,7 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(strcmp(args.conf_fname, "blah.conf") == 0);
 
 	//read the config file
-	ret = parse_conf_file(&args, name_dup);
+	parse_conf_file(&args, name_dup);
 	CHECK(args.geom_fname != NULL);
 	CHECK(strcmp(args.geom_fname, "blah.geom") == 0);
 	CHECK(args.out_dir != NULL);
@@ -1479,10 +1478,10 @@ void* read_h5_array_raw(const H5::Group& grp, const H5::DataType& ctype, size_t 
 	datatype.close();
 	dataset.close();
 	return data;
-    } catch (H5::FileIException error) {
+    } catch (H5::FileIException& error) {
 	error.printErrorStack();
 	return NULL;
-    } catch (H5::GroupIException error) {
+    } catch (H5::GroupIException& error) {
 	error.printErrorStack();
 	return NULL;
     }
@@ -1495,7 +1494,7 @@ TEST_CASE("Test that spans of monitor locations are read correctly") {
     parse_settings args;
     std::string name = "tests/span.conf";
     char* name_dup = strdup(name.c_str());
-    int ret = parse_conf_file(&args, name_dup);
+    parse_conf_file(&args, name_dup);
     free(name_dup);
 
     //try creating the geometry object
@@ -1615,7 +1614,7 @@ TEST_CASE("Test running with a very small system") {
     for (size_t i = 0; i < n_clusts; ++i) {
 	strncpy(name_buf, CLUSTER_NAME, BUF_SIZE);
 	write_number(name_buf + strlen(CLUSTER_NAME), BUF_SIZE-strlen(CLUSTER_NAME), i, n_group_digits);
-	printf("Now reading cluster %d\n", i);
+	printf("Now reading cluster %lu\n", i);
 	grp = file.openGroup(name_buf);
 	//check that the location data is correct
 	sto_vec* l_data = (sto_vec*)read_h5_array_raw(grp, loctype, sizeof(sto_vec), "locations", &n_l_pts);

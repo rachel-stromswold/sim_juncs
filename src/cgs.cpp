@@ -756,7 +756,6 @@ scene::~scene() {
 void hsvtorgb(int h, int s, int v, _uint8* rgb) {
     int g_start = 85;//floor(256/3)
     int b_start = 170;//floor(256*2/3)
-    int r_start = 255;
     if (rgb) {
 	int r,g,b;
 	int s_comp = 255-s;
@@ -786,6 +785,27 @@ void hsvtorgb(int h, int s, int v, _uint8* rgb) {
 	rgb[2] = (_uint8)b;
     }
 }
+/**
+ * Helper function that returns a list of hues (in hsv color codes) associated with each root.
+ * returns: an array of size roots.size() which has a hue associated with each root. These hues are arbitrarily assigned or set to a user specified value
+ */
+_uint8* scene::get_hues() {
+     _uint8* hues = (_uint8*)malloc(sizeof(_uint8)*roots.size());
+    for (size_t k = 0; k < roots.size(); ++k) {
+	bool got_color = false;
+	//check if the user specified a valid color for this object
+	if (roots[k]->has_metadata("color")) {
+	    value col_val = roots[k]->fetch_metadata("color");
+	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) {
+		hues[k] = (_uint8)col_val.val.x;
+		got_color = true;
+	    }
+	}
+	//otherwise use an arbitrary color
+	if (!got_color) hues[k] = (_uint8)((k*256)/roots.size());
+    }
+    return hues;
+}
 /*
  * Save the image specified by z_buf and c_buf to out_fname with the specified resolution
  * z_buf: the z buffer. This must have a size res*res
@@ -801,20 +821,7 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
     } else {
 	fp = stdout;
     }
-    _uint8* hues = (_uint8*)malloc(sizeof(_uint8)*roots.size());
-    for (size_t k = 0; k < roots.size(); ++k) {
-	bool got_color = false;
-	//check if the user specified a valid color for this object
-	if (roots[k]->has_metadata("color")) {
-	    value col_val = roots[k]->fetch_metadata("color");
-	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) {
-		hues[k] = (_uint8)col_val.val.x;
-		got_color = true;
-	    }
-	}
-	//otherwise use an arbitrary color
-	if (!got_color) hues[k] = (_uint8)((k*256)/roots.size());
-    }
+    _uint8* hues = get_hues();
     _uint8 cur_col[3];
     fprintf(fp, "P3\n%lu %lu\n%d\n", res_x, res_y, IM_DEPTH);
     //iterate through the image buffer and write

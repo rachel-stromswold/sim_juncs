@@ -10,23 +10,6 @@
 const double epsilon = 0.01;
 const double n_monitor_spheres = 2;
 
-/**
- * insertMember isn't available in all versions of hdf5, and there were some issues that popped up calling it after running the simulations. It's better to fail early if something is wrong
- */
-int test_h5_funcs() {
-    printf("Now trying HDF5 library files\n");
-    int ret = 1;
-    /*try {
-        H5::CompType fieldtype(sizeof(complex));
-        fieldtype.insertMember("Re", HOFFSET(complex, re), H5_float_type);
-        fieldtype.insertMember("Im", HOFFSET(complex, im), H5_float_type);
-    } catch (...) {
-        printf("insertMember doesn't work!\n");
-        ret = 0;
-    }*/
-    return ret;
-}
-
 int main(int argc, char **argv) {
     parse_settings args;
 
@@ -54,9 +37,6 @@ int main(int argc, char **argv) {
 
     //initialize a context for the scene based on parameters
     parse_ercode ercode = E_SUCCESS;
-
-    //test hdf5
-    int has_insert_member = test_h5_funcs();
 
     //create the geometry object
     auto start = std::chrono::steady_clock::now();

@@ -237,7 +237,7 @@ inline int parse_conf_file(parse_settings* s, char* fname) {
 
 //parse arguments used by the test program and remove them from the list so that they may safely be passed to open_mp initialization, returns 0 if no errors were detected and an error code otherwise
 inline int parse_args(parse_settings* a, int* argc, char ** argv) {
-    int n_args = *argc;//dereferencing that pointer all the time is kinda annoying
+    _uint n_args = (_uint)(*argc);//dereferencing that pointer all the time is kinda annoying
     if (a) {
 	for (_uint i = 0; i < n_args; ++i) {
 	    _uint to_rm = 0;

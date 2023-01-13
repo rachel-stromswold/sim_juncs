@@ -675,7 +675,6 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
 
     //we have to kludge it to get around the very f** annoying fact that meep doesn't have default constructors for fields, just read the structure_from_settings comment
     double z_center = s.len/2 + s.pml_thickness;
-    double eps_scale = 1 / (sharpness*s.resolution);
     printf("using simulation side length %f, resolution %f\n", s.len, s.resolution);
     if (s.n_dims == 1) {
 	vol = meep::vol1d(2*z_center, s.resolution);
@@ -844,7 +843,7 @@ void bound_geom::run(const char* fname_prefix) {
                 }
                 //save the raw hdf5 files if requested
                 if (dump_raw) {
-                    size_t n_written = make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
+                    make_dec_str(h5_fname+PREFIX_LEN, BUF_SIZE-PREFIX_LEN, fields.time(), n_digits_a, n_digits_b);
                     meep::h5file* file = fields.open_h5file(h5_fname);
                     fields.output_hdf5(meep::Ex, vol.surroundings(), file);
                     delete file;
@@ -853,7 +852,7 @@ void bound_geom::run(const char* fname_prefix) {
             }
             fields.step();
         }
-    } catch (std::runtime_error err) {
+    } catch (std::runtime_error& err) {
         std::cout << "error on step " << i << ": " << err.what() << std::endl;
     }
 
@@ -878,7 +877,9 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 
     hid_t float_member_id = H5_float_type.getId();
     herr_t ret_val = H5Tinsert(fieldtype.getId(), "Re", HOFFSET(complex, re), float_member_id);
+    if (ret_val < 0) return;
     ret_val = H5Tinsert(fieldtype.getId(), "Im", HOFFSET(complex, im), float_member_id);
+    if (ret_val < 0) return;
     //use the space of rank 1 tensors with a dimension of n_t_pts
     hsize_t t_dim[1];
     t_dim[0] = {n_t_pts/dump_span};
@@ -964,7 +965,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     free(tmp_srcs);
 
     //iterate over each desired point and save its time series and fourier transform
-    printf("found %d monitor locations\n", n_locs);
+    printf("found %lu monitor locations\n", n_locs);
     //iterate over monitor locations respecting groups, i will track monitor index, j will track group index
     _uint i = 0;
     size_t n_group_digits = (size_t)(log(monitor_clusters.size()) / log(10)) + 1;
@@ -1020,10 +1021,10 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 void bound_geom::write_settings(FILE* fp) {
     fprintf(fp, "source end time = %f\ntotal simulation time = %f\n", fields.last_source_time(), ttot);
     //print information about sources
-    fprintf(fp, "sources {\n\tn = %d\n", sources.size());
+    fprintf(fp, "sources {\n\tn = %lu\n", sources.size());
     size_t jj = 0;
     for (auto it = sources.begin(); it != sources.end(); ++it) {
-        fprintf(fp, "\tsource_%d {\n", jj);
+        fprintf(fp, "\tsource_%lu {\n", jj);
         if (it->type == SRC_GAUSSIAN)
             fprintf(fp, "\t\ttype = Gaussian\n");
         else
@@ -1039,11 +1040,11 @@ void bound_geom::write_settings(FILE* fp) {
     }
     fprintf(fp, "}\n");
     //print information about monitor locations
-    fprintf(fp, "monitor_clusters {\n\tn = %d\n", monitor_clusters.size());
+    fprintf(fp, "monitor_clusters {\n\tn = %lu\n", monitor_clusters.size());
     jj = 0;
     for (auto it = monitor_clusters.begin(); it != monitor_clusters.end(); ++it) {
         size_t end_ind = *it;
-        fprintf(fp, "\t%s%d {\n\t\tn = %d\n", CLUSTER_NAME, std::distance(monitor_clusters.begin(), it), end_ind-jj);
+        fprintf(fp, "\t%s%lu {\n\t\tn = %lu\n", CLUSTER_NAME, std::distance(monitor_clusters.begin(), it), end_ind-jj);
         for (; jj < end_ind; ++jj) {
             fprintf(fp, "\t\t(%f, %f, %f)\n", monitor_locs[jj].x(), monitor_locs[jj].y(), monitor_locs[jj].z());
         }
