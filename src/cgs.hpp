@@ -12,7 +12,10 @@
 
 #define DEF_TEST_N	50000
 #define WALK_STEP_STC	0.05
+//This describes the fraction of the camera look depth that is used as a step size. Smaller values make more accurate images but take longer.
 #define WALK_STEP	0.01
+//To improve image quality, steps look at previous pixels and march forward using smaller steps. If the ray fails to colide within this region, then it switches to larger regions and takes larger steps.
+#define NEAR_THRESH	0.1
 #define DEF_IM_RES	255
 #define IM_DEPTH	255
 #define IM_LN_DEPTH	8

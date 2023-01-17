@@ -837,6 +837,12 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
     fclose(fp);
 }
 /**
+ * Helper function for draw() which steps along the ray disp using the z buffer at indices n1 and n2 as a hint for the depth
+ */
+void scene::ray_step(_uint8* z_buf, _uint8* c_buf, size_t ind, size_t n1, size_t n2, vec3 disp) {
+
+}
+/**
  * Render the object and save the image to out_fname
  * out_fname: the filename for the picture
  * cam_pos: the position of the camera
