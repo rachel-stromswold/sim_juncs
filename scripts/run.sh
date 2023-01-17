@@ -27,7 +27,6 @@ done
 #only load modules if we're running this on the cluster
 if [ $run_local == "f" ]; then
     pname="/local_scratch/$SLURM_JOB_ID"
-    #pname="/scratch/$(whoami)/junc_simuls"
     oname="/scratch/$(whoami)/junc_simuls"
 
     module load python3/3.8.8
@@ -41,10 +40,8 @@ fi
 echo "working directory name: $pname, output name: $oname, run local? $run_local"
 
 #the widths used for each job in the array. These are similar to those used in Schiffrin et al. For a SiO2 junction.
-#widths=("0.40" "0.44" "0.48" "0.52" "0.56" "0.60" "0.64" "0.68" "0.72" "0.76")
 widths=("0.05" "0.10" "0.15" "0.20" "0.25" "0.30" "0.35" "0.45" "0.50" "0.55")
 #hacky way of getting just gold and just silica
-#widths=("0.00" "10.00")
 thickness="0.2"
 resolution="12.0"
 h5dir="$pname/test_$SLURM_ARRAY_TASK_ID"
@@ -55,8 +52,8 @@ mkdir $h5dir/fit_figs
 
 if [ $run_simuls == "t" ]; then
     rm -f $h5dir/*
-    cp junc_template.geom $h5dir/junc.geom
-    ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file "$h5dir"/junc.geom --opts "width=${widths[$((SLURM_ARRAY_TASK_ID-1))]};thick=$thickness"
+    #valgrind --leak-check=full --track-origins=yes ./sim_geom --out-dir $h5dir --grid-res ${resolutions[$((SLURM_ARRAY_TASK_ID-1))]}
+    ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file junc_template.geom --opts "width=${widths[$((SLURM_ARRAY_TASK_ID-1))]};thick=$thickness"
 fi
 #make the test plots in check_enes.py
 mkdir "$pname"/figures
@@ -86,9 +83,7 @@ cp "$h5dir"/cross_plot.pdf "$oname"/figures/cross_plot_"$SLURM_ARRAY_TASK_ID".pd
 cp "$h5dir"/tdom_plot.pdf "$oname"/figures/tdom_plot_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/amps_theory.pdf "$oname"/figures/amps_theory_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/phases_theory.pdf "$oname"/figures/phases_theory_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/junc.pgm "$oname"/figures/junc_"$SLURM_ARRAY_TASK_ID".pgm
 cp "$h5dir"/amps.pdf "$oname"/figures/amps_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/phases.pdf "$oname"/figures/phases_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/sigs.pdf "$oname"/figures/sigs_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/root_0.pgm "$oname"/figures/root_0.pgm
-cp "$h5dir"/root_1.pgm "$oname"/figures/root_1.pgm
+cp "$h5dir"/junc.pgm "$oname"/figures/junc_"$SLURM_ARRAY_TASK_ID".pgm

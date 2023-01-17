@@ -107,9 +107,11 @@ class phase_finder:
     def get_amplitude(self):
         return self.f['info']['sources']['amplitude']
 
-    def get_clust_location(self, clust):
+    def get_clust_location(self, clust, ref_z=-1):
         '''return the location of the cluster with the name clust along the propagation direction (z if slice_dir=x x if slice_dir=z)'''
-        return self.geom.meep_len_to_um(self.f[clust]['locations'][slice_name][0] - self.geom.t_junc)
+        if ref_z < 0:
+            ref_z = self.geom.t_junc
+        return self.geom.meep_len_to_um(self.f[clust]['locations'][slice_name][0] - ref_z)
 
     def get_point_times(self, clust, ind, low_pass=False):
         #fetch a list of points and their associated coordinates
@@ -150,15 +152,16 @@ class phase_finder:
             plt.plot(self.t_pts, v_pts)
             plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
             plt.clf()
-            print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
             try:
-                res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+                res,res_env = phases.opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
             except:
                 print("fitting to raw time series failed, applying low pass filter")
                 v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
-                res,res_env = phases.opt_pulse_env(self.t_pts, v_pts, a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+                res,res_env = phases.opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
             n_evals += 1
-            print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
+            if phases.verbose > 0:
+                print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
+                print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
             #only include this point if the fit was good
             if res.fun*self.sq_er_fact < 50.0:
                 good_zs.append(zs[j])
@@ -323,7 +326,7 @@ class phase_finder:
         slice_amps = []
         avg_eps_est = 0
         for clust in clusts:
-            dat_xs, amp_arr, _, _ = self.lookup_fits(clust)
+            dat_xs, amp_arr, _, _ = self.lookup_fits(clust, recompute=True)
             #the TE mode expansion is only valid inside the junction, so we need to truncate the arrays
             lowest_valid = -1
             highest_valid = -1
@@ -397,27 +400,7 @@ def get_axis(axs_list, ind):
     else:
         return axs_amp[ind//N_COLS,ind%N_COLS]
 
-def make_theory_plots(pf):
-    #figure out the edges of the junction
-    junc_bounds = pf.get_junc_bounds()
-    l_gold = [pf.x_range[0], junc_bounds[0]]
-    r_gold = [junc_bounds[1], pf.x_range[-1]]
-    #initialize plots
-    fig_amp, axs_amp = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
-    x_pts = np.linspace(junc_bounds[0], junc_bounds[1], num=100)
-    for i, clust in enumerate(pf.clust_names):
-        z = pf.get_clust_location(clust)
-        amps = pf.get_field_amps(x_pts, z, 0.5, 0.1, EPS_0)
-        #actually make the plot
-        tmp_axs = get_axis(axs_amp, i)
-        tmp_axs.plot(x_pts, amps)
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        #tmp_axs.set_ylim(AMP_RANGE)
-    fig_amp.savefig(args.prefix+"/amps_theory.pdf")
-
-def make_fits(pf, axs_mapping=None):
+def make_fits(pf, axs_mapping=None, recompute=False):
     #use a default set of axes if the user didn't supply one or the supplied axes were invalid
     if axs_mapping is None:
         axs_mapping = range(len(pf.clust_names))
@@ -465,15 +448,15 @@ def make_fits(pf, axs_mapping=None):
     #now perform a plot using the average of fits
     avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
     for i, clust in zip(axs_mapping, pf.clust_names):
-        dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust)
-        clust_z = pf.get_clust_location(clust)
+        dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust, recompute=recompute)
+        clust_z = pf.get_clust_location(clust, pf.geom.z_center)
         amps_fit = np.abs(pf.get_field_amps(x_cnt, clust_z, 10.48, vac_wavelen=0.7))
         phss_fit = np.abs(pf.get_field_phases(x_cnt, clust_z, 10.48, -np.pi/2))
         #plot amplitudes
         tmp_axs = get_axis(axs_amp, i)
         tmp_axs.plot(x_cnt, amps_fit, color='gray', linestyle=':')
         tmp_axs.scatter(dat_xs, amp_arr[0], s=3)
-        tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 2)), (0.01, 0.68), xycoords='axes fraction')
+        tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 3)), (0.01, 0.68), xycoords='axes fraction')
         #plot phases
         tmp_axs = get_axis(axs_phs, i)
         #tmp_axs.plot(x_cnt, phss_fit)
@@ -481,7 +464,7 @@ def make_fits(pf, axs_mapping=None):
         tmp_axs.plot([x_cnt[0], x_cnt[-1]], [phase_th, phase_th], color='gray', linestyle=':')
         tmp_axs.scatter(dat_xs, phs_arr[0], s=3)
         tmp_axs = get_axis(axs_omg, i)
-        tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 2)), (0.01, 0.68), xycoords='axes fraction')
+        tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 3)), (0.01, 0.68), xycoords='axes fraction')
         omega_th = 2*np.pi*.299792458/pf.get_wavelen()[0] #2*pi*c/lambda
         tmp_axs.plot([x_cnt[0], x_cnt[-1]], [omega_th, omega_th], color='gray', linestyle=':')
         tmp_axs.scatter(dat_xs, omega_arr[0], s=3)
@@ -492,102 +475,5 @@ def make_fits(pf, axs_mapping=None):
     fig_omg.savefig(args.prefix+"/omega_sim.pdf")
     fig_fits.savefig(args.prefix+"/fit_plt.pdf")
 
-def make_plots(pf):
-    #figure out the edges of the junction
-    junc_bounds = pf.get_junc_bounds()
-    l_gold = [pf.x_range[0], junc_bounds[0]]
-    r_gold = [junc_bounds[1], pf.x_range[-1]]
-    #initialize plots
-    fig_amp, axs_amp = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
-    fig_time, axs_time = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
-    fig_cep, axs_cep = plt.subplots(pf.n_clusts//N_COLS, N_COLS)
-    for i, clust in enumerate(pf.clust_names):
-        good_zs, amp_arr, sig_arr, phase_arr = pf.read_cluster(clust)
-        #make two axis demo plot
-        if i == 2:
-            d_fig, d_ax1 = plt.subplots(figsize=(7,3))
-            d_ax2 = d_ax1.twinx()
-            #label things
-            d_fig.suptitle("Phase and amplitude across a junction")
-            d_ax1.set_ylabel(r"$\phi/\pi$", color='red')
-            d_ax1.set_xlabel(r"${}$ ($\mu$m)".format(slice_dir))
-            d_ax2.set_ylabel(r"Amplitude", color='blue')
-            #phase plot
-            d_ax1.scatter(good_zs, phase_arr[0], color='red')
-            d_ax1.plot([good_zs[0], good_zs[-1]], [0, 0], color='black', linestyle=':')
-            d_ax1.plot([good_zs[0], good_zs[-1]], [0.5, 0.5], color='gray', linestyle=':')
-            d_ax1.plot([good_zs[0], good_zs[-1]], [-0.5, -0.5], color='gray', linestyle=':')
-            d_ax1.set_xlim(pf.x_range)
-            d_ax1.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
-            d_ax1.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
-            d_ax1.set_ylim(PHI_RANGE)
-            d_ax1.set_yticks([-1, -0.5, 0, 0.5, 1])
-            #amplitude plot
-            d_ax2.scatter(good_zs, amp_arr[0], color='blue')
-            d_ax2.set_xlim(pf.x_range)
-            d_ax2.set_ylim(AMP_RANGE)
-            d_fig.savefig(args.prefix+"/demo.pdf")
-
-        tmp_axs_amp = get_axis(axs_amp, i)
-        tmp_axs_time = get_axis(axs_time, i)
-        tmp_axs_cep = get_axis(axs_cep, i)
-        #make amplitude plot
-        tmp_axs_amp.errorbar(good_zs, amp_arr[0], yerr=amp_arr[1], fmt='.', linestyle='')
-        tmp_axs_amp.set_xlim(pf.x_range)
-        tmp_axs_amp.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs_amp.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs_amp.set_ylim(AMP_RANGE)
-        #make spread plot
-        tmp_axs_time.errorbar(good_zs, sig_arr[0], yerr=sig_arr[1], label=r"$\sigma$", fmt='.', linestyle='')
-        tmp_axs_time.set_xlim(pf.x_range)
-        tmp_axs_time.fill_between(l_gold, SIG_RANGE[0], SIG_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs_time.fill_between(r_gold, SIG_RANGE[0], SIG_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs_time.set_ylim(SIG_RANGE)
-        #make phase plot
-        tmp_axs_cep.errorbar(good_zs, phase_arr[0], yerr=phase_arr[1], fmt='.', linestyle='')
-        tmp_axs_cep.plot([good_zs[0], good_zs[-1]], [0, 0], color='black', linestyle=':')
-        tmp_axs_cep.plot([good_zs[0], good_zs[-1]], [0.5, 0.5], color='gray', linestyle=':')
-        tmp_axs_cep.plot([good_zs[0], good_zs[-1]], [-0.5, -0.5], color='gray', linestyle=':')
-        tmp_axs_cep.set_xlim(pf.x_range)
-        tmp_axs_cep.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs_cep.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs_cep.set_ylim(PHI_RANGE)
-        tmp_axs_cep.set_yticks([-1, 1])
-        #perform regression if desired
-        if args.regression:
-            if len(good_zs) > 1:
-                cep_line = linregress(good_zs, phase_arr[0])
-            else:
-                cep_line = linregress([0,1],[0,0])#give bad dummy values
-            print("x={}: phi(z)={}z+{}, phi(0.1)={}".format(x, cep_line.slope, cep_line.intercept, cep_line.slope*0.1+cep_line.intercept))
-            tmp_axs_cep.plot(good_zs, cep_line.slope*np.array(good_zs) + cep_line.intercept, color='gray')
-            tmp_axs_cep.annotate(r"$\phi={0:.2g}z+{1:.2g}$, $r^2={2:.2g}$".format(cep_line.slope, cep_line.intercept, cep_line.rvalue*cep_line.rvalue), (0.01, 0.84), xycoords='axes fraction')
-        #hide x axis labels on everything
-        if i < pf.n_clusts-N_COLS:
-            tmp_axs_amp.get_xaxis().set_visible(False)
-            tmp_axs_time.get_xaxis().set_visible(False)
-            tmp_axs_cep.get_xaxis().set_visible(False)
-        if i % N_COLS > 0:
-            tmp_axs_amp.get_yaxis().set_visible(False)
-            tmp_axs_time.get_yaxis().set_visible(False)
-            tmp_axs_cep.get_yaxis().set_visible(False)
-    fig_amp.suptitle("Amplitude as a function of depth")
-    fig_time.suptitle("Pulse width as a function of depth")
-    fig_cep.suptitle("Phase as a function of depth")
-    fig_amp.supylabel(r"Amplitude (incident units)")
-    fig_time.supylabel(r"$\sigma$ (fs)")
-    fig_cep.supylabel(r"$\frac{\phi}{\pi}$")
-    fig_amp.supxlabel(r"${}$ ($\mu$m)".format(slice_dir))
-    fig_time.supxlabel(r"${}$ ($\mu$m)".format(slice_dir))
-    fig_cep.supxlabel(r"${}$ ($\mu$m)".format(slice_dir))
-    #fig_amp.tight_layout(pad=0.5)
-    #fig_time.tight_layout(pad=0.5)
-    #fig_cep.tight_layout(pad=0.5)
-    fig_cep.savefig(args.prefix+"/phases.pdf")
-    fig_amp.savefig(args.prefix+"/amps.pdf")
-    fig_time.savefig(args.prefix+"/sigs.pdf")
-
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
-#make_plots(pf)
-#make_theory_plots(pf)
-make_fits(pf, axs_mapping=[0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7])
+make_fits(pf, axs_mapping=[0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7], recompute=True)

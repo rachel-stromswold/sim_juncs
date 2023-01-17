@@ -14,6 +14,8 @@ OUTLIER_FACTOR = 20
 N_STDS = 2
 WIDTH_SCALE = 1000
 
+verbose = 0
+
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
 #for a local maxima with amplitude A_l/A_g >= LOC_MAX_CUT, the location of A_l will be considered for double envelope optimization. Here A_l is the amplitude of the local maxima and A_g is the amplitude of the global maxima
@@ -72,6 +74,7 @@ class EnvelopeFitter:
         a_pts: values to search
         cutoff: if this is set to a value greater than zero, then all points with an amplitude less than cutoff*global_max_a will be removed
         '''
+        #make sure we're dealing with real amplitudes instead of complex numbers when finding maxima
         self.ext_ts = []
         self.ext_vs = []
         self.max_t = 0
@@ -85,7 +88,7 @@ class EnvelopeFitter:
                 self.ext_ts.append(t_pts[i])
                 self.ext_vs.append(abs(a_pts[i]))
                 #check if this is a global maxima
-                if self.ext_vs[-1] > self.max_v and (self.ext_vs[-1] < self.max_v*outlier or self.max_v == 0):
+                if self.ext_vs[-1] > self.max_v:
                     self.l_max_i = i
                     self.max_t = t_pts[i]
                     self.max_v = self.ext_vs[-1]
@@ -220,7 +223,8 @@ class EnvelopeFitter:
     def opt_double_envelope(self, fig_name=''):
         '''Optimize an envelope that is a superposition of two gaussians'''
         fwhm,_,_ = self.cut_devs(both_tails=True)
-        print("fwhm = %f" % fwhm)
+        if verbose > 1:
+            print("\tfwhm = %f" % fwhm)
 
         #normalize the amplitude
         l_ext_ts = np.array(self.ext_ts)
@@ -277,8 +281,8 @@ class EnvelopeFitter:
             t_range = l_ext_ts[-1] - l_ext_ts[0]
             t_cent = (l_ext_ts[-1] + l_ext_ts[0])/2
             int_ts = np.linspace(t_cent-t_range, t_cent+t_range, num=200)
-            ax.plot(int_ts, doub_gauss_ser(x0, int_ts), color='red')
-            ax.plot(int_ts, doub_gauss_ser(res.x, int_ts), color='blue')
+            ax.plot(int_ts, np.abs(doub_gauss_ser(x0, int_ts)), color='red')
+            ax.plot(int_ts, np.abs(doub_gauss_ser(res.x, int_ts)), color='blue')
             fig.savefig(fig_name+".png", dpi=300)
             plt.close(fig)
 
@@ -525,7 +529,8 @@ def opt_pulse_env(t_pts, a_pts, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name='')
     err_1 = env_fit.sq_err_fit_double(env_res_1.x)
     #compute the bayes factor for the single and double pulses. We take both models to have identical priors. Note that under assumption of Gaussian errors the error cancels
     ln_bayes =  (0.5/skip_sigma_sq)*(err_0 - err_1)
-    print("\t\tenvelope sigma={}, bayes factor={}".format(skip_sigma_sq, np.exp(ln_bayes)))
+    if verbose > 1:
+        print("\tenvelope sigma={}, bayes factor={}".format(skip_sigma_sq, np.exp(ln_bayes)))
     #substantial evidence as defined by Jeffreys
     if np.isnan(ln_bayes) or ln_bayes > 1.15:
         env_res = env_res_1
