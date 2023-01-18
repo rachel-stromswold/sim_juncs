@@ -184,6 +184,7 @@ private:
     context named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
     void save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y);
+    void ray_step(_uint8* z_buf, _uint8* c_buf, size_t ind, size_t n1, size_t n2, vec3 disp);
 
 public:
     scene() {}
