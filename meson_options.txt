@@ -1,0 +1,2 @@
+option('float_bits', type: 'integer', value: 32, description: 'floating point precision used when saving field data')
+option('junction_type', type: 'string', value: 'Au_SiO2_box', description: 'The junction to use for simulations. Available junctions can be found in the junctions directory.')
