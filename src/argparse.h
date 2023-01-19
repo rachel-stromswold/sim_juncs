@@ -40,7 +40,6 @@ typedef struct {
     _uint smooth_n = 0;
     double smooth_rad = DEFAULT_SMOOTH_RAD;
     //misc
-    char* monitor_locs = NULL;
     double post_source_t = 10.0;
     _uint field_dump_span = 20;
     unsigned char dump_raw = 0;
@@ -89,7 +88,6 @@ inline void set_ercode(int* sto, int er) {
 
 inline void cleanup_settings(parse_settings* s) {
     if (s->geom_fname_al) free(s->geom_fname_al);
-    if (s->monitor_locs) free(s->monitor_locs);
     if (s->user_opts) free(s->user_opts);
 }
 
@@ -146,9 +144,7 @@ inline void handle_pair(parse_settings* s, char* const tok, _uint toklen, char* 
         //copy only the non whitespace portion
 	if (s->geom_fname_al) free(s->geom_fname_al);
         s->geom_fname_al = strdup(val);
-        s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);
-    } else if (strcmp(tok, "monitor_locations") == 0 && !s->monitor_locs) {
-        s->monitor_locs = strdup(val);
+        s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);    
     } else if (strcmp(tok, "post_source_t") == 0) {
         s->post_source_t = strtod(val, NULL);
     } else if (strcmp(tok, "field_dump_span") == 0) {
@@ -324,13 +320,13 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "-v") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --eps1 <epsilon1>");
+		    printf("Usage: meep -v <verbosity (integer)>");
 		    return 0;
 		} else {
 		    a->verbosity = strtol(argv[i+1], NULL, 10);
 		    //check for errors
 		    if (errno != 0) {
-			printf("Invalid floating point supplied to --eps1");
+			printf("Invalid value supplied to -v, should be integer");
 			return errno;
 		    }
 		    to_rm = 2;
@@ -366,7 +362,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
  *	-1: there was not sufficient space allocated to store the string
  *	-2: the number of digits exceeded the number specified
  **/
-inline size_t make_dec_str(char* str, size_t len, double t, _uint n_digits_a, _uint n_digits_b) {
+inline long make_dec_str(char* str, size_t len, double t, _uint n_digits_a, _uint n_digits_b, char dec_char='.') {
     //checks to avoid segfaults
     if (!str) return -1;
     if (len < n_digits_a+n_digits_b+2) {
@@ -392,7 +388,7 @@ inline size_t make_dec_str(char* str, size_t len, double t, _uint n_digits_a, _u
     for (size_t j = 0; j < n_digits_a-i; ++j) str[j] = '0';
 
     //write the "decimal" place
-    str[n_digits_a] = '.';
+    str[n_digits_a] = dec_char;
     i = n_digits_a+1;
     while (i < n_digits_b+n_digits_a+1) {
 	t *= 10;

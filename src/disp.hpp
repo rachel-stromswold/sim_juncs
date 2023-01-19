@@ -111,7 +111,7 @@ public:
 // Gaussian-envelope source with given frequency, width, peak-time, cutoff and phase
 class gaussian_src_time_phase : public meep::src_time {
 public:
-    gaussian_src_time_phase(double f, double fwidth, double phase, double s = 5.0);
+    //gaussian_src_time_phase(double f, double fwidth, double phase, double s = 5.0);
     gaussian_src_time_phase(double f, double w, double phase, double start_time, double end_time);
     virtual ~gaussian_src_time_phase() {}
 
@@ -120,13 +120,15 @@ public:
     virtual src_time *clone() const { return new gaussian_src_time_phase(*this); }
     virtual bool is_equal(const src_time &t) const;
     virtual std::complex<double> frequency() const { return omega/(2*M_PI); }
-    virtual double get_fwidth() const { return fwidth; };
-    virtual void set_fwidth(double fw) { fwidth = fw; };
+    virtual double get_omega() const { return omega; };
+    virtual double get_width() const { return width; };
+    virtual double get_fwidth() const { return 1.0/width; };
+    virtual void set_width(double w) { width = w; };
     virtual void set_frequency(std::complex<double> f) { omega = 2*M_PI*real(f); }
     std::complex<double> fourier_transform(const double f);
 
 private:
-    double omega, fwidth, width, phi, peak_time, cutoff;
+    double omega, width, phi, peak_time, cutoff;
     std::complex<double> amp;
 };
 

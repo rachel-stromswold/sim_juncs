@@ -11,13 +11,6 @@ message(STATUS "Building project ${PROJECT_NAME}")
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     set(TEST_EXE test)
     set(CMAKE_BUILD_TYPE Debug)
-    #if(GEN_COVERAGE)
-    #set(CMAKE_CXX_FLAGS "-O0 -Wall -fprofile-arcs -ftest-coverage")
-    #	set(CMAKE_C_FLAGS "-O0 -Wall -fprofile-arcs -ftest-coverage")
-    #else()
-    #	set(CMAKE_CXX_FLAGS "-Og -Wall")
-    #	set(CMAKE_C_FLAGS "-Og -Wall")
-    #endif()
     set(CMAKE_CXX_FLAGS "-Og -Wall")
     set(CMAKE_C_FLAGS "-Og -Wall")
 else()
@@ -60,12 +53,6 @@ if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     add_custom_command(TARGET ${TEST_EXE} POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E copy_directory
 		   ${CMAKE_SOURCE_DIR}/tests $<TARGET_FILE_DIR:${PROJECT_NAME}>/tests)
-    #setup coverage
-    if(GEN_COVERAGE)
-	include(CodeCoverage)
-	append_coverage_compiler_flags_to_target(${TEST_EXE})
-	setup_target_for_coverage_gcovr_html(test_coverage ${TEST_EXE} coverage)
-    endif()
 endif()
 
 #allow the user to specify what type of geometry they'd like to use

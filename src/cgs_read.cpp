@@ -723,7 +723,7 @@ value make_val_str(const char* s) {
 value make_val_std_str(std::string s) {
     value v;
     v.type = VAL_STR;
-    v.n_els = s.size();
+    v.n_els = s.size() + 1;
     v.val.s = (char*)malloc(sizeof(char)*v.n_els);
     for (size_t i = 0; i < v.n_els; ++i) v.val.s[i] = s[i];
     return v;
@@ -822,7 +822,30 @@ void swap_val(value* a, value* b) {
     a->val = b->val;
     b->val = tmp_v;
 }
-bool value::operator==(std::string str) {
+bool value::operator==(const value& o) const {
+    if (type != o.type) return false;
+    if (type == VAL_NUM) {
+	return (val.x == o.val.x);
+    } else if (type == VAL_STR) {
+	//first make sure that both strings are not null
+	if ((val.s == NULL || o.val.s == NULL) && val.s != o.val.s) return false;
+	return (strcmp(val.s, o.val.s) == 0);
+    } else if (type == VAL_LIST) {
+	if ((val.l == NULL || o.val.l == NULL) && val.l != o.val.l) return false;
+	if (n_els != o.n_els) return false;
+	for (size_t i = 0; i < n_els; ++i) {
+	    bool res = (val.l[i] == o.val.l[i]);
+	    if (!res) return false;
+	}
+	return true;
+    }
+    //TODO: implement other comparisons
+    return false;
+}
+bool value::operator!=(const value& o) const {
+    return !(*this == o);
+}
+bool value::operator==(const std::string str) const {
     if (type != VAL_STR) return false;
     size_t strlen = str.size();
     if (strlen != n_els-1) return false;
@@ -831,7 +854,7 @@ bool value::operator==(std::string str) {
     }
     return true;
 }
-bool value::operator!=(std::string str) {
+bool value::operator!=(const std::string str) const {
     if (type != VAL_STR) return true;
     size_t strlen = str.size();
     if (strlen != n_els-1) return true;
@@ -1319,7 +1342,10 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
     sto.type = VAL_NUM;
     //handle equality comparisons
     if (term_char == '=') {
-	if (tmp_l.type != tmp_r.type) {
+	sto.type = VAL_NUM;
+	sto.n_els = 1;
+	sto.val.x = (tmp_l == tmp_r);
+	/*if (tmp_l.type != tmp_r.type) {
 	    sto.val.x = 0;
 	} else if (tmp_l.type == VAL_STR) {
 	    if (tmp_l.size() == tmp_r.size() && strcmp(tmp_l.get_val().s, tmp_l.get_val().s) == 0)
@@ -1328,13 +1354,13 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 		sto.val.x = 0;
 	} else if (tmp_l.type == VAL_NUM) {
 	    sto.val.x = (tmp_l.val.x == tmp_r.val.x)? 1: 0;
-	}
-	++i;
+	}*/
+	//++i;
     } else if (term_char == '>') {
 	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_BAD_VALUE;return sto; }
 	if (str[i+1] == '=') {
 	    sto.val.x = (tmp_l.val.x >= tmp_r.val.x)? 1: 0;
-	    ++i;
+	    //++i;
 	} else {
 	    sto.val.x = (tmp_l.val.x > tmp_r.val.x)? 1: 0;
 	}
@@ -1342,7 +1368,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_BAD_VALUE;return sto; }
 	if (str[i+1] == '=') {
 	    sto.val.x = (tmp_l.val.x <= tmp_r.val.x)? 1: 0;
-	    ++i;
+	    //++i;
 	} else {
 	    sto.val.x = (tmp_l.val.x < tmp_r.val.x)? 1: 0;
 	}

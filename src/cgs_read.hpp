@@ -268,8 +268,10 @@ struct value {
     size_t n_els; //only applicable for string and list types
 
     value() { val.x = 0;type=VAL_UNDEF;n_els=0; }
-    bool operator==(std::string str);
-    bool operator!=(std::string str);
+    bool operator==(const value& o) const;
+    bool operator!=(const value& o) const;
+    bool operator==(std::string str) const;
+    bool operator!=(std::string str) const;
     valtype get_type() { return type; }
     size_t size() { return n_els; }
     V& get_val() { return val; }

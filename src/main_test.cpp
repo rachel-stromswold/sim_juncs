@@ -2,6 +2,18 @@
 #include <doctest.h>
 #include "main_test.hpp"
 
+TEST_CASE("Test make_dec_str") {
+    char buf[BUF_SIZE];
+    size_t res = make_dec_str(buf, BUF_SIZE, 0.25, 1, 2, '.');
+    CHECK(res == 4);
+    CHECK(strcmp(buf, "0.25") == 0);
+    res = make_dec_str(buf, BUF_SIZE, 0.25, 2, 2, '_');
+    CHECK(res == 5);
+    CHECK(strcmp(buf, "00_25") == 0);
+    res = make_dec_str(buf, 3, 0.25, 1, 2);
+    CHECK(res == -1);
+}
+
 TEST_CASE("Test Fourier transforms") {
     data_arr dat;
     make_data_arr(&dat, 1 << POW_N);
@@ -424,6 +436,41 @@ TEST_CASE("Test builtin functions") {
     }
 }
 
+TEST_CASE("Test value makers") {
+    //try making a list
+    value val_bufs[SMALL_TEST_N];
+    std::string tmp_str("foo");
+    val_bufs[0] = make_val_str(tmp_str.c_str());
+    val_bufs[1] = make_val_std_str(tmp_str);
+    val_bufs[2].type = VAL_LIST;
+    val_bufs[2].val.l = NULL;
+    val_bufs[2].n_els = 0;
+    val_bufs[3] = make_val_mat(mat3x3::id());
+    val_bufs[4] = make_val_vec3(vec3(0,1,2));
+    for (size_t i = 5; i < SMALL_TEST_N; ++i) {
+	val_bufs[i] = make_val_num((double)i/2);
+    }
+
+    value lst_val = make_val_list(val_bufs, SMALL_TEST_N);
+    //make sure no element is undefined
+    value tmp_u = make_val_undef();
+    for (size_t i = 0; i < lst_val.n_els; ++i) {
+	CHECK(lst_val.val.l[i] != tmp_u);
+    }
+    //make sure the other values are sane
+    CHECK(lst_val.n_els == SMALL_TEST_N);
+    CHECK(lst_val.val.l[0] == lst_val.val.l[1]);
+    CHECK(lst_val.val.l[2].type == VAL_LIST);
+    CHECK(lst_val.val.l[2].val.l == NULL);
+    CHECK(lst_val.val.l[2].n_els == 0);
+    CHECK(lst_val.val.l[3].type == VAL_MAT);
+    CHECK(lst_val.val.l[4].type == VAL_3VEC);
+    for (size_t i = 5; i < lst_val.n_els; ++i) {
+	CHECK(lst_val.val.l[i].type == VAL_NUM);
+	CHECK(lst_val.val.l[i].val.x == (double)i/2);
+    }
+}
+
 TEST_CASE("Test value parsing") {
     char buf[BUF_SIZE];
     context sc;
@@ -803,6 +850,39 @@ TEST_CASE("Test operations") {
         CHECK(er == E_SUCCESS);
         CHECK(tmp_val.type == VAL_NUM);
         CHECK(tmp_val.val.x == 1.5);
+    }
+    SUBCASE("Comparisons work") {
+	//create a single true and false, this makes things easier
+	value false_res = make_val_num(0);
+	value true_res = make_val_num(1);
+        strncpy(buf, "2 == 2", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	value tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val == true_res);
+        strncpy(buf, "1 == 2", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val == false_res);
+        strncpy(buf, "[2, 3] == [2, 3]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val == true_res);
+        strncpy(buf, "[2, 3, 4] == [2, 3]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val == false_res);
+        strncpy(buf, "[2, 3, 4] == [2, 3, 5]", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val == false_res);
+        strncpy(buf, "\"apple\" == \"apple\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val == true_res);
+        strncpy(buf, "\"apple\" == \"banana\"", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+        CHECK(er == E_SUCCESS);
+        CHECK(tmp_val == false_res);
     }
     SUBCASE("String concatenation works") {
         //single operations
@@ -1523,6 +1603,15 @@ TEST_CASE("Test that spans of monitor locations are read correctly") {
     }
 
     cleanup_settings(&args);
+}
+
+TEST_CASE("Test sources") {
+    gaussian_src_time_phase gp_1(1.0, 2.0, 0.0, 0.0, 2.0);
+    gaussian_src_time_phase gp_2(1.0, 2.0, 0.0, 1.0, 2.0);
+    CHECK(gp_1.frequency().real() == doctest::Approx(1.0));
+    CHECK(gp_1.get_omega() == doctest::Approx(6.283185307));
+    CHECK(gp_1.get_width() == doctest::Approx(2.0));
+    CHECK(gp_1.get_fwidth() == doctest::Approx(0.5));
 }
 
 TEST_CASE("Test running with a very small system") {

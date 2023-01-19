@@ -462,7 +462,7 @@ static double gaussian_bandwidth(double width) {
 }
 
 //TODO: remove?
-gaussian_src_time_phase::gaussian_src_time_phase(double f, double my_fwidth, double phase, double s) {
+/*gaussian_src_time_phase::gaussian_src_time_phase(double f, double my_fwidth, double phase, double s) {
     omega = 2*M_PI*f;
     width = 1.0 / my_fwidth;
     phi = phase+M_PI;
@@ -477,7 +477,7 @@ gaussian_src_time_phase::gaussian_src_time_phase(double f, double my_fwidth, dou
     while (exp(-cutoff * cutoff / (2 * width * width)) < 1e-100)
         cutoff *= 0.9;
     cutoff = float(cutoff); // don't make cutoff sensitive to roundoff error
-}
+}*/
 
 gaussian_src_time_phase::gaussian_src_time_phase(double f, double w, double phase, double st, double et) {
     omega = 2*M_PI*f;
@@ -485,7 +485,7 @@ gaussian_src_time_phase::gaussian_src_time_phase(double f, double w, double phas
     phi = phase+M_PI;
     peak_time = 0.5*(st+et);
     cutoff = (et-st)*0.5;
-    fwidth = gaussian_bandwidth(width);
+    //fwidth = gaussian_bandwidth(width);
     // correction factor so that current amplitude (= d(dipole)/dt) is
     // ~ 1 near the peak of the Gaussian.
     amp = 1.0 / std::complex<double>(0, -omega);
