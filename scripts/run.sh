@@ -75,15 +75,10 @@ python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width
 
 #move the plots into a folder where we can view them
 mkdir $oname/figures
-cp "$h5dir"/junc.geom "$oname"/junc_"$SLURM_ARRAY_TASK_ID".geom
 cp "$h5dir"/field_samples.h5 "$oname"/field_samples_"$SLURM_ARRAY_TASK_ID".h5
-cp "$h5dir"/eps.pdf "$oname"/figures/eps_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/space_plot.pdf "$oname"/figures/space_plot_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/cross_plot.pdf "$oname"/figures/cross_plot_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/tdom_plot.pdf "$oname"/figures/tdom_plot_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/amps_theory.pdf "$oname"/figures/amps_theory_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/phases_theory.pdf "$oname"/figures/phases_theory_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/amps.pdf "$oname"/figures/amps_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/phases.pdf "$oname"/figures/phases_"$SLURM_ARRAY_TASK_ID".pdf
-cp "$h5dir"/sigs.pdf "$oname"/figures/sigs_"$SLURM_ARRAY_TASK_ID".pdf
 cp "$h5dir"/junc.pgm "$oname"/figures/junc_"$SLURM_ARRAY_TASK_ID".pgm

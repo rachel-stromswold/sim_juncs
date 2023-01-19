@@ -35,6 +35,7 @@ HIGHEST_MODE=3
 #parse arguments supplied via command line
 parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian pulse envelope to perform CEP estimation.')
 parser.add_argument('--fname', type=str, help='h5 file to read', default='field_samples.h5')
+parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
 parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)
@@ -149,7 +150,7 @@ class phase_finder:
         for j in range(len(points)):
             v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
             #before doing anything else, save a plot of just the time series
-            plt.plot(self.t_pts, v_pts)
+            plt.plot(self.t_pts, np.real(v_pts))
             plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
             plt.clf()
             try:
@@ -476,4 +477,7 @@ def make_fits(pf, axs_mapping=None, recompute=False):
     fig_fits.savefig(args.prefix+"/fit_plt.pdf")
 
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
-make_fits(pf, axs_mapping=[0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7], recompute=True)
+#generate the group list
+n_grps = args.n_groups if args.n_groups > 0 else 1
+ax_map = [i%n_grps for i in range(pf.n_clusts)]
+make_fits(pf, axs_mapping=ax_map, recompute=True)

@@ -2,11 +2,24 @@ cmake_minimum_required(VERSION 3.3.2)
 project(sim_geom)
 set (CMAKE_CXX_STANDARD 11)
 
+#set directory or included cmake modules
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMakeModules)
+
+message(STATUS "Building project ${PROJECT_NAME}")
+
 #set names for applications
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     set(TEST_EXE test)
     set(CMAKE_BUILD_TYPE Debug)
+    #if(GEN_COVERAGE)
+    #set(CMAKE_CXX_FLAGS "-O0 -Wall -fprofile-arcs -ftest-coverage")
+    #	set(CMAKE_C_FLAGS "-O0 -Wall -fprofile-arcs -ftest-coverage")
+    #else()
+    #	set(CMAKE_CXX_FLAGS "-Og -Wall")
+    #	set(CMAKE_C_FLAGS "-Og -Wall")
+    #endif()
     set(CMAKE_CXX_FLAGS "-Og -Wall")
+    set(CMAKE_C_FLAGS "-Og -Wall")
 else()
     set(CMAKE_CXX_FLAGS "-Os")
 endif()
@@ -44,14 +57,15 @@ if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     target_include_directories( ${TEST_EXE} PRIVATE ${HDF5_INCLUDE_DIRS} )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest")
     #copy files needed for unit testing
-
     add_custom_command(TARGET ${TEST_EXE} POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E copy_directory
 		   ${CMAKE_SOURCE_DIR}/tests $<TARGET_FILE_DIR:${PROJECT_NAME}>/tests)
-	       #configure_file(tests/test.geom tests/test.geom COPYONLY)
-	       #configure_file(tests/test.conf tests/test.conf COPYONLY)
-	       #configure_file(tests/run.geom tests/run.geom COPYONLY)
-	       #configure_file(tests/run.conf tests/run.conf COPYONLY)
+    #setup coverage
+    if(GEN_COVERAGE)
+	include(CodeCoverage)
+	append_coverage_compiler_flags_to_target(${TEST_EXE})
+	setup_target_for_coverage_gcovr_html(test_coverage ${TEST_EXE} coverage)
+    endif()
 endif()
 
 #allow the user to specify what type of geometry they'd like to use
