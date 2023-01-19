@@ -2,8 +2,10 @@
 A tool for simulating molecular junctions illuminated by laser pulses using FDTD methods
 
 # dependencies
+* python3
+* open MPI (https://github.com/open-mpi/ompi)
+* hdf5 (https://www.hdfgroup.org/solutions/hdf5/)
 * meep v1.24 (https://github.com/NanoComp/meep/)
-* eigen3 (https://eigen.tuxfamily.org/)
 
 To build the project you will also need a C++ compiler and cmake.
 
