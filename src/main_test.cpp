@@ -15,14 +15,17 @@ TEST_CASE("Test make_dec_str") {
 }
 
 TEST_CASE("Test Fourier transforms") {
-    data_arr dat;
-    make_data_arr(&dat, 1 << POW_N);
+    size_t arr_size = 1 << POW_N;
 
     SUBCASE("Test a very simple sine wave") {
-	for (size_t k = 0; k < dat.size; ++k) {
-	    dat.buf[k].re = sin(4*M_PI*k / dat.size);
-	    dat.buf[k].im = 0.0; 
+	data_arr dat;
+	make_data_arr_zeros(&dat, 1);
+	//we initialize the array to have size 1, so we must initialize the first point
+	for (size_t k = 1; k < arr_size; ++k) {
+	    complex tmp(sin(4*M_PI*k / arr_size), 0.0);
+	    add_point(&dat, tmp);
 	}
+	CHECK(dat.size == arr_size);
 
 	//fourier transform the data
 	data_arr fft_dat = rfft(dat);
@@ -35,53 +38,90 @@ TEST_CASE("Test Fourier transforms") {
 	for (size_t k = 0; k < fft_dat.size; ++k) printf("%f+%fi ", fft_dat[k].re, fft_dat[k].im);
 	printf("\n");
 
+	//take the inverse fourier transform and make sure it's close
+
 	//Only the magnitude is of interest to us for testing
 	pw_abs(fft_dat);
 
 	//since we initialize the raw data with dat[k]=sin(2*pi*2*k/size), we expect the second Fourier component to be very large compared to everything else.
-	CHECK(fft_dat.buf[2] > fft_dat.buf[0]);
-	CHECK(fft_dat.buf[2] > fft_dat.buf[1]);
+	CHECK(abs(fft_dat.buf[2]) > abs(fft_dat.buf[0]));
+	CHECK(abs(fft_dat.buf[2]) > abs(fft_dat.buf[1]));
 	for (size_t k = 3; k < fft_dat.size; ++k) {
-	    CHECK(fft_dat.buf[2] > fft_dat.buf[k]);
+	    CHECK(abs(fft_dat.buf[2]) > abs(fft_dat.buf[k]));
 	}
 
 	//perform initial cleanup
 	cleanup_data_arr(&fft_dat);
+	cleanup_data_arr(&dat);
+	CHECK(fft_dat.buf_size == 0);
+	CHECK(fft_dat.size == 0);
+	CHECK(fft_dat.buf == NULL);
     }
 
     SUBCASE("the fourier transform of a gaussian is a gaussian") {
+	data_arr dat;
+	make_data_arr(&dat, arr_size);
+	//initialize the gaussian
 	const _ftype gauss_sigma_sq = 2;
-	const int k_0 = 8;//use ints to make k-k_0 and k_0-k both valid. Totally not sketch :p
-	for (_uint k = 0; k < dat.size; ++k) {
+	const int k_0 = 8;
+	for (_uint k = 0; k < arr_size; ++k) {
 	    //fill up each index with a pseudo random number between 0 and 1
 	    dat.buf[k].re = exp( ((int)k-k_0)*(k_0-(int)k)/(2*gauss_sigma_sq) );
 	    dat.buf[k].im = 0.0; 
 	}
+	dat.size = arr_size;
 	//print out the result
 	printf("Input Gaussian: \n");
 	for (size_t k = 0; k < dat.size; ++k) printf("%f+%fi ", dat[k].re, dat[k].im);
 	printf("\n");
 
 	//take the fourier transform and multiply by a normalization
-	data_arr fft_dat = rfft(dat);
+	data_arr rfft_dat = rfft(dat);
+	data_arr fft_dat = fft(dat);
 	complex scale = {1/(_ftype)sqrt(2*M_PI*gauss_sigma_sq), 0};
+	pw_mult_scale(rfft_dat, scale);
 	pw_mult_scale(fft_dat, scale);
+	//check sizes, the full fourier transform should have twice as many data points
+	CHECK(rfft_dat.size == dat.size/2);
+	CHECK(fft_dat.size == dat.size);
+
+	//check that multiplying by the conjugate gives the square absolute value
+	data_arr fft_dat_conj(fft_dat);
+	pw_conj(fft_dat_conj);
+	pw_mult(fft_dat_conj, fft_dat);
+	data_arr fft_dat_abs(fft_dat);
+	pw_abs_sq(fft_dat_abs);
+	for (size_t k = 0; k < fft_dat_conj.size; ++k) {
+	    CHECK(fft_dat_conj.buf[k].re == doctest::Approx(fft_dat_abs.buf[k].re));
+	    CHECK(fft_dat_conj.buf[k].im == doctest::Approx(fft_dat_abs.buf[k].im));
+	}
+	cleanup_data_arr(&fft_dat_conj);
+	cleanup_data_arr(&fft_dat_abs);
+
 	//print out the result
 	printf("Fourier transform Gaussian: \n");
-	for (size_t k = 0; k < fft_dat.size; ++k) printf("%f+%fi ", fft_dat[k].re, fft_dat[k].im);
+	for (size_t k = 0; k < rfft_dat.size; ++k) printf("%f+%fi ", rfft_dat[k].re, rfft_dat[k].im);
 	printf("\n");
 
-	//check that the inverse fft of the fft is approximately the original
+	//the fourier transform should be a gaussian with width 1/sigma
 	_ftype omega_scale = 2*M_PI/dat.size;
-	for (size_t k = 0; k < fft_dat.size; ++k) {
+	for (size_t k = 0; k < rfft_dat.size; ++k) {
 	    _ftype omega = omega_scale*k;
 	    //the phase should be -\frac{\sigma^2\omega^2}{2} - i\omega k_0
 	    complex expected_phase = {-omega*omega*gauss_sigma_sq/2, -omega*k_0};
 	    complex expected = c_exp(expected_phase);
-	    CHECK(fft_dat[k].re == doctest::Approx(expected.re));
-	    CHECK(fft_dat[k].im == doctest::Approx(expected.im));
+	    CHECK(rfft_dat[k].re == doctest::Approx(expected.re));
+	    CHECK(rfft_dat[k].im == doctest::Approx(expected.im));
+	    //Since frequency wraps around at zero, the zero frequency part is only stored once, at fft_dat[0]. 
+	    if (k > 0) {
+		complex tmp = conj(fft_dat[k]);
+		CHECK( tmp.re == doctest::Approx(fft_dat[fft_dat.size-k].re) );
+		CHECK( tmp.im == doctest::Approx(fft_dat[fft_dat.size-k].im) );
+	    }
 	}
+	cleanup_data_arr(&rfft_dat);
 	cleanup_data_arr(&fft_dat);
+	cleanup_data_arr(&dat);
     }
 
     SUBCASE("the inverse fourier transform of a fourier transform is itself") {
@@ -89,16 +129,20 @@ TEST_CASE("Test Fourier transforms") {
 	_uint rand = 314159265;
 	complex phi = {0.0, 0.0};
 	complex x = {0.0, 0.0};
-	_ftype N = (_ftype)dat.size;
 	//generate a pseudo-random walk
-	for (size_t k = 0; k < dat.size; ++k) {
+	std::vector<complex> tmp_pts;
+	for (size_t k = 0; k < arr_size; ++k) {
+	    tmp_pts.push_back(x);
 	    //fill up each index with a pseudo random number between 0 and 1
-	    dat.buf[k].re = x.re;
-	    dat.buf[k].im = x.im;
+	    //dat.buf[k].re = x.re;
+	    //dat.buf[k].im = x.im;
 	    rand = lcg(rand);
 	    phi.im = 2*M_PI*floatize(rand);
 	    x += c_exp(phi);
 	}
+	data_arr dat(tmp_pts);
+	CHECK(dat.size == arr_size);
+	_ftype N = (_ftype)dat.size;
 	//subtract off constant part and print out the result
 	printf("Input walk: \n");
 	for (size_t k = 0; k < dat.size; ++k) {
@@ -129,8 +173,8 @@ TEST_CASE("Test Fourier transforms") {
 	}
 	cleanup_data_arr(&fft_dat);
 	cleanup_data_arr(&new_dat);
+	cleanup_data_arr(&dat);
     }
-    cleanup_data_arr(&dat);
 }
 
 TEST_CASE("Test geometry operations") {
@@ -434,6 +478,83 @@ TEST_CASE("Test builtin functions") {
 	}
 	cleanup_val(&tmp_val);
     }
+    SUBCASE("math functions") {
+	strncpy(buf, "sin(3.1415926535/2)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == doctest::Approx(1.0));
+	strncpy(buf, "sin(3.1415926535/6)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == doctest::Approx(0.5));
+	strncpy(buf, "cos(3.1415926535/2)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == doctest::Approx(0.0));
+	strncpy(buf, "cos(3.1415926535/6)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(er == E_SUCCESS);
+	strncpy(buf, "sqrt(3)/2", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	value sqrt_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(sqrt_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == doctest::Approx(sqrt_val.val.x));
+	strncpy(buf, "tan(3.141592653589793/4)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == doctest::Approx(1.0));
+	strncpy(buf, "tan(0)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == doctest::Approx(0.0));
+	strncpy(buf, "exp(0)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == doctest::Approx(1.0));
+	strncpy(buf, "exp(1)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_SUCCESS);
+	CHECK(tmp_val.type == VAL_NUM);
+	CHECK(tmp_val.val.x == doctest::Approx(2.718281828));
+	//failure conditions
+	strncpy(buf, "sin()", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_LACK_TOKENS);
+	strncpy(buf, "cos()", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_LACK_TOKENS);
+	strncpy(buf, "tan()", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_LACK_TOKENS);
+	strncpy(buf, "exp()", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_LACK_TOKENS);
+	strncpy(buf, "sqrt()", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_LACK_TOKENS);
+	strncpy(buf, "sin(\"a\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_BAD_TYPE);
+	strncpy(buf, "cos(\"a\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_BAD_TYPE);
+	strncpy(buf, "tan(\"a\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_BAD_TYPE);
+	strncpy(buf, "exp(\"a\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_BAD_TYPE);
+	strncpy(buf, "sqrt(\"a\")", BUF_SIZE);buf[BUF_SIZE-1] = 0;
+	tmp_val = sc.parse_value(buf, er);
+	CHECK(er == E_BAD_TYPE);
+    }
 }
 
 TEST_CASE("Test value makers") {
@@ -469,6 +590,7 @@ TEST_CASE("Test value makers") {
 	CHECK(lst_val.val.l[i].type == VAL_NUM);
 	CHECK(lst_val.val.l[i].val.x == (double)i/2);
     }
+    cleanup_val(&lst_val);
 }
 
 TEST_CASE("Test value parsing") {

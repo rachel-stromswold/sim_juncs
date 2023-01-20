@@ -27,3 +27,4 @@ Composite(eps = 3.5, susceptibilities = [[1.0, 0.48, 68.5971845, "drude"],[8.0, 
 	Cylinder([0.7,.5,.4], .2, .1);
     }
 }
+snapshot("/tmp/test.pgm", [3,3,3], look=[-1,-1,-1]);

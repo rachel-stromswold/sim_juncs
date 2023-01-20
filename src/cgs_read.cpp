@@ -1495,6 +1495,10 @@ value context::parse_value(char* str, parse_ercode& er) {
 		last_close_ind = i;
 		--nest_level;
 	    }
+	} else if (str[i] == '/') {
+	    //ignore everything after a comment
+	    if (str[i+1] == '/') break;
+	    //TODO: add support for multiline comments
 	}
 
 	if (nest_level == 0) {
@@ -1641,6 +1645,31 @@ value context::parse_value(char* str, parse_ercode& er) {
 			sto = flatten_list(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "print") == 0) {
 			sto = print(tmp_f, er);
+		    } else if (strcmp(tmp_f.name, "sin") == 0) {
+			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			sto.type = VAL_NUM;
+			sto.val.x = sin(tmp_f.args[0].val.x);
+		    } else if (strcmp(tmp_f.name, "cos") == 0) {
+			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
+			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			sto.type = VAL_NUM;
+			sto.val.x = cos(tmp_f.args[0].val.x);
+		    } else if (strcmp(tmp_f.name, "tan") == 0) {
+			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
+			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			sto.type = VAL_NUM;
+			sto.val.x = tan(tmp_f.args[0].val.x);
+		    } else if (strcmp(tmp_f.name, "exp") == 0) {
+			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
+			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			sto.type = VAL_NUM;
+			sto.val.x = exp(tmp_f.args[0].val.x);
+		    } else if (strcmp(tmp_f.name, "sqrt") == 0) {
+			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
+			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			sto.type = VAL_NUM;
+			sto.val.x = sqrt(tmp_f.args[0].val.x);
 		    } else {
 			//otherwise lookup the function
 			value func_val = lookup(tmp_f.name);
@@ -1653,6 +1682,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 			    er = E_BAD_TYPE;
 			}
 		    }
+clean_paren:
 		    str[last_close_ind+1] = term_char;
 		    cleanup_func(&tmp_f);
 		    return sto;

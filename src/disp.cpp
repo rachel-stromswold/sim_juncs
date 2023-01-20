@@ -453,31 +453,6 @@ source_info::source_info(value info, parse_ercode* ercode) {
     //set the error code if there was one and the caller wants it
     if (ercode) *ercode = tmp_er;
 }
-// bandwidth (in frequency units, not angular frequency) of the
-// continuous Fourier transform of the Gaussian source function
-// when it has decayed by a tolerance tol below its peak value
-static double gaussian_bandwidth(double width) {
-    double tol = 1e-7;
-    return sqrt(-2.0 * log(tol)) / (width * M_PI);
-}
-
-//TODO: remove?
-/*gaussian_src_time_phase::gaussian_src_time_phase(double f, double my_fwidth, double phase, double s) {
-    omega = 2*M_PI*f;
-    width = 1.0 / my_fwidth;
-    phi = phase+M_PI;
-    peak_time = width * s;
-    cutoff = width * s;
-    fwidth = gaussian_bandwidth(width);
-    // correction factor so that current amplitude (= d(dipole)/dt) is
-    // ~ 1 near the peak of the Gaussian.
-    amp = 1.0 / std::complex<double>(0, -omega);
-
-    // this is to make last_source_time as small as possible
-    while (exp(-cutoff * cutoff / (2 * width * width)) < 1e-100)
-        cutoff *= 0.9;
-    cutoff = float(cutoff); // don't make cutoff sensitive to roundoff error
-}*/
 
 gaussian_src_time_phase::gaussian_src_time_phase(double f, double w, double phase, double st, double et) {
     omega = 2*M_PI*f;
@@ -912,6 +887,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
         //copy the time domain data
         make_data_arr(&(tdom_fields[j]), field_times[j].size());
         for (size_t i = 0; i < field_times[j].size(); ++i) tdom_fields[j].buf[i] = field_times[j][i];
+	tdom_fields[j].size = field_times[j].size();
         //take the fourier transform
         fdom_fields[j] = fft(tdom_fields[j]);
         f_dim[0] = fdom_fields[j].size;

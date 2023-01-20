@@ -18,20 +18,6 @@ void object::rescale(const vec3& components) {
     trans_mat = trans_mat*(components.make_diagonal());
 }
 
-uint32_t lcg(uint32_t state) { return state*1664525 + 1013904223; }//LCG PRNG with parameters from Numerical Recipes
-vec3 random_vec(uint32_t* sto_state, double range) {
-    vec3 ret;
-    uint32_t state = *sto_state;
-    state = lcg(state);
-    ret.el[0] = (double)range*state/UINT32_MAX;
-    state = lcg(state);
-    ret.el[1] = (double)range*state/UINT32_MAX;
-    state = lcg(state);
-    ret.el[2] = (double)range*state/UINT32_MAX;
-    *sto_state = lcg(state);
-    return ret;
-}
-
 /** ======================================================== sphere ======================================================== **/
 
 sphere::sphere(vec3& p_center, double p_rad, int p_invert) : object(p_invert) {
@@ -834,6 +820,7 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
 	}
 	fprintf(fp, "\n");
     }
+    free(hues);
     fclose(fp);
 }
 /**

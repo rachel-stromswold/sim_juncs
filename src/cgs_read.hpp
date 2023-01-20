@@ -29,7 +29,7 @@ typedef matrix<3,3> mat3x3;
 typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
-typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED, E_OUT_OF_RANGE } parse_ercode;
+typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED, E_OUT_OF_RANGE, E_BAD_FLOAT } parse_ercode;
 typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST} valtype;
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
 
@@ -96,8 +96,9 @@ protected:
 	T* tmp_buf = (T*)malloc(sizeof(T)*buf_len);
 	if (tmp_buf) {
 	    for (size_t i = 0; i < stack_ptr; ++i) {
-		tmp_buf[i] = std::move(buf[i]);
+		new(tmp_buf+i) T(std::move(buf[i]));
 	    }
+	    free(buf);
 	    buf = tmp_buf;
 	    char* clear_buf = (char*)(tmp_buf+old_size);
 	    if (buf_len > old_size) {
@@ -346,6 +347,7 @@ private:
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
+    ~context() {}
     //parse_ercode push(_uint side, CompositeObject* obj);
     void emplace(const char* p_name, value p_val) { name_val_pair inst(p_name, p_val);push(inst); }
     value lookup(const char* name) const;
