@@ -27,6 +27,7 @@ value fs_to_t(context& c, cgs_func f, parse_ercode& er) {
  */
 context context_from_settings(const parse_settings& args) {
     context con;
+    con.emplace("pi", make_val_num(M_PI));
     con.emplace("pml_thickness", make_val_num(args.pml_thickness));
     con.emplace("sim_length", make_val_num(args.len));
     con.emplace("length", make_val_num(2*args.pml_thickness + args.len));
