@@ -67,6 +67,7 @@ configure_file(junctions/${JUNCTION_TYPE}/params.conf params.conf COPYONLY)
 
 #copy utility scripts that are used
 if (NOT EXCLUDE_SCRIPTS)
+    message(STATUS "copying scripts")
     configure_file(scripts/run.sh run.sh COPYONLY)
     configure_file(scripts/utils.py utils.py COPYONLY)
     configure_file(scripts/phases.py phases.py COPYONLY)

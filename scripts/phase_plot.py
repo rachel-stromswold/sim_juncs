@@ -478,6 +478,6 @@ def make_fits(pf, axs_mapping=None, recompute=False):
 
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
 #generate the group list
-n_grps = args.n_groups if args.n_groups > 0 else 1
-ax_map = [i%n_grps for i in range(pf.n_clusts)]
+grp_len = int(np.ceil(pf.n_clusts/args.n_groups)) if args.n_groups >= 1 else pf.n_clusts
+ax_map = [i%grp_len for i in range(pf.n_clusts)]
 make_fits(pf, axs_mapping=ax_map, recompute=True)
