@@ -36,6 +36,8 @@ HIGHEST_MODE=3
 parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian pulse envelope to perform CEP estimation.')
 parser.add_argument('--fname', type=str, help='h5 file to read', default='field_samples.h5')
 parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
+parser.add_argument('--recompute', action='store_true', help='If set, then phase estimation is recomputed. Otherwise, information is read from files saved in <prefix>', default=False)
+parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
 parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)
@@ -154,11 +156,18 @@ class phase_finder:
             plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
             plt.clf()
             try:
-                res,res_env = phases.opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+                if args.save_fit_figs:
+                    res,res_env = phases.opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+                else:
+                    res,res_env = phases.opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5)
             except:
-                print("fitting to raw time series failed, applying low pass filter")
-                v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
-                res,res_env = phases.opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+                try:
+                    print("fitting to raw time series failed, applying low pass filter")
+                    v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
+                    res,res_env = phases.opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+                except:
+                    #an exception will occur if there was zero measured field
+                    return zs, amp_arr, sig_arr, omega_arr, phase_arr
             n_evals += 1
             if phases.verbose > 0:
                 print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
@@ -401,7 +410,34 @@ def get_axis(axs_list, ind):
     else:
         return axs_amp[ind//N_COLS,ind%N_COLS]
 
-def make_fits(pf, axs_mapping=None, recompute=False):
+def find_grouping(pf, n_groups):
+    '''returns: a tuple with a group length, number of groups and axs mapping giving the specified number of groups. This is found by dividing the clusters in pf into n_groups sets of subclusters. Each cluster is assigned an index in axs_mapping'''
+    grp_len = pf.n_clusts
+    if n_groups >= 1:
+        grp_len = int(np.ceil(pf.n_clusts/n_groups))
+    else:
+        n_groups = 1
+    axs_mapping = [i%grp_len for i in range(pf.n_clusts)]
+    return grp_len, n_groups, axs_mapping
+
+def setup_axes(pf, ax, rng, label_x=True):
+    '''Setup the pyplot axes ax
+    pf: the phase finder object which has information on the geometry
+    ax: the axes to use
+    rng: a tuple with at least two elements specifying upper and lower bounds for the axes'''
+    #set axes ranges
+    ax.set_xlim(pf.x_range)
+    ax.set_ylim(rng)
+    #draw gold leads
+    junc_bounds = pf.get_junc_bounds()
+    l_gold = [pf.x_range[0], junc_bounds[0]]
+    r_gold = [junc_bounds[1], pf.x_range[-1]]
+    ax.fill_between(l_gold, rng[0], rng[1], color='yellow', alpha=0.3)
+    ax.fill_between(r_gold, rng[0], rng[1], color='yellow', alpha=0.3)
+    ax.get_xaxis().set_visible(label_x)
+
+def make_fits(pf, n_groups=-1, recompute=False):
+    _,_,axs_mapping = find_grouping(pf, n_groups)
     #use a default set of axes if the user didn't supply one or the supplied axes were invalid
     if axs_mapping is None:
         axs_mapping = range(len(pf.clust_names))
@@ -409,33 +445,18 @@ def make_fits(pf, axs_mapping=None, recompute=False):
     if n_mapped > len(pf.clust_names):
         axs_mapping = range(len(pf.clust_names))
         n_mapped = pf.n_clusts
-    #figure out the edges of the junction
     junc_bounds = pf.get_junc_bounds()
-    l_gold = [pf.x_range[0], junc_bounds[0]]
-    r_gold = [junc_bounds[1], pf.x_range[-1]]
     #initialize plots
     fig_amp, axs_amp = plt.subplots(n_mapped//N_COLS, N_COLS)
     fig_phs, axs_phs = plt.subplots(n_mapped//N_COLS, N_COLS)
     fig_omg, axs_omg = plt.subplots(n_mapped//N_COLS, N_COLS)
     #set up axes first
     for i in range(n_mapped):
-        tmp_axs = get_axis(axs_amp, i)
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.set_ylim(AMP_RANGE)
-        tmp_axs.fill_between(l_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, AMP_RANGE[0], AMP_RANGE[1], color='yellow', alpha=0.3)
-        if i < len(pf.clust_names) - 1:
-            tmp_axs.get_xaxis().set_visible(False)
-        tmp_axs = get_axis(axs_phs, i)
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.set_ylim(PHI_RANGE)
-        tmp_axs.fill_between(l_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, PHI_RANGE[0], PHI_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs = get_axis(axs_omg, i)
-        tmp_axs.set_xlim(pf.x_range)
-        tmp_axs.set_ylim(OMG_RANGE)
-        tmp_axs.fill_between(l_gold, OMG_RANGE[0], OMG_RANGE[1], color='yellow', alpha=0.3)
-        tmp_axs.fill_between(r_gold, OMG_RANGE[0], OMG_RANGE[1], color='yellow', alpha=0.3)
+        label_x = (i < len(pf.clust_names) - 1)
+        setup_axes(pf, get_axis(axs_amp, i), AMP_RANGE, label_x=label_x)
+        setup_axes(pf, get_axis(axs_phs, i), PHI_RANGE, label_x=label_x)
+        setup_axes(pf, get_axis(axs_omg, i), OMG_RANGE, label_x=label_x)
+
     #make a plot of average fits
     fig_amp.suptitle(r"amplitude across a junction $E_1=1/\sqrt{2}$, $E_2=0$")
     fig_phs.suptitle(r"phases across a junction $E_1=1/\sqrt{2}$, $E_2=0$")
@@ -446,10 +467,13 @@ def make_fits(pf, axs_mapping=None, recompute=False):
     axs_fits[1].scatter(fit_xs[0], fit_xs[2])
     axs_fits[0].set_ylim(AMP_RANGE)
     axs_fits[1].set_ylim([6, 7])
+
     #now perform a plot using the average of fits
     avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
     for i, clust in zip(axs_mapping, pf.clust_names):
         dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust, recompute=recompute)
+        #save x points, amplitudes and phases so that an average may be computed
+        #figure out expected amplitudes from waveguide modes
         clust_z = pf.get_clust_location(clust, pf.geom.z_center)
         amps_fit = np.abs(pf.get_field_amps(x_cnt, clust_z, 10.48, vac_wavelen=0.7))
         phss_fit = np.abs(pf.get_field_phases(x_cnt, clust_z, 10.48, -np.pi/2))
@@ -462,8 +486,9 @@ def make_fits(pf, axs_mapping=None, recompute=False):
         tmp_axs = get_axis(axs_phs, i)
         #tmp_axs.plot(x_cnt, phss_fit)
         phase_th = -pf.get_phase()[0]/np.pi
-        tmp_axs.plot([x_cnt[0], x_cnt[-1]], [phase_th, phase_th], color='gray', linestyle=':')
+        tmp_axs.plot([dat_xs[0], dat_xs[-1]], [phase_th, phase_th], color='gray', linestyle=':')
         tmp_axs.scatter(dat_xs, phs_arr[0], s=3)
+        #plot frequencies
         tmp_axs = get_axis(axs_omg, i)
         tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 3)), (0.01, 0.68), xycoords='axes fraction')
         omega_th = 2*np.pi*.299792458/pf.get_wavelen()[0] #2*pi*c/lambda
@@ -476,8 +501,38 @@ def make_fits(pf, axs_mapping=None, recompute=False):
     fig_omg.savefig(args.prefix+"/omega_sim.pdf")
     fig_fits.savefig(args.prefix+"/fit_plt.pdf")
 
+def plot_average_phase(pf, n_groups=-1):
+    grp_len,n_groups,_ = find_grouping(pf, n_groups)
+    cl_xs = []
+    cl_amp = []
+    cl_phs = []
+    for clust in pf.clust_names:
+        dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust, recompute=False)
+        #save x points, amplitudes and phases so that an average may be computed
+        cl_xs.append(dat_xs)
+        cl_amp.append(amp_arr)
+        cl_phs.append(phs_arr)
+    #save a figure of the average phase
+    n_x_pts = len(cl_xs[0])
+    avg_phs = np.zeros((n_groups, n_x_pts))
+    tot_amp = np.zeros((n_groups, n_x_pts))
+    for i in range(n_groups):
+        for j in range(grp_len):
+            k = i*grp_len + j
+            if len(cl_xs[k]) == n_x_pts:
+                tot_amp[i] = tot_amp[i] + cl_amp[k][0]
+                avg_phs[i] = avg_phs[i] + cl_amp[k][0]*cl_phs[k][0]
+    avg_phs = avg_phs / tot_amp
+    avg_fig, avg_ax = plt.subplots()
+    #setup the axes with the gold leads and a dashed line with incident phase
+    setup_axes(pf, avg_ax, PHI_RANGE)
+    phs_th = -pf.get_phase()[0]/np.pi
+    avg_ax.plot([cl_xs[0][0], cl_xs[0][-1]], [phs_th, phs_th], color='gray', linestyle=':')
+    #plot averages
+    for i in range(n_groups):
+        avg_ax.scatter(cl_xs[0], avg_phs[i])
+    avg_fig.savefig(args.prefix+"/phase_average.pdf")
+
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
-#generate the group list
-grp_len = int(np.ceil(pf.n_clusts/args.n_groups)) if args.n_groups >= 1 else pf.n_clusts
-ax_map = [i%grp_len for i in range(pf.n_clusts)]
-make_fits(pf, axs_mapping=ax_map, recompute=True)
+make_fits(pf, n_groups=args.n_groups, recompute=args.recompute)
+plot_average_phase(pf, n_groups=args.n_groups)

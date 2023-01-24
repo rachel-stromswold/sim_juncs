@@ -71,7 +71,7 @@ fi
 
 #make the frequency space plot
 python time_space.py --fname $h5dir/field_samples.h5 --prefix $h5dir
-python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width ${widths[$((SLURM_ARRAY_TASK_ID-1))]} --gap-thick $thickness
+python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width ${widths[$((SLURM_ARRAY_TASK_ID-1))]} --gap-thick $thickness --recompute
 
 #move the plots into a folder where we can view them
 mkdir $oname/figures
