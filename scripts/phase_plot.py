@@ -41,6 +41,7 @@ parser.add_argument('--save-fit-figs', action='store_true', help='If set, then i
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
 parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)
+parser.add_argument('--wavelength', type=float, help='vacuum wavelength of the laser source (um)', default=0.7)
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--slice-dir', type=str, help='prefix to use when opening files', default='x')
 parser.add_argument('--regression', action='store_true', help='If set to true, perform linear regression on phases across junction', default=False)
@@ -474,9 +475,9 @@ def make_fits(pf, n_groups=-1, recompute=False):
         dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust, recompute=recompute)
         #save x points, amplitudes and phases so that an average may be computed
         #figure out expected amplitudes from waveguide modes
-        clust_z = pf.get_clust_location(clust, pf.geom.z_center)
-        amps_fit = np.abs(pf.get_field_amps(x_cnt, clust_z, 10.48, vac_wavelen=0.7))
-        phss_fit = np.abs(pf.get_field_phases(x_cnt, clust_z, 10.48, -np.pi/2))
+        clust_z = pf.get_clust_location(clust)
+        amps_fit = np.abs(pf.get_field_amps(x_cnt, clust_z, args.diel_const, vac_wavelen=args.wavelength))
+        phss_fit = np.abs(pf.get_field_phases(x_cnt, clust_z, args.diel_const, -np.pi/2))
         #plot amplitudes
         tmp_axs = get_axis(axs_amp, i)
         tmp_axs.plot(x_cnt, amps_fit, color='gray', linestyle=':')
@@ -523,14 +524,20 @@ def plot_average_phase(pf, n_groups=-1):
                 tot_amp[i] = tot_amp[i] + cl_amp[k][0]
                 avg_phs[i] = avg_phs[i] + cl_amp[k][0]*cl_phs[k][0]
     avg_phs = avg_phs / tot_amp
-    avg_fig, avg_ax = plt.subplots()
+    tot_amp = tot_amp / grp_len
+    avg_fig, avg_ax = plt.subplots(2)
     #setup the axes with the gold leads and a dashed line with incident phase
-    setup_axes(pf, avg_ax, PHI_RANGE)
+    setup_axes(pf, avg_ax[0], PHI_RANGE)
+    setup_axes(pf, avg_ax[1], AMP_RANGE)
     phs_th = -pf.get_phase()[0]/np.pi
-    avg_ax.plot([cl_xs[0][0], cl_xs[0][-1]], [phs_th, phs_th], color='gray', linestyle=':')
+    avg_ax[0].plot([cl_xs[0][0], cl_xs[0][-1]], [phs_th, phs_th], color='gray', linestyle=':')
+    avg_ax[0].set_ylabel(r"$<\phi>/\pi$")
+    avg_ax[1].set_ylabel(r"$<E_0>$ (arb. units)")
+    avg_ax[1].set_xlabel(r"x $\mu$m")
     #plot averages
     for i in range(n_groups):
-        avg_ax.scatter(cl_xs[0], avg_phs[i])
+        avg_ax[0].scatter(cl_xs[0], avg_phs[i])
+        avg_ax[1].scatter(cl_xs[0], tot_amp[i])
     avg_fig.savefig(args.prefix+"/phase_average.pdf")
 
 pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
