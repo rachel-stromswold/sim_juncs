@@ -783,7 +783,7 @@ class phase_finder:
             v_pts = ifft(vf_pts)
         return v_pts, err_2
 
-    def read_cluster(self, clust):
+    def read_cluster(self, clust, save_fit_figs=False):
         '''Read an h5 file and return three two dimensional numpy arrays of the form ([amplitudes, errors], [sigmas, errors], [phases, errors]
         '''
         #for performance metrics
@@ -802,15 +802,19 @@ class phase_finder:
         for j in range(len(points)):
             v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
             #before doing anything else, save a plot of just the time series
-            plt.plot(self.t_pts, np.real(v_pts))
-            plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(self.prefix,clust,j))
-            plt.clf()
+            fig_name = ""
+            if save_fit_figs:
+                plt.plot(self.t_pts, np.real(v_pts))
+                plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(self.prefix,clust,j))
+                plt.clf()
+                fig_name = "{}/fit_figs/fit_{}_{}".format(self.prefix,clust,j)
+            #now actually try optimizing
             try:
-                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(self.prefix,clust,j))
+                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
             except:
                 print("fitting to raw time series failed, applying low pass filter")
                 v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
-                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(self.prefix,clust,j))
+                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
             n_evals += 1
             if verbose > 0:
                 print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2*self.n_t_pts))
@@ -829,12 +833,12 @@ class phase_finder:
         print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_dif/n_evals))
         return ret
 
-    def lookup_fits(self, clust_name, recompute=False):
+    def lookup_fits(self, clust_name, recompute=False, save_fit_figs=False):
         '''Load the fits from the pickle file located at fname or perform the fits if it doesn't exist. Return the results'''
         data_name = '{}/dat_{}'.format(self.prefix, clust_name)
         if recompute or not os.path.exists(data_name):
             #figure out data by phase fitting
-            ret = self.read_cluster(clust_name)
+            ret = self.read_cluster(clust_name, save_fit_figs=save_fit_figs)
             with open(data_name, 'wb') as fh:
                 pickle.dump(ret, fh)
             return ret

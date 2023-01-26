@@ -34,10 +34,9 @@ parser.add_argument('--save-fit-figs', action='store_true', help='If set, then i
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
 parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)
-parser.add_argument('--wavelength', type=float, help='vacuum wavelength of the laser source (um)', default=0.7)
+parser.add_argument('--lowpass', type=float, help='If optimizations fail, then the phase finder tries them again after applying a lowpass filter to the timeseries. This parameter specifies the strength of the lowpass filter. If this script is crashing, then try increasing this parameter.', default=1.0)
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--slice-dir', type=str, help='prefix to use when opening files', default='x')
-parser.add_argument('--regression', action='store_true', help='If set to true, perform linear regression on phases across junction', default=False)
 args = parser.parse_args()
 
 class waveguide_est:
@@ -279,7 +278,7 @@ def make_fits(pf, n_groups=-1, recompute=False):
     #now perform a plot using the average of fits
     avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
     for i, clust in zip(axs_mapping, pf.clust_names):
-        cr = wg.reflect_pts(pf.lookup_fits(clust, recompute=recompute))
+        cr = wg.reflect_pts(pf.lookup_fits(clust, recompute=recompute, save_fit_figs=args.save_fit_figs))
         #save x points, amplitudes and phases so that an average may be computed
         #figure out expected amplitudes from waveguide modes
         clust_z = pf.get_clust_location(clust)
@@ -348,6 +347,6 @@ def plot_average_phase(pf, n_groups=-1):
         avg_ax[1].scatter(cl_xs[0], tot_amp[i])
     avg_fig.savefig(args.prefix+"/phase_average.pdf")
 
-pf = phases.phase_finder(args.fname, args.gap_width, args.gap_thick, prefix=args.prefix)
+pf = phases.phase_finder(args.fname, args.gap_width, args.gap_thick, prefix=args.prefix, pass_alpha=args.lowpass)
 make_fits(pf, n_groups=args.n_groups, recompute=args.recompute)
 plot_average_phase(pf, n_groups=args.n_groups)
