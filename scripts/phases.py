@@ -4,6 +4,9 @@ import h5py
 import scipy.optimize as opt
 from scipy.fft import ifft, fft, fftfreq
 import scipy.signal as ssig
+import time
+import pickle
+import os.path
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -107,13 +110,11 @@ class EnvelopeFitter:
             else:
                 self.typ_spacing = self.ext_ts[1] - self.ext_ts[0]
 
-    def cut_devs(self, keep_n=DEF_KEEP_N, both_tails=False):
-        '''estimate the standard deviation of a distribution by taking the full width at half maximum and then return this value along with copies of t_pts and a_pts truncated to only include points within keep_n deviations from the center.
-        ext_ts: x axis values of the distribution
-        ext_vs: pdf
-        keep_n: the number of standard deviations (estimated by fwhms) to keep, use a negative value to not perform any truncation
-        returns: a tuple of three values (fwhm, ext_tsated, ext_vsated)
-        '''
+        #convert to numpy arrays to make life easier
+        self.ext_ts = np.array(self.ext_ts)
+        self.ext_vs = np.array(self.ext_vs)
+
+    def find_fwhm(self, both_tails=False):
         fwhm = 0
         if both_tails:
             last_i = 0
@@ -146,6 +147,16 @@ class EnvelopeFitter:
                     fwhm = self.max_t-self.ext_ts[i]
                 elif v == self.max_v and i > 0:
                     fwhm = self.max_t-self.ext_ts[i-1]
+        return fwhm
+
+    def cut_devs(self, keep_n=DEF_KEEP_N, both_tails=False):
+        '''estimate the standard deviation of a distribution by taking the full width at half maximum and then return this value along with copies of t_pts and a_pts truncated to only include points within keep_n deviations from the center.
+        ext_ts: x axis values of the distribution
+        ext_vs: pdf
+        keep_n: the number of standard deviations (estimated by fwhms) to keep, use a negative value to not perform any truncation
+        returns: a tuple of three values (fwhm, ext_tsated, ext_vsated)
+        '''
+        fwhm = self.find_fwhm(both_tails=both_tails)
         #check if a truncation must be performed
         if keep_n < 0:
             return fwhm, self.ext_ts, self.ext_vs
@@ -232,7 +243,7 @@ class EnvelopeFitter:
     def get_double_guess(self):
         '''Get a starting guess for the parameters of the double pulse shape
         '''
-        fwhm,_,_ = self.cut_devs(both_tails=True)
+        fwhm = self.find_fwhm(both_tails=True)
         if verbose > 1:
             print("\tfwhm = %f" % fwhm)
                 
@@ -293,6 +304,10 @@ class EnvelopeFitter:
             int_ts = np.linspace(t_cent-t_range, t_cent+t_range, num=200)
             ax.plot(int_ts, np.abs(doub_gauss_ser(x0, int_ts)), color='red')
             ax.plot(int_ts, np.abs(doub_gauss_ser(res.x, int_ts)), color='blue')
+            #plot the response
+            fwhm = self.find_fwhm(both_tails=True)
+            conv,_ = self.find_response(lambda t: np.exp( -t**2/(2*fwhm**2) ))
+            ax.plot(l_ext_ts, conv/self.max_v)
             fig.savefig(fig_name+".png", dpi=300)
             plt.close(fig)
 
@@ -597,6 +612,108 @@ def get_params(res):
     cep = fix_angle(cep)
     return amp, t_0, sig, omega, cep
 
+N_RES_PARAMS = 5
+class cluster_res:
+    def __init__(self, xs):
+        self.n_pts = len(xs)
+        self.xs = np.array(xs)
+        self.res_arr = np.zeros((2*N_RES_PARAMS, self.n_pts))
+
+    def fix_xs(self, x_0, scale):
+        '''transforms all x points from x to x' where x'=(x-x_0)/scale
+        '''
+        self.xs = (self.xs-x_0)/scale
+
+    def get_amp(self):
+        return self.res_arr[0]
+    def get_amp_err(self):
+        return self.res_arr[1]
+    def get_t0(self):
+        return self.res_arr[2]
+    def get_t0_err(self):
+        return self.res_arr[3]
+    def get_sig(self):
+        return self.res_arr[4]
+    def get_sig_err(self):
+        return self.res_arr[5]
+    def get_omega(self):
+        return self.res_arr[6]
+    def get_omega_err(self):
+        return self.res_arr[7]
+    def get_phase(self):
+        return self.res_arr[8]
+    def get_phase_err(self):
+        return self.res_arr[9]
+
+    def set_point(self, jj, res, err_2):
+        '''set the point at index jj to have the paramters from the scipy optimization result res
+        '''
+        amp, t0, sig, omega, cep = get_params(res)
+        self.res_arr[0,jj] = amp
+        self.res_arr[1,jj] = np.sqrt(res.hess_inv[0][0]/(err_2))/2
+        self.res_arr[2,jj] = t0
+        self.res_arr[3,jj] = np.sqrt(res.hess_inv[1][1]/(err_2))
+        self.res_arr[4,jj] = sig
+        self.res_arr[5,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig))
+        self.res_arr[6,jj] = omega
+        self.res_arr[7,jj] = np.sqrt(res.hess_inv[3][3]/(err_2))
+        self.res_arr[8,jj] = cep/np.pi
+        self.res_arr[9,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi))
+
+    def trim_to(self, trim_arr):
+        '''trim the result so that it only contains points from indices specified by trim_arr
+        '''
+        self.xs = np.take(self.xs, trim_arr)
+        self.res_arr = np.take(self.res_arr, trim_arr, axis=1)
+
+    def mirror_pts(self, x_0=0, scale=0):
+        '''returns: a copy of the cluster_res that has twice as many points mirrored about the x=0 plane.
+        x_0: if scale is not zero, then fix_xs(x_0, scale) is applied to the resulting data
+        scale: if scale is not zero, then fix_xs(x_0, scale) is applied to the resulting data 
+        '''
+        nr = cluster_res(self.xs)
+        if scale != 0:
+            nr.fix_xs(x_0, scale)
+
+        #we want to use spatial symmetry to infer the points which have not been collected
+        i_zer = nr.n_pts
+        for ii, zz in enumerate(nr.xs):
+            if zz >= 0:
+                i_zer = ii
+                break
+        #keep track of the last point that satisfies z<=0
+        i_cent = i_zer-1
+        new_size = 2*i_zer
+        #if zero is included then this is a special case where there is an odd number of points
+        if i_zer < nr.n_pts and nr.xs[i_zer] == 0:
+            i_cent = i_zer
+            new_size += 1
+        if verbose > 2:
+            print("new_size={}, i_zer={}, i_cent={}".format(new_size, i_zer, i_cent))
+        if new_size > nr.n_pts:
+            new_xs = np.zeros(new_size)
+            nr.res_arr = np.pad(self.res_arr, ((0,0),(0,new_size-nr.n_pts)))
+            for ii in range(nr.n_pts - i_zer):
+                for k in range(N_RES_PARAMS):
+                    vid = 2*k
+                    eid = 2*k+1
+                    nr.res_arr[vid, i_cent-ii] = (nr.res_arr[vid,i_cent-ii] + nr.res_arr[vid,i_zer+ii])/2
+                    nr.res_arr[eid, i_cent-ii] = np.sqrt(nr.res_arr[eid,i_cent-ii]**2 + nr.res_arr[eid,i_zer+ii]**2)
+            for ii in range(new_size - i_zer):
+                new_xs[i_cent-ii] = nr.xs[i_cent-ii]
+                new_xs[i_zer+ii] = -nr.xs[i_cent-ii]
+                for k in range(N_RES_PARAMS):
+                    vid = 2*k
+                    eid = 2*k+1
+                    nr.res_arr[vid,i_cent+ii] = nr.res_arr[vid, i_cent-ii]
+                    nr.res_arr[eid,i_cent+ii] = nr.res_arr[eid, i_cent-ii]
+        else:
+            new_xs = np.array(nr.xs[:new_size])
+            nr.res_arr = np.resize(self.res_arr, (2*N_RES_PARAMS, new_size))
+        nr.n_pts = new_size
+        nr.xs = new_xs
+        return nr
+
 class phase_finder:
     '''
     Initialize a phase finder reading from the  specified by fname and a juction width and gap specified by width and height respectively.
@@ -605,7 +722,8 @@ class phase_finder:
     height: the thickness of the junction
     pass_alpha: The scale of the low pass filter applied to the time series. This corresponds to taking a time average of duration 2/pass_alpha on either side
     '''
-    def __init__(self, fname, width, height, pass_alpha=0.5, slice_dir='x'):
+    def __init__(self, fname, width, height, pass_alpha=1.0, slice_dir='x', prefix='.'):
+        self.prefix = prefix
         self.slice_dir = slice_dir
         self.slice_name = 'z'
         if self.slice_dir == 'z':
@@ -646,6 +764,10 @@ class phase_finder:
     def get_src_amplitude(self):
         return self.f['info']['sources']['amplitude']
 
+    def get_clust_span(self, clust):
+        if isinstance(clust, int):
+            clust = self.clust_names[0]
+        return self.f[clust]['locations'][self.slice_dir][0], self.f[clust]['locations'][self.slice_dir][-1]
     def get_clust_location(self, clust):
         return self.f[clust]['locations'][self.slice_name][0]
 
@@ -670,127 +792,60 @@ class phase_finder:
         #fetch a list of points and their associated coordinates
         points = list(self.f[clust].keys())[1:]
         xs = np.array(self.f[clust]['locations'][self.slice_dir])
-        n_z_pts = len(points)
-        if xs.shape[0] != n_z_pts:
+        n_x_pts = len(points)
+        if xs.shape[0] != n_x_pts:
             raise ValueError("points and locations do not have the same size")
 
-        amp_arr = np.zeros((2,n_z_pts))
-        t_0_arr = np.zeros((2,n_z_pts))
-        sig_arr = np.zeros((2,n_z_pts))
-        omega_arr = np.zeros((2,n_z_pts))
-        phase_arr = np.zeros((2,n_z_pts))
-        good_xs = []
+        ret = cluster_res(xs)
+        good_js = []
         phase_cor = 0
         for j in range(len(points)):
             v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
             #before doing anything else, save a plot of just the time series
             plt.plot(self.t_pts, np.real(v_pts))
-            plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
+            plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(self.prefix,clust,j))
             plt.clf()
             try:
-                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(self.prefix,clust,j))
             except:
                 print("fitting to raw time series failed, applying low pass filter")
                 v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
-                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(self.prefix,clust,j))
             n_evals += 1
             if verbose > 0:
-                print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
+                print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2*self.n_t_pts))
                 print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
             #only include this point if the fit was good
             if res.fun*self.sq_er_fact < 50.0:
-                good_xs.append(xs[j])
-                jj = len(good_xs)-1
-                amp, t_0, sig, omega, cep = get_params(res)
-                amp_arr[0,jj] = amp
-                amp_arr[1,jj] = np.sqrt(res_env.hess_inv[0][0]/(err_2*self.n_t_pts))/2
-                t_0_arr[0,jj] = t_0
-                t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/(err_2*self.n_t_pts))
-                sig_arr[0,jj] = sig
-                sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig*self.n_t_pts))
-                omega_arr[0,jj] = omega
-                omega_arr[1,jj] = np.sqrt(res.hess_inv[3][3]/(err_2*self.n_t_pts))
-                phase_arr[0,jj] = cep/np.pi
-                phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi*self.n_t_pts))
+                good_js.append(j)
+                ret.set_point(j, res, err_2)
             else:
                 print("bad fit! clust={}, j={}".format(clust,j))
-
-        #we want to use spatial symmetry to infer the points which have not been collected
-        i_zer = len(good_xs)
-        for ii, zz in enumerate(good_xs):
-            if zz >= 0:
-                i_zer = ii
-                break
-        #keep track of the last point that satisfies z<=0
-        i_cent = i_zer-1
-        new_size = 2*i_zer
-        #if zero is included then this is a special case where there is an odd number of points
-        if i_zer < len(good_xs) and good_xs[i_zer] == 0:
-            i_cent = i_zer
-            new_size += 1
-        print(phase_arr[0])
-        print(phase_arr[1])
-        print("new_size={}, good_z.len={}, i_zer={}, i_cent={}".format(new_size, len(good_xs), i_zer,i_cent))
-        if new_size > len(good_xs):
-            new_good_xs = np.zeros(new_size)
-            amp_arr = np.resize(amp_arr, (2, new_size))
-            t_0_arr = np.resize(t_0_arr, (2, new_size))
-            sig_arr = np.resize(sig_arr, (2, new_size))
-            omega_arr = np.resize(omega_arr, (2, new_size))
-            phase_arr = np.resize(phase_arr, (3, new_size))
-            #average data points to the right of the center
-            for ii in range(len(good_xs)-i_zer):
-                amp_arr[0,i_cent-ii] = (amp_arr[0,i_cent-ii] + amp_arr[0,i_zer+ii])/2
-                amp_arr[1,i_cent-ii] = np.sqrt(amp_arr[1,i_cent-ii]**2 + amp_arr[1,i_zer+ii]**2)
-                t_0_arr[0,i_cent-ii] = (t_0_arr[0,i_cent-ii] + t_0_arr[0,i_zer+ii])/2
-                t_0_arr[1,i_cent-ii] = np.sqrt(t_0_arr[1,i_cent-ii]**2 + t_0_arr[1,i_zer+ii]**2)
-                sig_arr[0,i_cent-ii] = (sig_arr[0,i_cent-ii] + sig_arr[0,i_zer+ii])/2
-                sig_arr[1,i_cent-ii] = np.sqrt(sig_arr[1,i_cent-ii]**2 + sig_arr[1,i_zer+ii]**2)
-                omega_arr[0,i_cent-ii] = (omega_arr[0,i_cent-ii] + omega_arr[0,i_zer+ii])/2
-                omega_arr[1,i_cent-ii] = np.sqrt(omega_arr[1,i_cent-ii]**2 + omega_arr[1,i_zer+ii]**2)
-                phase_arr[0,i_zer-ii] = (phase_arr[0,i_cent-ii] + phase_arr[0,i_zer+ii])/2
-                phase_arr[1,i_zer-ii] = np.sqrt(phase_arr[1,i_cent-ii]**2 + phase_arr[1,i_zer+ii]**2)
-            for ii in range(new_size-i_zer):
-                new_good_xs[i_cent-ii] = good_xs[i_cent-ii]
-                new_good_xs[i_zer+ii] = -good_xs[i_cent-ii]
-                amp_arr[0,i_zer+ii] = amp_arr[0,i_cent-ii]
-                amp_arr[1,i_zer+ii] = amp_arr[1,i_cent-ii]
-                t_0_arr[0,i_zer+ii] = t_0_arr[0,i_cent-ii]
-                t_0_arr[1,i_zer+ii] = t_0_arr[1,i_cent-ii]
-                sig_arr[0,i_zer+ii] = sig_arr[0,i_cent-ii]
-                sig_arr[1,i_zer+ii] = sig_arr[1,i_cent-ii]
-                omega_arr[0,i_zer+ii] = omega_arr[0,i_cent-ii]
-                omega_arr[1,i_zer+ii] = omega_arr[1,i_cent-ii]
-                phase_arr[0,i_zer+ii] = phase_arr[0,i_cent-ii]
-                phase_arr[1,i_zer+ii] = phase_arr[1,i_cent-ii]
-        else:
-            new_good_xs = np.array(good_xs[:new_size])
-            amp_arr = np.resize(amp_arr, (2, new_size))
-            t_0_arr = np.resize(t_0_arr, (2, new_size))
-            sig_arr = np.resize(sig_arr, (2, new_size))
-            omega_arr = np.resize(omega_arr, (2, new_size))
-            phase_arr = np.resize(phase_arr, (3, new_size))
+        ret.trim_to(good_js)
+        if verbose > 2:
+            print("found {} good points for cluster {}".format(len(good_js), clust))
+        #figure out the time required for calculations
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
         print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_dif/n_evals))
-        return new_good_xs, amp_arr, sig_arr, omega_arr, phase_arr
+        return ret
 
     def lookup_fits(self, clust_name, recompute=False):
         '''Load the fits from the pickle file located at fname or perform the fits if it doesn't exist. Return the results'''
-        data_name = '{}/dat_{}'.format(args.prefix, clust_name)
+        data_name = '{}/dat_{}'.format(self.prefix, clust_name)
         if recompute or not os.path.exists(data_name):
             #figure out data by phase fitting
-            dat_xs, amp_arr, sig_arr, omega_arr, phase_arr = self.read_cluster(clust_name)
+            ret = self.read_cluster(clust_name)
             with open(data_name, 'wb') as fh:
-                pickle.dump([dat_xs, amp_arr, sig_arr, omega_arr, phase_arr], fh)
-            return dat_xs, amp_arr, sig_arr, omega_arr, phase_arr  
+                pickle.dump(ret, fh)
+            return ret
         else:
             with open(data_name, 'rb') as fh:
-                vals = pickle.load(fh)
-            return vals[0], vals[1], vals[2], vals[3], vals[4]
+                ret = pickle.load(fh)
+            return ret
 
     def find_avg_vals(self, clust):
-        dat_xs, amp_arr, sig_arr, phase_arr = self.lookup_fits(clust)
-        field_0 = np.sum(amp_arr[0]) / amp_arr.shape[1]
-        sig_0 = np.sum(sig_arr[0]) / sig_arr.shape[1]
-        phase_0 = np.sum(phase_arr[0]) / sig_arr.shape[1]
+        ret = self.lookup_fits(clust)
+        field_0 = np.sum(ret.get_amps()) / ret.n_pts
+        sig_0 = np.sum(ret.get_sigs()) / ret.n_pts
+        phase_0 = np.sum(ret.get_phases()) / ret.n_pts
         return field_0, sig_0, phase_0

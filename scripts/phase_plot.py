@@ -6,9 +6,6 @@ import h5py
 import matplotlib
 import matplotlib.pyplot as plt
 from scipy.stats import linregress
-import time
-import pickle
-import os.path
 
 plt.rc('font', size=14)
 plt.rc('xtick', labelsize=12)
@@ -26,6 +23,7 @@ EPS_0 = 200.6
 
 #The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
 HIGHEST_MODE=3
+PAD_FACTOR = 1.05
 
 #parse arguments supplied via command line
 parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian pulse envelope to perform CEP estimation.')
@@ -43,32 +41,53 @@ parser.add_argument('--regression', action='store_true', help='If set to true, p
 args = parser.parse_args()
 
 class waveguide_est:
-    def __init__(self, width, height, vac_wavelen, avg_sig_0, phase):
+    def __init__(self, width, height, pf):
         self.geom = utils.Geometry("params.conf", gap_width=width, gap_thick=height)
-
+        #read source parameters from the phase finder
+        self.vac_wavelen = pf.get_src_wavelen()[0]
+        self.vac_pulse_width = pf.get_src_width()[0]
+        self.vac_phase = pf.get_src_phase()[0]
+        self.vac_amp = pf.get_src_amplitude()[0]
+        #set object variables
         self.freq_0 = .299792458 / self.vac_wavelen
-        self.df = 6/(avg_sig_0*N_FREQ_COMPS)
-        self.freq_range = np.linspace(-self.freq_0-3/avg_sig_0, -self.freq_0+3/avg_sig_0, num=N_FREQ_COMPS)
-        self.freq_comps = avg_field_0*avg_sig_0*np.exp(-1j*avg_phase_0-((self.freq_range+freq_0)*avg_sig_0)**2/2)/np.sqrt(2*np.pi)
+        self.df = 6/(self.vac_pulse_width*N_FREQ_COMPS)
+        #create a linear range of frequencies
+        self.freq_range = np.linspace(-self.freq_0-3/self.vac_pulse_width, -self.freq_0+3/self.vac_pulse_width, num=N_FREQ_COMPS)
+        scale = self.vac_amp / np.sqrt(2*np.pi)
+        self.freq_comps = scale*self.vac_pulse_width*np.exp(-1j*self.vac_phase-((self.freq_range+self.freq_0)*self.vac_pulse_width)**2/2)
+        #get x ranges for plots
+        z_min = min(self.geom.meep_len_to_um(self.geom.l_junc -self.geom.z_center), \
+                self.geom.meep_len_to_um(pf.get_clust_span(0)[0]-self.geom.z_center))
+        self.x_range = (PAD_FACTOR*z_min, -PAD_FACTOR*z_min)
 
     def get_loc_rel(self, z, ref_z=-1):
         '''return the location of the cluster with the name clust along the propagation direction (z if slice_dir=x x if slice_dir=z)'''
         if ref_z < 0:
             ref_z = self.geom.t_junc
 
+    def convert_x_units(self, xs):
+        '''given an np array of x data points, return that array relative to the center and in micrometers instead of meep units
+        '''
+        return (xs - self.geom.z_center)/self.geom.um_scale
+
+    def reflect_pts(self, cr):
+        '''mirror the cluster_result object cr and label the x axis appropriately
+        '''
+        return cr.mirror_pts(self.geom.z_center, self.geom.um_scale)
+
     def get_junc_bounds(self):
         return self.geom.meep_len_to_um(self.geom.l_junc - self.geom.z_center), self.geom.meep_len_to_um(self.geom.r_junc - self.geom.z_center)
 
-    def get_field_amps(self, x_pts, z, diel_const, vac_wavelen=0.7, n_modes=HIGHEST_MODE):
+    def get_field_amps(self, x_pts, z, diel_const, n_modes=HIGHEST_MODE):
         length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
         #these are some useful constants that we define. Note that lc is just the wavelength inside the dielectric, kc_sq is the square of 2pi/lc and l_rat_sq is (lc/2l)^2 where l is the length of the sample. We derived the expression beta^2 = kc^2 (1 - l_rat_sq*n^2), so neg_beta_sq is just -beta^2.
         #lc = vac_wavelen/np.sqrt(np.real(diel_const))
-        lc = vac_wavelen/np.real(diel_const)
+        lc = self.vac_wavelen/np.real(diel_const)
         kc_sq = (2*np.pi / lc)**2
         l_rat_sq = 0.25*(lc/length)**2
         fields = 1j*np.zeros(len(x_pts))
         print("length={}, L_c={}, kc^2={}, ratio^2={}".format(length, lc, kc_sq, l_rat_sq))
-        phaseless_comps = self.freq_comps*np.exp(1j*self.phase)
+        phaseless_comps = self.freq_comps*np.exp(1j*self.vac_phase)
         for k in range(n_modes):
             n = 2*k + 1
             neg_beta_sq = kc_sq*(l_rat_sq*(n**2) - 1)
@@ -79,7 +98,7 @@ class waveguide_est:
             else:
                 fields += np.sin(n*np.pi*(x_pts+length/2)/length)*np.sum(phaseless_comps)*self.df/n
         #the factor of 0.5 comes because only half of the field is propagating towards the junction, the other half is going away
-        return 4*0.5*self.get_amplitude()*np.real(fields)/np.pi
+        return 4*0.5*self.vac_amp*np.real(fields)/np.pi
 
     def get_field_phases(self, x_pts, z, diel_const, inc_phase, n_modes=HIGHEST_MODE):
         length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
@@ -89,7 +108,7 @@ class waveguide_est:
             n = 2*k + 1
             betas = np.sqrt(alphas*diel_const - (n*np.pi/length)**2)
             fours = fours + self.df*np.sum(np.exp(-1j*betas*z))*np.sin(n*np.pi*(x_pts+length/2)/length)/n
-        return np.array([fix_angle(x) for x in np.arctan2(np.imag(fours), np.real(fours))/np.pi])
+        return np.array([phases.fix_angle(x) for x in np.arctan2(np.imag(fours), np.real(fours))/np.pi])
 
     def get_n_component(self, x_pts, amps, n):
         length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
@@ -113,10 +132,20 @@ class waveguide_est:
                 np.sum( 1j*z*self.freq_comps*alphas*np.exp(1j*z*beta)/beta )*self.df
         return 2*np.real(fields)/np.pi
 
-    def convert_x_units(self, xs):
-        '''given an np array of x data points, return that array relative to the center and in micrometers instead of meep units
-        '''
-        return (xs - self.geom.z_center)/self.geom.um_scale
+    def setup_axes(self, ax, rng, label_x=True):
+        '''Setup the pyplot axes ax
+        ax: the axes to use
+        rng: a tuple with at least two elements specifying upper and lower bounds for the axes'''
+        #set axes ranges
+        ax.set_xlim(self.x_range)
+        ax.set_ylim(rng)
+        #draw gold leads
+        junc_bounds = self.get_junc_bounds()
+        l_gold = [self.x_range[0], junc_bounds[0]]
+        r_gold = [junc_bounds[1], self.x_range[-1]]
+        ax.fill_between(l_gold, rng[0], rng[1], color='yellow', alpha=0.3)
+        ax.fill_between(r_gold, rng[0], rng[1], color='yellow', alpha=0.3)
+        ax.get_xaxis().set_visible(label_x)
 
     #def fit_eps(self, x_pts, amps, z):
     def fit_eps(self, pf, inds=[]):
@@ -134,8 +163,8 @@ class waveguide_est:
         slice_amps = []
         avg_eps_est = 0
         for clust in clusts:
-            dat_xs, amp_arr, _, _ = pf.lookup_fits(clust, recompute=True)
-            dat_xs = convert_x_units(dat_xs)
+            cr = self.reflect_pts(pf.lookup_fits(clust, recompute=True))
+            amp_arr = cr.get_amp()
             #the TE mode expansion is only valid inside the junction, so we need to truncate the arrays
             lowest_valid = -1
             highest_valid = -1
@@ -143,12 +172,12 @@ class waveguide_est:
             '''high_off = (junc_bounds[1]-junc_bounds[0])/(2*HIGHEST_MODE-1)
             fit_bounds = (junc_bounds[0]+high_off, junc_bounds[1]-high_off)'''
             fit_bounds = junc_bounds
-            for j, x in enumerate(dat_xs):
+            for j, x in enumerate(cr.xs):
                 if lowest_valid < 0 and x >= fit_bounds[0]:
                     lowest_valid = j
                 if x <= fit_bounds[1]:
                     highest_valid = j
-            slice_xs.append(dat_xs[lowest_valid:highest_valid+1])
+            slice_xs.append(cr.xs[lowest_valid:highest_valid+1])
             slice_amps.append(amp_arr[:, lowest_valid:highest_valid+1])
             comp_1 = self.get_n_component(slice_xs[-1], slice_amps[-1][0], 1)
             comp_3 = self.get_n_component(slice_xs[-1], slice_amps[-1][0], 3)/3 #divide by component along this basis vector
@@ -212,22 +241,6 @@ def find_grouping(pf, n_groups):
     axs_mapping = [i%grp_len for i in range(pf.n_clusts)]
     return grp_len, n_groups, axs_mapping
 
-def setup_axes(pf, ax, rng, label_x=True):
-    '''Setup the pyplot axes ax
-    pf: the phase finder object which has information on the geometry
-    ax: the axes to use
-    rng: a tuple with at least two elements specifying upper and lower bounds for the axes'''
-    #set axes ranges
-    ax.set_xlim(pf.x_range)
-    ax.set_ylim(rng)
-    #draw gold leads
-    junc_bounds = pf.get_junc_bounds()
-    l_gold = [pf.x_range[0], junc_bounds[0]]
-    r_gold = [junc_bounds[1], pf.x_range[-1]]
-    ax.fill_between(l_gold, rng[0], rng[1], color='yellow', alpha=0.3)
-    ax.fill_between(r_gold, rng[0], rng[1], color='yellow', alpha=0.3)
-    ax.get_xaxis().set_visible(label_x)
-
 def make_fits(pf, n_groups=-1, recompute=False):
     _,_,axs_mapping = find_grouping(pf, n_groups)
     #use a default set of axes if the user didn't supply one or the supplied axes were invalid
@@ -237,17 +250,20 @@ def make_fits(pf, n_groups=-1, recompute=False):
     if n_mapped > len(pf.clust_names):
         axs_mapping = range(len(pf.clust_names))
         n_mapped = pf.n_clusts
-    junc_bounds = pf.get_junc_bounds()
+
+    wg = waveguide_est(args.gap_width, args.gap_thick, pf)
+    junc_bounds = wg.get_junc_bounds()
+
     #initialize plots
     fig_amp, axs_amp = plt.subplots(n_mapped//N_COLS, N_COLS)
     fig_phs, axs_phs = plt.subplots(n_mapped//N_COLS, N_COLS)
     fig_omg, axs_omg = plt.subplots(n_mapped//N_COLS, N_COLS)
     #set up axes first
     for i in range(n_mapped):
-        label_x = (i < len(pf.clust_names) - 1)
-        setup_axes(pf, get_axis(axs_amp, i), AMP_RANGE, label_x=label_x)
-        setup_axes(pf, get_axis(axs_phs, i), PHI_RANGE, label_x=label_x)
-        setup_axes(pf, get_axis(axs_omg, i), OMG_RANGE, label_x=label_x)
+        label_x = (i == len(pf.clust_names) - 1)
+        wg.setup_axes(get_axis(axs_amp, i), AMP_RANGE, label_x=label_x)
+        wg.setup_axes(get_axis(axs_phs, i), PHI_RANGE, label_x=label_x)
+        wg.setup_axes(get_axis(axs_omg, i), OMG_RANGE, label_x=label_x)
 
     #make a plot of average fits
     fig_amp.suptitle(r"amplitude across a junction $E_1=1/\sqrt{2}$, $E_2=0$")
@@ -260,35 +276,32 @@ def make_fits(pf, n_groups=-1, recompute=False):
     axs_fits[0].set_ylim(AMP_RANGE)
     axs_fits[1].set_ylim([6, 7])
 
-    wg = waveguide_est(args.gap_width, args.gap_thick, pf.get_src_wavelen()[0], pf.get_src_width()[0], pf.get_src_phase()[0])
-
     #now perform a plot using the average of fits
     avg_fit = [np.sum(fit_xs[1][1:4])/fit_xs.shape[1]]
     for i, clust in zip(axs_mapping, pf.clust_names):
-        dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust, recompute=recompute)
-        dat_xs = convert_x_units(dat_xs)
+        cr = wg.reflect_pts(pf.lookup_fits(clust, recompute=recompute))
         #save x points, amplitudes and phases so that an average may be computed
         #figure out expected amplitudes from waveguide modes
         clust_z = pf.get_clust_location(clust)
-        amps_fit = np.abs(wg.get_field_amps(x_cnt, clust_z, args.diel_const, vac_wavelen=args.wavelength))
+        amps_fit = np.abs(wg.get_field_amps(x_cnt, clust_z, args.diel_const))
         phss_fit = np.abs(wg.get_field_phases(x_cnt, clust_z, args.diel_const, -np.pi/2))
         #plot amplitudes
         tmp_axs = get_axis(axs_amp, i)
         tmp_axs.plot(x_cnt, amps_fit, color='gray', linestyle=':')
-        tmp_axs.scatter(dat_xs, amp_arr[0], s=3)
+        tmp_axs.scatter(cr.xs, cr.get_amp(), s=3)
         tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 3)), (0.01, 0.68), xycoords='axes fraction')
         #plot phases
         tmp_axs = get_axis(axs_phs, i)
         #tmp_axs.plot(x_cnt, phss_fit)
         phase_th = -pf.get_src_phase()[0]/np.pi
-        tmp_axs.plot([dat_xs[0], dat_xs[-1]], [phase_th, phase_th], color='gray', linestyle=':')
-        tmp_axs.scatter(dat_xs, phs_arr[0], s=3)
+        tmp_axs.plot([cr.xs[0], cr.xs[-1]], [phase_th, phase_th], color='gray', linestyle=':')
+        tmp_axs.scatter(cr.xs, cr.get_phase(), s=3)
         #plot frequencies
         tmp_axs = get_axis(axs_omg, i)
         tmp_axs.annotate(r"$z={}\mu$m".format(round(clust_z, 3)), (0.01, 0.68), xycoords='axes fraction')
         omega_th = 2*np.pi*.299792458/pf.get_src_wavelen()[0] #2*pi*c/lambda
         tmp_axs.plot([x_cnt[0], x_cnt[-1]], [omega_th, omega_th], color='gray', linestyle=':')
-        tmp_axs.scatter(dat_xs, omega_arr[0], s=3)
+        tmp_axs.scatter(cr.xs, cr.get_omega(), s=3)
 
     #save the figures
     fig_amp.savefig(args.prefix+"/amps_theory.pdf")
@@ -301,13 +314,13 @@ def plot_average_phase(pf, n_groups=-1):
     cl_xs = []
     cl_amp = []
     cl_phs = []
+    wg = waveguide_est(args.gap_width, args.gap_thick, pf)
     for clust in pf.clust_names:
-        dat_xs,amp_arr,sig_arr,omega_arr,phs_arr = pf.lookup_fits(clust, recompute=False)
-        dat_xs = convert_x_units(dat_xs)
+        cr = wg.reflect_pts(pf.lookup_fits(clust, recompute=False))
         #save x points, amplitudes and phases so that an average may be computed
-        cl_xs.append(dat_xs)
-        cl_amp.append(amp_arr)
-        cl_phs.append(phs_arr)
+        cl_xs.append(cr.xs)
+        cl_amp.append(cr.get_amp())
+        cl_phs.append(cr.get_phase())
     #save a figure of the average phase
     n_x_pts = len(cl_xs[0])
     avg_phs = np.zeros((n_groups, n_x_pts))
@@ -322,8 +335,8 @@ def plot_average_phase(pf, n_groups=-1):
     tot_amp = tot_amp / grp_len
     avg_fig, avg_ax = plt.subplots(2)
     #setup the axes with the gold leads and a dashed line with incident phase
-    setup_axes(pf, avg_ax[0], PHI_RANGE)
-    setup_axes(pf, avg_ax[1], AMP_RANGE)
+    wg.setup_axes(avg_ax[0], PHI_RANGE)
+    wg.setup_axes(avg_ax[1], AMP_RANGE)
     phs_th = -pf.get_src_phase()[0]/np.pi
     avg_ax[0].plot([cl_xs[0][0], cl_xs[0][-1]], [phs_th, phs_th], color='gray', linestyle=':')
     avg_ax[0].set_ylabel(r"$<\phi>/\pi$")
@@ -335,6 +348,6 @@ def plot_average_phase(pf, n_groups=-1):
         avg_ax[1].scatter(cl_xs[0], tot_amp[i])
     avg_fig.savefig(args.prefix+"/phase_average.pdf")
 
-pf = phase_finder(args.fname, args.gap_width, args.gap_thick)
+pf = phases.phase_finder(args.fname, args.gap_width, args.gap_thick, prefix=args.prefix)
 make_fits(pf, n_groups=args.n_groups, recompute=args.recompute)
 plot_average_phase(pf, n_groups=args.n_groups)
