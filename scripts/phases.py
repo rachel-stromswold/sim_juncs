@@ -2,7 +2,8 @@ import numpy as np
 import argparse
 import h5py
 import scipy.optimize as opt
-from scipy.fft import irfft, rfft, rfftfreq
+from scipy.fft import ifft, fft, fftfreq
+import scipy.signal as ssig
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -13,8 +14,10 @@ AMP_CUTOFF = 0.025
 OUTLIER_FACTOR = 20
 N_STDS = 2
 WIDTH_SCALE = 1000
-
 verbose = 0
+
+#The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
+HIGHEST_MODE=3
 
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
@@ -22,18 +25,6 @@ DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],
 LOC_MAX_CUT = 1e-6
 #The number of standard deviations away from the local maxima to consider when performing least squares fits
 DEF_KEEP_N = 2.5
-
-'''def jac_num(func, x):
-    #Numerically estimate the jacobian of func at point f
-    dim = len(x)
-    ret = np.zeros(dim)
-    for i in range(dim):
-        x[i] += H_EPSILON
-        ret[i] = func(x)
-        x[i] -= EPSILON
-        ret[i] = (ret[i] - func(x))/EPSILON
-        x[i] += H_EPSILON
-    return ret'''
 
 def write_reses(fname, res_list):
     with open(fname, "w") as res_f:
@@ -172,6 +163,15 @@ class EnvelopeFitter:
         else:
             return fwhm, self.ext_ts[i_min:], self.ext_vs[i_min:]
 
+    def get_single_guess(self, keep_n):
+        #use the full width at half max as a crude estimate of standard deviation
+        fwhm, trunc_ts, trunc_vs = self.cut_devs(keep_n=keep_n)
+        #now take the logarithm to transform fitting a gaussian to fitting a parabola. We normalize so Open Choicethat the amplitude should be roughly 1.0. This is easily accounted for at the end
+        trunc_ts = np.array(trunc_ts)
+        trunc_vs = np.log(np.array(trunc_vs)/self.max_v)
+        #note that we fit to a form e**(-(t-t_0)^2/w) so using fwhm as an estimate for sigma we have w=2*sigma**2
+        return np.array([1.0, self.max_t, fwhm]), trunc_ts, trunc_vs
+
     def opt_envelope(self, keep_n=DEF_KEEP_N, fig_name=''):
         '''Performs a least squares fit to find a rough estimate of the shape of the pulse envelope. This is used by the opt_pulse to optimize the pulse shape inside the envelope
         t_pts: a numpy array of times at which each point occurblue
@@ -181,11 +181,8 @@ class EnvelopeFitter:
         returns: a tuple containing (np.array([times of maxima, maxima]), global time maximum, global maximum, the spacing between adjacent peaks)
         '''
         #use the full width at half max as a crude estimate of standard deviation
-        fwhm, trunc_ts, trunc_vs = self.cut_devs(keep_n=keep_n)
+        x0, trunc_ts, trunc_vs = self.get_single_guess(keep_n)
 
-        #now take the logarithm to transform fitting a gaussian to fitting a parabola. We normalize so that the amplitude should be roughly 1.0. This is easily accounted for at the end
-        trunc_ts = np.array(trunc_ts)
-        trunc_vs = np.log(np.array(trunc_vs)/self.max_v)
         #least squares of the logs of the envelope points
         def ff(x):
             return np.sum( (np.log(abs(x[0])) - 0.5*((trunc_ts - x[1])/x[2])**2 - trunc_vs)**2 )
@@ -199,8 +196,6 @@ class EnvelopeFitter:
             ret[2] = 2*np.sum( diff_ser*(t_dif_by_w**2) )/(x[2]**3)
             return ret
 
-        #note that we fit to a form e**(-(t-t_0)^2/w) so using fwhm as an estimate for sigma we have w=2*sigma**2
-        x0 = np.array([1.0, self.max_t, fwhm])
         res = opt.minimize(ff, x0, jac=jac_env)
 
         if fig_name != '':
@@ -220,30 +215,51 @@ class EnvelopeFitter:
 
         return res, est_omega, est_phi
 
-    def opt_double_envelope(self, fig_name=''):
-        '''Optimize an envelope that is a superposition of two gaussians'''
+    def find_response(self, kern_x):
+        '''Find the response of the convolution of the time series with the kernel specified by kern_x.
+        returns: a tuple with the response (f*kern_x)(t) and the local extrema of the resulting convolution
+        '''
+        n_t_pts = self.ext_ts.shape[0]
+        response = np.zeros(n_t_pts)
+        #since time samples aren't regularly spaced, convolve in the time domain. n is small right? so O(n^2) isn't thaat bad :p
+        for i in range(n_t_pts):
+            for j in range(1, n_t_pts):
+                response[i] += 0.5*( self.ext_vs[i]*kern_x(self.ext_ts[i] - self.ext_ts[j]) + self.ext_vs[i]*kern_x(self.ext_ts[i] - self.ext_ts[j-1]) ) \
+                    *(self.ext_ts[j]-self.ext_ts[j-1])
+        peaks = ssig.argrelextrema(response, np.greater)[0]
+        return response, peaks
+    
+    def get_double_guess(self):
+        '''Get a starting guess for the parameters of the double pulse shape
+        '''
         fwhm,_,_ = self.cut_devs(both_tails=True)
         if verbose > 1:
             print("\tfwhm = %f" % fwhm)
-
-        #normalize the amplitude
+                
         l_ext_ts = np.array(self.ext_ts)
         l_ext_vs = np.array(self.ext_vs)/self.max_v
-
-        max_l_ext = len(l_ext_vs)-1
+        response, peaks = self.find_response(lambda t: np.exp( -t**2/(2*fwhm**2) ))
+        #find the two highest peaks in the response function
         local_maxes = [0, 0]
         local_sigs = [fwhm, fwhm]
-        for i in range(1, max_l_ext):
-            if l_ext_vs[i] > LOC_MAX_CUT and l_ext_vs[i] > l_ext_vs[i-1] and l_ext_vs[i] > l_ext_vs[i+1]:
-                #estimate the second derivative by (f(x+h)-2f(x)+f(x-h))/h^2 and use this to estimate the standard deviation
-                est_deriv = (l_ext_vs[i+1] - 2*l_ext_vs[i] + l_ext_vs[i-1])*4 / (l_ext_ts[i+1]-l_ext_ts[i-1])**2
-                if l_ext_vs[i] > l_ext_vs[local_maxes[0]]:
-                    local_maxes[0] = i
-                    local_sigs[0] = np.sqrt(-1/est_deriv)
-                elif l_ext_vs[i] > l_ext_vs[local_maxes[1]]:
-                    local_maxes[1] = i
-                    local_sigs[1] = np.sqrt(-1/est_deriv)
+        for i in peaks:
+            est_deriv = (l_ext_vs[i+1] - 2*l_ext_vs[i] + l_ext_vs[i-1])*4 / (l_ext_ts[i+1]-l_ext_ts[i-1])**2
+            if response[i] > response[local_maxes[0]]:
+                local_maxes[0] = i
+                local_sigs[0] = np.sqrt(-1/est_deriv)
+            elif response[i] > response[local_maxes[1]]:
+                local_maxes[1] = i
+                local_sigs[1] = np.sqrt(-1/est_deriv)
+                    
+        #create an initial guess by supposing that the widths are each one half
+        x0 = np.array([1.0, self.max_t, fwhm/2, 1.0, self.max_t+fwhm, fwhm/2])
+        if local_maxes[0] != local_maxes[1]:
+            x0 = np.array([l_ext_vs[local_maxes[0]], l_ext_ts[local_maxes[0]], local_sigs[0], l_ext_vs[local_maxes[1]], l_ext_ts[local_maxes[1]], local_sigs[1]])
+        return x0, l_ext_ts, l_ext_vs
 
+    def opt_double_envelope(self, fig_name=''):
+        '''Optimize an envelope that is a superposition of two gaussians'''
+        x0, l_ext_ts, l_ext_vs = self.get_double_guess()
         #the square error
         def doub_gauss_ser(x, t_pts):
             return x[0]*np.exp(-0.5*((t_pts - x[1])/x[2])**2) + x[3]*np.exp(-0.5*((t_pts - x[4])/x[5])**2)
@@ -266,12 +282,6 @@ class EnvelopeFitter:
             ret[4] = 2*x[3]*np.sum(diff_ser*t_dif_1*exp_1)/(x[5]**2)
             ret[5] = 2*x[3]*np.sum(diff_ser*exp_1*(t_dif_1)**2)/(x[5]**3)
             return ret
-
-        #create an initial guess by supposing that the widths are each one half
-        x0 = np.array([1.0, self.max_t, fwhm/2, 1.0, self.max_t+fwhm, fwhm/2])
-        if local_maxes[0] != local_maxes[1]:
-            x0 = np.array([l_ext_vs[local_maxes[0]], l_ext_ts[local_maxes[0]], local_sigs[0], l_ext_vs[local_maxes[1]], l_ext_ts[local_maxes[1]], local_sigs[1]])
-
         #perform the optimization and make figures
         res = opt.minimize(ff, x0, jac=jac_env)
         if fig_name != '':
@@ -290,7 +300,7 @@ class EnvelopeFitter:
         res.x[3] = np.abs(res.x[3])*self.max_v
         #now create crude estimates of omega and phi by looking at the spacing between peaks and the phase offset between the data peak and the estimate for t_0
         est_omega = np.pi/self.typ_spacing
-        est_phi = fix_angle(est_omega*(l_ext_ts[local_maxes[0]] - res.x[1]))
+        est_phi = fix_angle(est_omega*(self.max_t - res.x[1]))
         return res, est_omega, est_phi
 
     def sq_err_fit_single(self, x):
@@ -586,3 +596,201 @@ def get_params(res):
             cep += np.pi
     cep = fix_angle(cep)
     return amp, t_0, sig, omega, cep
+
+class phase_finder:
+    '''
+    Initialize a phase finder reading from the  specified by fname and a juction width and gap specified by width and height respectively.
+    fname: h5 file to read time samples from
+    width: the width of the junction
+    height: the thickness of the junction
+    pass_alpha: The scale of the low pass filter applied to the time series. This corresponds to taking a time average of duration 2/pass_alpha on either side
+    '''
+    def __init__(self, fname, width, height, pass_alpha=0.5, slice_dir='x'):
+        self.slice_dir = slice_dir
+        self.slice_name = 'z'
+        if self.slice_dir == 'z':
+            self.slice_name = 'x'
+        #open the h5 file and identify all the clusters
+        self.f = h5py.File(fname, "r")
+        self.clust_names = []
+        for key in self.f.keys():
+            #make sure that the cluster has a valid name and it actually has points
+            if 'cluster' in key and len(self.f[key]) > 1 and len(self.f[key]['locations']) > 0:
+                self.clust_names.append(key)
+        self.n_clusts = len(self.clust_names)
+        #create a numpy array for time points, this will be shared across all points
+        keylist = list(self.f[self.clust_names[0]].keys())
+        self.n_t_pts = len(self.f[self.clust_names[0]][keylist[1]]['time'])
+        #read information to figure out time units and step sizes
+        t_min = self.f['info']['time_bounds'][0]
+        t_max = self.f['info']['time_bounds'][1]
+        self.dt = (t_max-t_min)/self.n_t_pts
+        self.t_pts = np.linspace(t_min, t_max, num=self.n_t_pts)
+        #these are used for applying a low pass filter to the time data, the low-pass is a sinc function applied in frequency space
+        self.f_pts = fftfreq(self.n_t_pts, d=self.dt)
+        self.low_filter = np.sin(self.f_pts*np.pi*pass_alpha) / (self.f_pts*np.pi*pass_alpha)
+        self.low_filter[0] = 1
+        #this normalizes the square errors to have reasonable units
+        self.sq_er_fact = self.dt/(t_max-t_min)
+
+    def get_src_wavelen(self):
+        return self.f['info']['sources']['wavelen']
+    def get_src_width(self):
+        return self.f['info']['sources']['width']
+    def get_src_phase(self):
+        return self.f['info']['sources']['phase']
+    def get_src_start_time(self):
+        return self.f['info']['sources']['start_time']
+    def get_src_end_time(self):
+        return self.f['info']['sources']['end_time']
+    def get_src_amplitude(self):
+        return self.f['info']['sources']['amplitude']
+
+    def get_clust_location(self, clust):
+        return self.f[clust]['locations'][self.slice_name][0]
+
+    def get_point_times(self, clust, ind, low_pass=False):
+        #fetch a list of points and their associated coordinates
+        points = list(self.f[clust].keys())[1:]
+        v_pts = np.array(self.f[clust][points[ind]]['time']['Re']) + 1j*np.array(self.f[clust][points[ind]]['time']['Im'])
+        # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
+        #err_2 = 8*np.max(np.diff(v_pts)**2)
+        err_2 = 0.02
+        if low_pass:
+            vf_pts = fft(v_pts)*self.low_filter
+            v_pts = ifft(vf_pts)
+        return v_pts, err_2
+
+    def read_cluster(self, clust):
+        '''Read an h5 file and return three two dimensional numpy arrays of the form ([amplitudes, errors], [sigmas, errors], [phases, errors]
+        '''
+        #for performance metrics
+        n_evals = 0
+        t_start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+        #fetch a list of points and their associated coordinates
+        points = list(self.f[clust].keys())[1:]
+        xs = np.array(self.f[clust]['locations'][self.slice_dir])
+        n_z_pts = len(points)
+        if xs.shape[0] != n_z_pts:
+            raise ValueError("points and locations do not have the same size")
+
+        amp_arr = np.zeros((2,n_z_pts))
+        t_0_arr = np.zeros((2,n_z_pts))
+        sig_arr = np.zeros((2,n_z_pts))
+        omega_arr = np.zeros((2,n_z_pts))
+        phase_arr = np.zeros((2,n_z_pts))
+        good_xs = []
+        phase_cor = 0
+        for j in range(len(points)):
+            v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
+            #before doing anything else, save a plot of just the time series
+            plt.plot(self.t_pts, np.real(v_pts))
+            plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(args.prefix,clust,j))
+            plt.clf()
+            try:
+                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+            except:
+                print("fitting to raw time series failed, applying low pass filter")
+                v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
+                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name="{}/fit_figs/fit_{}_{}".format(args.prefix,clust,j))
+            n_evals += 1
+            if verbose > 0:
+                print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2))
+                print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
+            #only include this point if the fit was good
+            if res.fun*self.sq_er_fact < 50.0:
+                good_xs.append(xs[j])
+                jj = len(good_xs)-1
+                amp, t_0, sig, omega, cep = get_params(res)
+                amp_arr[0,jj] = amp
+                amp_arr[1,jj] = np.sqrt(res_env.hess_inv[0][0]/(err_2*self.n_t_pts))/2
+                t_0_arr[0,jj] = t_0
+                t_0_arr[1,jj] = np.sqrt(res.hess_inv[1][1]/(err_2*self.n_t_pts))
+                sig_arr[0,jj] = sig
+                sig_arr[1,jj] = np.sqrt(res.hess_inv[2][2]/(err_2*8*sig*self.n_t_pts))
+                omega_arr[0,jj] = omega
+                omega_arr[1,jj] = np.sqrt(res.hess_inv[3][3]/(err_2*self.n_t_pts))
+                phase_arr[0,jj] = cep/np.pi
+                phase_arr[1,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi*self.n_t_pts))
+            else:
+                print("bad fit! clust={}, j={}".format(clust,j))
+
+        #we want to use spatial symmetry to infer the points which have not been collected
+        i_zer = len(good_xs)
+        for ii, zz in enumerate(good_xs):
+            if zz >= 0:
+                i_zer = ii
+                break
+        #keep track of the last point that satisfies z<=0
+        i_cent = i_zer-1
+        new_size = 2*i_zer
+        #if zero is included then this is a special case where there is an odd number of points
+        if i_zer < len(good_xs) and good_xs[i_zer] == 0:
+            i_cent = i_zer
+            new_size += 1
+        print(phase_arr[0])
+        print(phase_arr[1])
+        print("new_size={}, good_z.len={}, i_zer={}, i_cent={}".format(new_size, len(good_xs), i_zer,i_cent))
+        if new_size > len(good_xs):
+            new_good_xs = np.zeros(new_size)
+            amp_arr = np.resize(amp_arr, (2, new_size))
+            t_0_arr = np.resize(t_0_arr, (2, new_size))
+            sig_arr = np.resize(sig_arr, (2, new_size))
+            omega_arr = np.resize(omega_arr, (2, new_size))
+            phase_arr = np.resize(phase_arr, (3, new_size))
+            #average data points to the right of the center
+            for ii in range(len(good_xs)-i_zer):
+                amp_arr[0,i_cent-ii] = (amp_arr[0,i_cent-ii] + amp_arr[0,i_zer+ii])/2
+                amp_arr[1,i_cent-ii] = np.sqrt(amp_arr[1,i_cent-ii]**2 + amp_arr[1,i_zer+ii]**2)
+                t_0_arr[0,i_cent-ii] = (t_0_arr[0,i_cent-ii] + t_0_arr[0,i_zer+ii])/2
+                t_0_arr[1,i_cent-ii] = np.sqrt(t_0_arr[1,i_cent-ii]**2 + t_0_arr[1,i_zer+ii]**2)
+                sig_arr[0,i_cent-ii] = (sig_arr[0,i_cent-ii] + sig_arr[0,i_zer+ii])/2
+                sig_arr[1,i_cent-ii] = np.sqrt(sig_arr[1,i_cent-ii]**2 + sig_arr[1,i_zer+ii]**2)
+                omega_arr[0,i_cent-ii] = (omega_arr[0,i_cent-ii] + omega_arr[0,i_zer+ii])/2
+                omega_arr[1,i_cent-ii] = np.sqrt(omega_arr[1,i_cent-ii]**2 + omega_arr[1,i_zer+ii]**2)
+                phase_arr[0,i_zer-ii] = (phase_arr[0,i_cent-ii] + phase_arr[0,i_zer+ii])/2
+                phase_arr[1,i_zer-ii] = np.sqrt(phase_arr[1,i_cent-ii]**2 + phase_arr[1,i_zer+ii]**2)
+            for ii in range(new_size-i_zer):
+                new_good_xs[i_cent-ii] = good_xs[i_cent-ii]
+                new_good_xs[i_zer+ii] = -good_xs[i_cent-ii]
+                amp_arr[0,i_zer+ii] = amp_arr[0,i_cent-ii]
+                amp_arr[1,i_zer+ii] = amp_arr[1,i_cent-ii]
+                t_0_arr[0,i_zer+ii] = t_0_arr[0,i_cent-ii]
+                t_0_arr[1,i_zer+ii] = t_0_arr[1,i_cent-ii]
+                sig_arr[0,i_zer+ii] = sig_arr[0,i_cent-ii]
+                sig_arr[1,i_zer+ii] = sig_arr[1,i_cent-ii]
+                omega_arr[0,i_zer+ii] = omega_arr[0,i_cent-ii]
+                omega_arr[1,i_zer+ii] = omega_arr[1,i_cent-ii]
+                phase_arr[0,i_zer+ii] = phase_arr[0,i_cent-ii]
+                phase_arr[1,i_zer+ii] = phase_arr[1,i_cent-ii]
+        else:
+            new_good_xs = np.array(good_xs[:new_size])
+            amp_arr = np.resize(amp_arr, (2, new_size))
+            t_0_arr = np.resize(t_0_arr, (2, new_size))
+            sig_arr = np.resize(sig_arr, (2, new_size))
+            omega_arr = np.resize(omega_arr, (2, new_size))
+            phase_arr = np.resize(phase_arr, (3, new_size))
+        t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
+        print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_dif/n_evals))
+        return new_good_xs, amp_arr, sig_arr, omega_arr, phase_arr
+
+    def lookup_fits(self, clust_name, recompute=False):
+        '''Load the fits from the pickle file located at fname or perform the fits if it doesn't exist. Return the results'''
+        data_name = '{}/dat_{}'.format(args.prefix, clust_name)
+        if recompute or not os.path.exists(data_name):
+            #figure out data by phase fitting
+            dat_xs, amp_arr, sig_arr, omega_arr, phase_arr = self.read_cluster(clust_name)
+            with open(data_name, 'wb') as fh:
+                pickle.dump([dat_xs, amp_arr, sig_arr, omega_arr, phase_arr], fh)
+            return dat_xs, amp_arr, sig_arr, omega_arr, phase_arr  
+        else:
+            with open(data_name, 'rb') as fh:
+                vals = pickle.load(fh)
+            return vals[0], vals[1], vals[2], vals[3], vals[4]
+
+    def find_avg_vals(self, clust):
+        dat_xs, amp_arr, sig_arr, phase_arr = self.lookup_fits(clust)
+        field_0 = np.sum(amp_arr[0]) / amp_arr.shape[1]
+        sig_0 = np.sum(sig_arr[0]) / sig_arr.shape[1]
+        phase_0 = np.sum(phase_arr[0]) / sig_arr.shape[1]
+        return field_0, sig_0, phase_0
