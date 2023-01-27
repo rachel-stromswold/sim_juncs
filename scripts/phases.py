@@ -61,6 +61,16 @@ def fix_angle(theta):
             theta -= 2*np.pi
     return theta
 
+#checks whether the point at index j is a local maxima of the function narr
+def is_max(narr, j):
+    if j >= narr.shape[0]:
+        return False
+    if (j == 0):
+        return (narr[j] > narr[j+1])
+    if (j == narr.shape[0]-1):
+        return (narr[j] > narr[j-1])
+    return (narr[j] > narr[j-1] and narr[j] > narr[j+1])
+
 class EnvelopeFitter:
     def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF, outlier=OUTLIER_FACTOR):
         '''Given t_pts and a_pts return a list off all local extrema and their corresponding times. Also return the time for the global maxima, the value of the global maxima and the average spacing between maxima
@@ -239,7 +249,7 @@ class EnvelopeFitter:
                     *(self.ext_ts[j]-self.ext_ts[j-1])
         peaks = ssig.argrelextrema(response, np.greater)[0]
         return response, peaks
-    
+
     def get_double_guess(self):
         '''Get a starting guess for the parameters of the double pulse shape
         '''
@@ -254,13 +264,15 @@ class EnvelopeFitter:
         local_maxes = [0, 0]
         local_sigs = [fwhm, fwhm]
         for i in peaks:
-            est_deriv = (l_ext_vs[i+1] - 2*l_ext_vs[i] + l_ext_vs[i-1])*4 / (l_ext_ts[i+1]-l_ext_ts[i-1])**2
-            if response[i] > response[local_maxes[0]]:
-                local_maxes[0] = i
-                local_sigs[0] = np.sqrt(-1/est_deriv)
-            elif response[i] > response[local_maxes[1]]:
-                local_maxes[1] = i
-                local_sigs[1] = np.sqrt(-1/est_deriv)
+            #only proceed if this is a maxima of l_ext_vs
+            if is_max(l_ext_vs, i):
+                est_deriv = (l_ext_vs[i+1] - 2*l_ext_vs[i] + l_ext_vs[i-1])*4 / (l_ext_ts[i+1]-l_ext_ts[i-1])**2
+                if response[i] > response[local_maxes[0]]:
+                    local_maxes[0] = i
+                    local_sigs[0] = np.sqrt(-1/est_deriv)
+                elif response[i] > response[local_maxes[1]]:
+                    local_maxes[1] = i
+                    local_sigs[1] = np.sqrt(-1/est_deriv)
                     
         #create an initial guess by supposing that the widths are each one half
         x0 = np.array([1.0, self.max_t, fwhm/2, 1.0, self.max_t+fwhm, fwhm/2])
@@ -515,7 +527,7 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
     x0[4] = fix_angle(x0[4])
 
     #now we actually perform the minimization
-    res = opt.minimize(fp, x0, jac=jac_fp)
+    res = opt.minimize(fp, x0)
 
     #renormalize thingies
     res.x[0] = np.abs(res.x[0])*env_x[0]
@@ -554,7 +566,7 @@ def opt_pulse_env(t_pts, a_pts, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name='')
     err_1 = env_fit.sq_err_fit_double(env_res_1.x)
     #compute the bayes factor for the single and double pulses. We take both models to have identical priors. Note that under assumption of Gaussian errors the error cancels
     ln_bayes =  (0.5/skip_sigma_sq)*(err_0 - err_1)
-    if verbose > 1:
+    if verbose > 0:
         print("\tenvelope sigma={}, bayes factor={}".format(skip_sigma_sq, np.exp(ln_bayes)))
     #substantial evidence as defined by Jeffreys
     if np.isnan(ln_bayes) or ln_bayes > 1.15:
@@ -688,7 +700,7 @@ class cluster_res:
         if i_zer < nr.n_pts and nr.xs[i_zer] == 0:
             i_cent = i_zer
             new_size += 1
-        if verbose > 2:
+        if verbose > 1:
             print("new_size={}, i_zer={}, i_cent={}".format(new_size, i_zer, i_cent))
         if new_size > nr.n_pts:
             new_xs = np.zeros(new_size)
@@ -801,6 +813,8 @@ class phase_finder:
         phase_cor = 0
         for j in range(len(points)):
             v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
+            if verbose > 0:
+                print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2*self.n_t_pts))
             #before doing anything else, save a plot of just the time series
             fig_name = ""
             if save_fit_figs:
@@ -812,22 +826,22 @@ class phase_finder:
             try:
                 res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
             except:
-                print("fitting to raw time series failed, applying low pass filter")
+                if verbose > 0:
+                    print("\tfitting to raw time series failed, applying low pass filter")
                 v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
                 res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
             n_evals += 1
             if verbose > 0:
-                print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2*self.n_t_pts))
                 print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
             #only include this point if the fit was good
             if res.fun*self.sq_er_fact < 50.0:
                 good_js.append(j)
                 ret.set_point(j, res, err_2)
-            else:
-                print("bad fit! clust={}, j={}".format(clust,j))
+            elif verbose > 0:
+                print("\tbad fit!".format(clust,j))
         ret.trim_to(good_js)
-        if verbose > 2:
-            print("found {} good points for cluster {}".format(len(good_js), clust))
+        if verbose > 1:
+            print("\tfound {} good points".format(len(good_js), clust))
         #figure out the time required for calculations
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
         print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_dif/n_evals))
