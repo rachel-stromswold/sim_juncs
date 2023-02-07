@@ -71,7 +71,32 @@ def is_max(narr, j):
         return (narr[j] > narr[j-1])
     return (narr[j] > narr[j-1] and narr[j] > narr[j+1])
 
-class EnvelopeFitter:
+def deriv_num_1(t_pts, f_pts, i):
+    '''Numerically estimate the first derivative of f_pts (with corresponding points in time t_pts) evaluated at the ith time index'''
+    if len(f_pts) == 0:
+        return 0
+    elif i == 0:
+        return (f_pts[i+1]-f_pts[i])/(t_pts[i+1]-t_pts[i])
+    elif i == len(f_pts)-1:
+        return (f_pts[i]-f_pts[i-1])/(t_pts[i]-t_pts[i-1])
+    #we don't know that times are equally spaced so we consider both adjacent points seperately
+    return 0.5*( (f_pts[i+1] - f_pts[i])/(t_pts[i+1]-t_pts[i]) + (f_pts[i] - f_pts[i-1])/(t_pts[i]-t_pts[i-1]) )
+
+def deriv_num_2(t_pts, f_pts, i):
+    '''Numerically estimate the second derivative of f_pts (with corresponding points in time t_pts) evaluated at the ith time index'''
+    if len(f_pts) == 0:
+        return 0
+    elif i == 0:
+        return 2*(f_pts[i+1]-f_pts[i])/((t_pts[i+1]-t_pts[i])**2)
+    elif i == len(f_pts)-1:
+        return 2*(f_pts[i-1]-f_pts[i])/((t_pts[i]-t_pts[i-1])**2)
+    pside = (f_pts[i+1] - f_pts[i])/(t_pts[i+1]-t_pts[i])
+    mside = (f_pts[i] - f_pts[i-1])/(t_pts[i]-t_pts[i-1])
+    tdif = t_pts[i+1]-t_pts[i-1]
+    ret =(pside-mside)/tdif
+    return ret
+
+class EnvelopeFitterLive:
     def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF, outlier=OUTLIER_FACTOR):
         '''Given t_pts and a_pts return a list off all local extrema and their corresponding times. Also return the time for the global maxima, the value of the global maxima and the average spacing between maxima
         t_pts: time points to search
@@ -130,8 +155,11 @@ class EnvelopeFitter:
             last_i = 0
             for i, v in enumerate(self.ext_vs):
                 #ensure that the fwhm is set before the maxima
-                if v == self.max_v and fwhm == 0 and i > 0:
-                    fwhm = self.max_t-self.ext_ts[i-1]
+                if v == self.max_v and fwhm == 0:
+                    if i > 0:
+                        fwhm = self.max_t-self.ext_ts[i-1]
+                    else:
+                        fwhm = self.ext_ts[i+1]-self.max_t
                 if fwhm == 0 and v > self.max_v/2:
                     #use this point if there weren't any previously. Otherwise lerp
                     if i == 0:
@@ -155,8 +183,11 @@ class EnvelopeFitter:
                 #ensure that the fwhm is set before the maxima
                 if v > self.max_v/2:
                     fwhm = self.max_t-self.ext_ts[i]
-                elif v == self.max_v and i > 0:
-                    fwhm = self.max_t-self.ext_ts[i-1]
+                elif v == self.max_v:
+                    if i > 0:
+                        fwhm = self.max_t-self.ext_ts[i-1]
+                    else:
+                        fwhm = self.ext_ts[i+1]-self.max_t
         return fwhm
 
     def cut_devs(self, keep_n=DEF_KEEP_N, both_tails=False):
@@ -167,6 +198,8 @@ class EnvelopeFitter:
         returns: a tuple of three values (fwhm, ext_tsated, ext_vsated)
         '''
         fwhm = self.find_fwhm(both_tails=both_tails)
+        if fwhm == 0:
+            fwhm = np.sqrt(-1/deriv_num_2(self.ext_ts, self.ext_vs, np.argmax(self.ext_vs)))
         #check if a truncation must be performed
         if keep_n < 0:
             return fwhm, self.ext_ts, self.ext_vs
@@ -185,6 +218,7 @@ class EnvelopeFitter:
             return fwhm, self.ext_ts[i_min:], self.ext_vs[i_min:]
 
     def get_single_guess(self, keep_n):
+        print("l_max_i={}".format(self.l_max_i))
         #use the full width at half max as a crude estimate of standard deviation
         fwhm, trunc_ts, trunc_vs = self.cut_devs(keep_n=keep_n)
         #now take the logarithm to transform fitting a gaussian to fitting a parabola. We normalize so Open Choicethat the amplitude should be roughly 1.0. This is easily accounted for at the end
@@ -250,6 +284,7 @@ class EnvelopeFitter:
         peaks = ssig.argrelextrema(response, np.greater)[0]
         return response, peaks
 
+
     def get_double_guess(self):
         '''Get a starting guess for the parameters of the double pulse shape
         '''
@@ -261,19 +296,22 @@ class EnvelopeFitter:
         l_ext_vs = np.array(self.ext_vs)/self.max_v
         response, peaks = self.find_response(lambda t: np.exp( -t**2/(2*fwhm**2) ))
         #find the two highest peaks in the response function
-        local_maxes = [0, 0]
-        local_sigs = [fwhm, fwhm]
+        local_maxes = [0, 1]
+        if response[local_maxes[1]] > response[local_maxes[0]]:
+            tmp = local_maxes[0]
+            local_maxes[0] = local_maxes[1]
+            local_maxes[1] = tmp
         for i in peaks:
             #only proceed if this is a maxima of l_ext_vs
             if is_max(l_ext_vs, i):
-                est_deriv = (l_ext_vs[i+1] - 2*l_ext_vs[i] + l_ext_vs[i-1])*4 / (l_ext_ts[i+1]-l_ext_ts[i-1])**2
                 if response[i] > response[local_maxes[0]]:
                     local_maxes[0] = i
-                    local_sigs[0] = np.sqrt(-1/est_deriv)
                 elif response[i] > response[local_maxes[1]]:
                     local_maxes[1] = i
-                    local_sigs[1] = np.sqrt(-1/est_deriv)
-                    
+        #now estimate the standard deviation from the second derivative
+        local_sigs = [np.sqrt(-1/deriv_num_2(l_ext_ts, l_ext_vs, local_maxes[0])), np.sqrt(-1/deriv_num_2(l_ext_ts, l_ext_vs, local_maxes[1]))]
+        print(local_sigs)
+        print(local_maxes)
         #create an initial guess by supposing that the widths are each one half
         x0 = np.array([1.0, self.max_t, fwhm/2, 1.0, self.max_t+fwhm, fwhm/2])
         if local_maxes[0] != local_maxes[1]:
@@ -306,7 +344,7 @@ class EnvelopeFitter:
             ret[5] = 2*x[3]*np.sum(diff_ser*exp_1*(t_dif_1)**2)/(x[5]**3)
             return ret
         #perform the optimization and make figures
-        res = opt.minimize(ff, x0, jac=jac_env)
+        res = opt.minimize(ff, x0)
         if fig_name != '':
             fig = plt.figure()
             ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
@@ -849,7 +887,10 @@ class phase_finder:
             print("\tfound {} good points".format(len(good_js), clust))
         #figure out the time required for calculations
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
-        print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_dif/n_evals))
+        if n_evals > 0:
+            print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_dif/n_evals))
+        else:
+            print("No successful optimizations!")
         return ret
 
     def lookup_fits(self, clust_name, recompute=False, save_fit_figs=False):

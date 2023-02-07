@@ -183,7 +183,7 @@ private:
     //let users define constants
     context named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
-    void save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y);
+    std::vector<uint32_t> get_cols();
     void ray_step(_uint8* z_buf, _uint8* c_buf, size_t ind, size_t n1, size_t n2, vec3 disp);
 
 public:
@@ -208,5 +208,14 @@ public:
     void draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x=DEF_IM_RES, size_t res_y=DEF_IM_RES, size_t n_samples=DEF_TEST_N, double walk_step=WALK_STEP);
     void draw(const char* out_fname, vec3 cam_pos);
 };
+
+//drawing utility functions
+void save_imbuf(const char* out_fname, uint32_t* c_buf, size_t res_x, size_t res_y);
+uint32_t blend(uint32_t c1, uint32_t c2);
+inline _uint8 get_a(uint32_t col) { return 0xff & (col >> 24); }
+inline _uint8 get_r(uint32_t col) { return 0xff & (col >> 16); }
+inline _uint8 get_g(uint32_t col) { return 0xff & (col >> 8); }
+inline _uint8 get_b(uint32_t col) { return 0xff & col; }
+inline uint32_t make_col(uint32_t r, uint32_t g, uint32_t b) { return 0xff000000 | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff); }
 
 #endif //CGS_H

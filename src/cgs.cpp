@@ -560,6 +560,9 @@ parse_ercode scene::read_file(const char* p_fname) {
 					vec3 cam_pos = *(cam_val.val.v);
 					//set defaults
 					vec3 cam_look = cam_pos*-1;
+					//arbitrarily assign a look direction if none is specified
+					if (cam_look.norm() == 0)
+					    cam_look.x() = 1;
 					vec3 up_vec(0,0,1);
 					size_t res = DEF_IM_RES;
 					size_t n_samples = DEF_TEST_N;
@@ -573,7 +576,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 					value n_val = lookup_named(cur_func, "n_samples");
 					if (n_val.type == VAL_NUM) n_samples = (size_t)(n_val.val.x);
 					value scale_val = lookup_named(cur_func, "scale");
-					double scale = cam_look.norm();
+					double scale = 0.5 / cam_look.norm();
 					if (scale_val.type == VAL_NUM) scale = (double)(scale_val.val.x);
 					value step_val = lookup_named(cur_func, "step");
 					double step = WALK_STEP;
@@ -737,43 +740,88 @@ scene::~scene() {
 	if (data_objs[i]) delete data_objs[i];
     }
 }
+
 /*
  * convert from hsv to rgb
  * h,s,v hue satureation and value
  * rgb: a pointer to an array of three unsigned chars where the first second and third elements represent r,g, and b respectively
  */
-void hsvtorgb(int h, int s, int v, _uint8* rgb) {
+uint32_t hsvtorgb(uint32_t hsv_col) {
     int g_start = 85;//floor(256/3)
     int b_start = 170;//floor(256*2/3)
     //int r_start = 255;
-    if (rgb) {
-	int r,g,b;
-	int s_comp = 255-s;
-	if (h < g_start) {
-	    r = (g_start-h)*v/g_start;
-	    g = h*v/g_start;
-	    r = (r*s_comp)/256 + 1;
-	    g = (g*s_comp)/256 + 1;
-	    b = s;
-	} else if (h < b_start) {
-	    int h_rel = h-g_start;
-	    g = (g_start-h_rel)*v/g_start;
-	    b = h_rel*v/g_start;
-	    g = (g*s_comp)/256 + 1;
-	    b = (b*s_comp)/256 + 1;
-	    r = s;
-	} else {
-	    int h_rel = h-b_start;
-	    b = (g_start-h_rel)*v/g_start;
-	    r = h_rel*v/g_start;
-	    b = (b*s_comp)/256 + 1;
-	    r = (r*s_comp)/256 + 1;
-	    g = s;
-	}
-	rgb[0] = (_uint8)r;
-	rgb[1] = (_uint8)g;
-	rgb[2] = (_uint8)b;
+    uint32_t r,g,b;
+    int h = get_r(hsv_col);
+    int s = get_g(hsv_col);
+    int v = get_b(hsv_col);
+    int s_comp = 255-s;
+    if (h < g_start) {
+	r = (g_start-h)*v/g_start;
+	g = h*v/g_start;
+	r = (r*s_comp)/256 + 1;
+	g = (g*s_comp)/256 + 1;
+	b = s;
+    } else if (h < b_start) {
+	int h_rel = h-g_start;
+	g = (g_start-h_rel)*v/g_start;
+	b = h_rel*v/g_start;
+	g = (g*s_comp)/256 + 1;
+	b = (b*s_comp)/256 + 1;
+	r = s;
+    } else {
+	int h_rel = h-b_start;
+	b = (g_start-h_rel)*v/g_start;
+	r = h_rel*v/g_start;
+	b = (b*s_comp)/256 + 1;
+	r = (r*s_comp)/256 + 1;
+	g = s;
     }
+    return (hsv_col & 0xff000000) | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
+}
+/**
+ * Generate a list of hues (in hsv color space) associated with each object in the scene. This is a helper function for draw()
+ */
+std::vector<uint32_t> scene::get_cols() {
+    std::vector<uint32_t> ret(roots.size());
+    for (size_t k = 0; k < roots.size(); ++k) {
+	uint32_t hue = (_uint8)((k*256)/roots.size());
+	uint32_t alpha = 255;
+	//check if the user specified a valid color/transparency for this object
+	if (roots[k]->has_metadata("color")) {
+	    value col_val = roots[k]->fetch_metadata("color");
+	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) hue = (_uint8)col_val.val.x;
+	}
+	if (roots[k]->has_metadata("alpha")) {
+	    value a_val = roots[k]->fetch_metadata("alpha");
+	    if (a_val.type == VAL_NUM && a_val.val.x > 0 && a_val.val.x < 256) alpha = (_uint8)a_val.val.x;
+	}
+	ret[k] = ((alpha & 0xff) << 24) | ((hue & 0xff) << 16);
+    }
+    return ret;
+}
+/**
+ * Given two 32 bit colors, c1 and c2, blend both of them with c1 on top of c2 and return the result.
+ */
+uint32_t blend(uint32_t c1, uint32_t c2) {
+    //we use fixed point arithmetic with divisor 2^8, so a1=256->1.0 or a1=128->0.5.
+    uint32_t a1 = get_a(c1);
+    uint32_t a2 = get_a(c2);
+    //special cases. If the top color has alpha=0, don't modify the bottom at all. If the top color has alpha=255 or the bottom color has alpha=0 then don't modify the top.
+    if (a1 == 0)
+	return c2;
+    if (a1 == 255 || a2 == 0)
+	return c1;
+    //this is the expression for a1 + a2*(1-a1) = a1 + a2 - a1*a2 with divisor 2^16
+    uint32_t p1 = (a1 << 8);
+    uint32_t p2 = (a2 << 8) - a1*a2;
+    uint32_t a0 = p1 + p2;
+    //set r, g and b channels
+    uint32_t ret = (get_b(c1)*p1 + get_b(c2)*p2) / a0;
+    ret |= ( (get_g(c1)*p1 + get_g(c2)*p2) / a0 ) << 8;
+    ret |= ( (get_r(c1)*p1 + get_r(c2)*p2) / a0 ) << 16;
+    //set alpha channel
+    ret |= ( a0 >> 8 ) << 24;
+    return ret;
 }
 /*
  * Save the image specified by z_buf and c_buf to out_fname with the specified resolution
@@ -781,7 +829,7 @@ void hsvtorgb(int h, int s, int v, _uint8* rgb) {
  * c_buf: the color index buffer. This must have a size res*res
  * res: the resolution of the image. Only square images are allowed
  */
-void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y) {
+void save_imbuf(const char* out_fname, uint32_t* c_buf, size_t res_x, size_t res_y) {
     //open the file. We use a .pgm format since it's super simple. Then we write the header information.
     FILE* fp;
     if (out_fname) {
@@ -790,37 +838,20 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
     } else {
 	fp = stdout;
     }
-    _uint8* hues = (_uint8*)malloc(sizeof(_uint8)*roots.size());
-    for (size_t k = 0; k < roots.size(); ++k) {
-	bool got_color = false;
-	//check if the user specified a valid color for this object
-	if (roots[k]->has_metadata("color")) {
-	    value col_val = roots[k]->fetch_metadata("color");
-	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) {
-		hues[k] = (_uint8)col_val.val.x;
-		got_color = true;
-	    }
-	}
-	//otherwise use an arbitrary color
-	if (!got_color) hues[k] = (_uint8)((k*256)/roots.size());
-    }
-    _uint8 cur_col[3];
+    uint32_t cur_col;
     fprintf(fp, "P3\n%lu %lu\n%d\n", res_x, res_y, IM_DEPTH);
     //iterate through the image buffer and write
     for (size_t yy = 0; yy < res_y; ++yy) {
 	for (size_t xx = 0; xx < res_x; ++xx) {
-	    size_t ind = yy*res_y+xx;
-	    _uint8 col_code = c_buf[ind];
-	    if (col_code == 0xff) {
+	    uint32_t cur_col = c_buf[yy*res_y+xx];
+	    //if this pixel is completely transparent, draw white. Otherwise draw the color
+	    if (get_a(cur_col) == 0)
 		fprintf(fp, "255 255 255 ");
-	    } else {
-		hsvtorgb(hues[col_code], 0, 255-z_buf[ind], cur_col);
-		fprintf(fp, "%d %d %d ", cur_col[0], cur_col[1], cur_col[2]);
-	    }
+	    else
+		fprintf(fp, "%d %d %d ", get_r(cur_col), get_g(cur_col), get_b(cur_col));
 	}
 	fprintf(fp, "\n");
     }
-    free(hues);
     fclose(fp);
 }
 /**
@@ -858,15 +889,21 @@ void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up
     }
     x_comp = x_comp.normalize();
     vec3 y_comp = x_comp.cross(cam_look);
-    //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
-    _uint8 z_buf[res_x*res_y];
-    _uint8 c_buf[res_x*res_y];
-    for (size_t i = 0; i < res_x*res_y; ++i) {
-	c_buf[i] = 0xff;
-	z_buf[i] = 0xff;
-    }
     scale.el[0] /= res_x;
     scale.el[1] /= res_y;
+    //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
+    _uint8 z_buf[res_x*res_y];
+    uint32_t c_buf[res_x*res_y];
+    for (size_t i = 0; i < res_x*res_y; ++i) {
+	c_buf[i] = 0x00000000;
+	z_buf[i] = 0xff;
+    }
+    //get object colors
+    std::vector<uint32_t> cols = get_cols();
+
+    double max_z = 0;
+    double min_z = max_draw_z;
+
     //iterate across the pixels in the buffer
     for (long ii = 0; ii < res_x; ++ii) {
 	for (long jj = res_y-1; jj >= 0; --jj) {
@@ -877,25 +914,42 @@ void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up
 	    bool itz = true;
 	    for (double z = 0; itz && z < max_draw_z; z += walk_step*max_draw_z) {
 		vec3 r = r0 + z*cam_look;
+		_uint8 depth = 255;
+		uint32_t cur_col = 0;
 		for (size_t k = 0; k < roots.size(); ++k) {
 		    if (roots[k]->in(r)) {
 			//if we hit the object then figure out the index in the image buffer and map the depth
-			_uint8 depth = floor( IM_DEPTH*(1 - exp(-z*aa)) );
-			z_buf[ii + jj*res_y] = depth;
-			c_buf[ii + jj*res_y] = (_uint8)k;
-			itz = false;
-			break;
+			depth = floor( IM_DEPTH*(1 - exp(-z*aa)) );
+			uint32_t this_col = hsvtorgb( cols[k] | (255 - depth) );
+			//z_buf[ii + jj*res_y] = depth;	
+			//in the case of a completely opaque object we may stop, otherwise we have to continue until we find the next object
+			if (get_a(cols[k]) == 255) {
+			    itz = false;
+			    if (z > max_z)
+				max_z = z;
+			    if (z < min_z)
+				min_z = z;
+			    c_buf[ii + jj*res_y] = blend(cur_col, this_col);
+			    break;
+			} else {
+			    cur_col = blend(cur_col, this_col);
+			}
 		    }
+		}
+		//if we reached the end and we only hit transparent objects, then write the color buffer
+		if (itz && cur_col != 0) {
+		    c_buf[ii + jj*res_y] = cur_col;
 		}
 	    }
 	}
     }
-    save_imbuf(out_fname, z_buf, c_buf, res_x, res_y);
+    printf("max z: %f, min z: %f\n", max_z, min_z);
+    save_imbuf(out_fname, c_buf, res_x, res_y);
 }
 void scene::draw(const char* out_fname, vec3 cam_pos) {
     vec3 cam_look = cam_pos*-1;
     vec3 cam_up(0,0,1);
-    double xy_scale = cam_look.norm();
+    double xy_scale = 0.5 / cam_look.norm();
     rvector<2> scale;
     scale.el[0] = xy_scale;
     scale.el[1] = xy_scale;

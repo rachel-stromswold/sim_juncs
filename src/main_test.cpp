@@ -1065,6 +1065,13 @@ TEST_CASE("Test get_enclosed") {
 	CHECK(b_if_con.get_n_lines() == if_n);
 	CHECK(end_ind == 3);
 	for (size_t i = 0; i < if_n; ++i) CHECK(strcmp(if_contents[i], b_if_con.get_line(i)) == 0);
+	//check jumping
+	line_buffer_ind if_end_ind = b_fun_con.jmp_enclosed(0, '{', '}');
+	CHECK(if_end_ind.line == 3);
+	CHECK(if_end_ind.off == 0);
+	if_end_ind = b_fun_con.jmp_enclosed(0, '{', '}', 0, true);
+	CHECK(if_end_ind.line == 3);
+	CHECK(if_end_ind.off == 1);
 	//try flattening
 	char* fun_flat = b_fun_con.flatten();
 	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
@@ -1119,6 +1126,13 @@ TEST_CASE("Test get_enclosed") {
 	CHECK(b_if_con.get_n_lines() == 1);
 	CHECK(end_ind == 0);
 	CHECK(strcmp("return 1", b_if_con.get_line(0)) == 0);
+	//check jumping
+	line_buffer_ind if_end_ind = b_fun_con.jmp_enclosed(0, '{', '}');
+	CHECK(if_end_ind.line == 0);
+	CHECK(if_end_ind.off == 44);
+	if_end_ind = b_fun_con.jmp_enclosed(0, '{', '}', 0, true);
+	CHECK(if_end_ind.line == 0);
+	CHECK(if_end_ind.off == 45);
 	//try flattening
 	char* fun_flat = b_fun_con.flatten();
 	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
@@ -1463,6 +1477,52 @@ TEST_CASE("Test Geometric Inclusion") {
     CHECK(root->in(vec3(.55,.41,.85)) == 0);
     vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
     s.draw("/tmp/test_composite.pgm", cam_pos);
+}
+
+uint32_t set_alpha(uint32_t col, uint32_t a) {
+    return (col & 0x00ffffff) | (a << 24);
+}
+TEST_CASE("Test image saving") {
+    //check that blending works
+    uint32_t c1 = make_col(255, 0, 0);
+    uint32_t c2 = make_col(0, 255, 127);
+    uint32_t blend_res = blend(c1, c2);
+    CHECK(blend_res == c1);
+    c1 = set_alpha(c1, 128);
+    blend_res = blend(c1, c2);
+    CHECK(get_a(blend_res) == 255);
+    CHECK(get_r(blend_res) == 127);
+    CHECK(get_g(blend_res) == 127);
+    CHECK(get_b(blend_res) == 63);
+    c2 = set_alpha(c2, 192);
+    blend_res = blend(c1, c2);
+    CHECK(get_a(blend_res) == 224);
+    CHECK(get_r(blend_res) == 145);
+    CHECK(get_g(blend_res) == 109);
+    CHECK(get_b(blend_res) == 54);
+    //check that 0 opacity results in only one color
+    c1 = set_alpha(c1, 255);
+    c2 = set_alpha(c2, 0);
+    CHECK(blend(c1, c2) == c1);
+    CHECK(blend(c2, c1) == c1);
+    //set up an image buffer
+    size_t res = 255;
+    uint32_t c_buf[res*res];
+    for (size_t i = 0; i < res; ++i) {
+	//transparent to red to transparent gradient on the y direction
+	int a_mask = ((int)i - res/2);
+	a_mask = 255 - (a_mask*a_mask)/64;
+	c1 = set_alpha(c1, a_mask);
+	for (size_t j = 0; j < res; ++j) {
+	    //green to blue gradient in the x direction
+	    c2 = make_col(0, 255, j);
+	    c_buf[i*res + j] = blend(c1, c2);
+	}
+    }
+    save_imbuf("/tmp/tst_img.pgm", c_buf, res, res);
+    //now load a file with test information
+    parse_ercode er;
+    scene s("tests/alpha.geom", &er);
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {

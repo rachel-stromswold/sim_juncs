@@ -59,11 +59,20 @@ public:
     parse_ercode type() { return er; }
 };*/
 
+//store a line number and an offset within that line to describe a position in a line_buffer
+struct line_buffer_ind {
+    long line;
+    long off;
+    line_buffer_ind(long pl, long po) { line = pl;off = po; }
+};
+
 class line_buffer {
 private:
     char** lines;
     size_t* line_sizes;
     size_t n_lines;
+    //helper function for jmp_enclosed and get_enclosed. If the line at index 
+    char* it_single(size_t i, char start_delim, char end_delim, bool include_delims, long* start_ind, int* depth, long* end_line, size_t* jp);
 public:
     line_buffer() { lines = NULL; line_sizes = NULL; n_lines = 0; }
     line_buffer(char* p_fname);
@@ -72,7 +81,8 @@ public:
     line_buffer(const line_buffer& o);
     line_buffer(line_buffer&& o);
     ~line_buffer();
-    line_buffer get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset = 0, bool include_delims=false);
+    line_buffer_ind jmp_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset=0, bool include_delims=false);
+    line_buffer get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset=0, bool include_delims=false);
     char* get_line(size_t i) { return (i < n_lines) ? lines[i] : NULL; }
     size_t get_n_lines() { return n_lines; }
     char* flatten(char sep_char = 0);
@@ -361,6 +371,7 @@ public:
 
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
 };
+
 /**
  * A class for functions defined by the user along with the implementation code
  */

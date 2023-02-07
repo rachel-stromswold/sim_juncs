@@ -897,6 +897,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 
     //open the file which will store the fields as a function of time
     snprintf(out_name, BUF_SIZE, "%s/field_samples.h5", fname_prefix);
+    printf("saving field output to %s\n", out_name);
     H5::H5File file(out_name, H5F_ACC_TRUNC);
 
     //save metadata

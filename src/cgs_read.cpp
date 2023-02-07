@@ -425,6 +425,46 @@ line_buffer::line_buffer(line_buffer&& o) {
     o.n_lines = 0;
     o.lines = NULL;
 }
+
+/**
+ * helper function for get_enclosed and jmp_enclosed. This function reads the line at index k for the line contained between start_delim and end_delim. If only a start_delim is found or start_ind is not NULL, a pointer with a value set to the index of the start of the line is returned.
+ * k: index of the line to read
+ * start_delim: the starting delimiter
+ * end_delim: the ending delimiter
+ * start_ind: a pointer, the value of which is the index in the line k to start reading.
+ * depth: keeps track of how many nested pairs of start and end delimeters we've encountered. We only want to exit calling if an end_delim was found. This variable is set to -1 if a zero depth close brace was found to signal that parsing should terminate.
+ * end_line: If end delim is set, then the value in end_line is set to k.
+ * j: stores the index where line reading stopped. Either because a NULL terminator was encountered or an end_delim was encountered
+ * returns: an index of the position of the index that reading started from.
+ */
+char* line_buffer::it_single(size_t i, char start_delim, char end_delim, bool include_delims, long* start_ind, int* depth, long* end_line, size_t* jp) {
+    //this way we ensure that start char is always zero after the first start_delim is read
+    if (*start_ind >= 0) *start_ind = 0;
+    size_t j = *jp;
+    //iterate through characters in the line looking for an end_delim without a preceeding start_delim
+    for (; lines[i][j]; ++j) {
+	if (lines[i][j] == start_delim) {
+	    if (*depth == 0) {
+		*start_ind = j;
+		if (!include_delims) ++(*start_ind);
+	    }
+	    ++(*depth);
+	} else if (lines[i][j] == end_delim) {
+	    --(*depth);
+	    if (*depth <= 0) {
+		if (include_delims) ++j;
+		if (end_line) *end_line = i;
+		*depth = -1;//force escaping from the loop
+		break;
+	    }
+	}
+    }
+
+    *jp = j;
+    if (*start_ind < 0) return NULL;
+    return lines[i]+(*start_ind);
+}
+
 /**
  * Find the line buffer starting on line start_line between the first instance of start_delim and the last instance of end_delim respecting nesting (i.e. if lines={"a {", "b {", "}", "} c"} then {"b {", "}"} is returned. Note that the result must be deallocated with a call to free().
  * start_line: the line to start reading from
@@ -450,46 +490,39 @@ line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char st
 
     //tracking variables
     int depth = 0;
-    bool exit = false;
 
     //iterate through lines
     size_t k = 0;
     long start_char = -1;
-    long j = line_offset;
-    for (size_t i = start_line; !exit && i < n_lines; ++i) {
+    size_t j = line_offset;
+    for (size_t i = start_line; depth >= 0 && i < n_lines; ++i) {
 	if (lines[i] == NULL) {
 	    ret.n_lines = i;
-	    exit = true;
+	    break;
 	} else {
-	    //this way we ensure that start char is always zero after the first start_delim is read
-	    if (start_char >= 0) start_char = 0;
-	    //iterate through characters in the line looking for an end_delim without a preceeding start_delim
-	    for (; lines[i][j]; ++j) {
-		if (lines[i][j] == start_delim) {
-		    if (depth == 0) {
-			start_char = j;
-			if (!include_delims) ++start_char;
-		    }
-		    ++depth;
-		} else if (lines[i][j] == end_delim) {
-		    --depth;
-		    if (depth <= 0) {
-			ret.n_lines = k+1;
-			exit = true;
-			if (include_delims) ++j;
-			if (end_line) *end_line = i;
-			break;
-		    }
-		}
-	    }
+	    char* this_line = it_single(i, start_delim, end_delim, include_delims, &start_char, &depth, end_line, &j);
 	    //don't read empty lines
 	    if (start_char >= 0) {
 		ret.line_sizes[k] = j;
-		ret.lines[k++] = strndup(lines[i]+start_char, j-start_char);
+		ret.lines[k++] = strndup(this_line, j-start_char);
 	    }
 	    j = 0;
 	}
     }
+    ret.n_lines = k;
+    return ret;
+}
+
+line_buffer_ind line_buffer::jmp_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) {
+    int depth = 0;
+    long endl = start_line;
+    size_t j = line_offset;
+    long start_char = -1;
+    for (size_t i = start_line; depth >= 0 && i < n_lines; ++i) {
+	j = 0;
+	it_single(i, start_delim, end_delim, include_delims, &start_char, &depth, &endl, &j);
+    }
+    line_buffer_ind ret(endl, j);
     return ret;
 }
 
@@ -1865,7 +1898,6 @@ user_func::user_func(user_func&& o) : code_lines(o.code_lines) {
     o.exec = NULL;
     o.call_sig.n_args = 0;
 }
-
 const char* token_names[] = {"if", "for", "while", "return"};
 const size_t n_token_names = sizeof(token_names)/sizeof(char*);
 typedef enum {TOK_NONE, TOK_IF, TOK_FOR, TOK_WHILE, TOK_RETURN} token_type;
@@ -1877,6 +1909,15 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
     if (exec) {
 	value ret = (*exec)(c, call, er);
 	return ret;
+    } else if (call.n_args == call_sig.n_args) {
+	//setup a new scope with function arguments defined
+	context func_scope(&c);
+	for (size_t i = 0; i < call_sig.n_args; ++i) {
+	    func_scope.emplace(call_sig.arg_names[i], call.args[i]);
+	}
+	size_t lineno = 0
+    } else {
+	er = E_LACK_TOKENS;
     }
     return sto;
     /*er = E_SUCCESS;
