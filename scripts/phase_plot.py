@@ -303,10 +303,10 @@ def make_fits(pf, n_groups=-1, recompute=False):
         tmp_axs.scatter(cr.xs, cr.get_omega(), s=3)
 
     #save the figures
-    fig_amp.savefig(args.prefix+"/amps_theory.pdf")
-    fig_phs.savefig(args.prefix+"/phases_theory.pdf")
-    fig_omg.savefig(args.prefix+"/omega_sim.pdf")
-    fig_fits.savefig(args.prefix+"/fit_plt.pdf")
+    fig_amp.savefig(args.prefix+"/amps.pdf")
+    fig_phs.savefig(args.prefix+"/phases.pdf")
+    fig_omg.savefig(args.prefix+"/sigs.pdf")
+    fig_fits.savefig(args.prefix+"/fits.pdf")
 
 def plot_average_phase(pf, n_groups=-1):
     grp_len,n_groups,_ = find_grouping(pf, n_groups)
@@ -328,8 +328,8 @@ def plot_average_phase(pf, n_groups=-1):
         for j in range(grp_len):
             k = i*grp_len + j
             if len(cl_xs[k]) == n_x_pts:
-                tot_amp[i] = tot_amp[i] + cl_amp[k][0]
-                avg_phs[i] = avg_phs[i] + cl_amp[k][0]*cl_phs[k][0]
+                tot_amp[i] = tot_amp[i] + cl_amp[k]
+                avg_phs[i] = avg_phs[i] + cl_amp[k]*cl_phs[k]
     avg_phs = avg_phs / tot_amp
     tot_amp = tot_amp / grp_len
     avg_fig, avg_ax = plt.subplots(2)
@@ -345,7 +345,7 @@ def plot_average_phase(pf, n_groups=-1):
     for i in range(n_groups):
         avg_ax[0].scatter(cl_xs[0], avg_phs[i])
         avg_ax[1].scatter(cl_xs[0], tot_amp[i])
-    avg_fig.savefig(args.prefix+"/phase_average.pdf")
+    avg_fig.savefig(args.prefix+"/avgs.pdf")
 
 pf = phases.phase_finder(args.fname, args.gap_width, args.gap_thick, prefix=args.prefix, pass_alpha=args.lowpass)
 make_fits(pf, n_groups=args.n_groups, recompute=args.recompute)

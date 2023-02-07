@@ -822,6 +822,7 @@ class phase_finder:
                 plt.savefig("{}/fit_figs/t_series_{}_{}.pdf".format(self.prefix,clust,j))
                 plt.clf()
                 fig_name = "{}/fit_figs/fit_{}_{}".format(self.prefix,clust,j)
+            good_fit = True
             #now actually try optimizing
             try:
                 res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
@@ -829,14 +830,18 @@ class phase_finder:
                 if verbose > 0:
                     print("\tfitting to raw time series failed, applying low pass filter")
                 v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
-                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
-            n_evals += 1
-            if verbose > 0:
-                print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
-            #only include this point if the fit was good
-            if res.fun*self.sq_er_fact < 50.0:
-                good_js.append(j)
-                ret.set_point(j, res, err_2)
+                try:
+                    res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
+                except:
+                    good_fit = False
+            if good_fit:
+                n_evals += 1
+                if verbose > 0:
+                    print("\tsquare errors = {}, {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res_env.fun, res.x, np.diagonal(res.hess_inv)))
+                #only include this point if the fit was good
+                if res.fun*self.sq_er_fact < 50.0:
+                    good_js.append(j)
+                    ret.set_point(j, res, err_2)
             elif verbose > 0:
                 print("\tbad fit!".format(clust,j))
         ret.trim_to(good_js)
