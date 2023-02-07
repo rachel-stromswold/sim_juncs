@@ -17,7 +17,7 @@ AMP_CUTOFF = 0.025
 OUTLIER_FACTOR = 20
 N_STDS = 2
 WIDTH_SCALE = 1000
-verbose = 0
+verbose = 10
 
 #The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
 HIGHEST_MODE=3
@@ -96,7 +96,7 @@ def deriv_num_2(t_pts, f_pts, i):
     ret =(pside-mside)/tdif
     return ret
 
-class EnvelopeFitterLive:
+class EnvelopeFitter:
     def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF, outlier=OUTLIER_FACTOR):
         '''Given t_pts and a_pts return a list off all local extrema and their corresponding times. Also return the time for the global maxima, the value of the global maxima and the average spacing between maxima
         t_pts: time points to search
@@ -218,12 +218,13 @@ class EnvelopeFitterLive:
             return fwhm, self.ext_ts[i_min:], self.ext_vs[i_min:]
 
     def get_single_guess(self, keep_n):
-        print("l_max_i={}".format(self.l_max_i))
         #use the full width at half max as a crude estimate of standard deviation
         fwhm, trunc_ts, trunc_vs = self.cut_devs(keep_n=keep_n)
         #now take the logarithm to transform fitting a gaussian to fitting a parabola. We normalize so Open Choicethat the amplitude should be roughly 1.0. This is easily accounted for at the end
         trunc_ts = np.array(trunc_ts)
         trunc_vs = np.log(np.array(trunc_vs)/self.max_v)
+        if verbose > 1:
+            print("\tsingle_guess: peak={}, width={}".format(self.max_t, fwhm))
         #note that we fit to a form e**(-(t-t_0)^2/w) so using fwhm as an estimate for sigma we have w=2*sigma**2
         return np.array([1.0, self.max_t, fwhm]), trunc_ts, trunc_vs
 
@@ -288,7 +289,10 @@ class EnvelopeFitterLive:
     def get_double_guess(self):
         '''Get a starting guess for the parameters of the double pulse shape
         '''
-        fwhm = self.find_fwhm(both_tails=True)
+        fwhm = np.abs( self.find_fwhm(both_tails=True) )
+        #ensure that a valid value for the fwhm is used
+        if np.isnan(fwhm) or fwhm == 0.0:
+            fwhm = 1.0
         if verbose > 1:
             print("\tfwhm = %f" % fwhm)
                 
@@ -309,9 +313,12 @@ class EnvelopeFitterLive:
                 elif response[i] > response[local_maxes[1]]:
                     local_maxes[1] = i
         #now estimate the standard deviation from the second derivative
-        local_sigs = [np.sqrt(-1/deriv_num_2(l_ext_ts, l_ext_vs, local_maxes[0])), np.sqrt(-1/deriv_num_2(l_ext_ts, l_ext_vs, local_maxes[1]))]
-        print(local_sigs)
-        print(local_maxes)
+        local_sigs = [1, 1]
+        for i in range(2):
+            der = deriv_num_2(l_ext_ts, l_ext_vs, local_maxes[i])
+            local_sigs[i] = np.sqrt(-1/der) if der < 0 else fwhm #avoid nans by
+        if verbose > 1:
+            print("\tdouble_guess: peaks={}, widths={}".format(local_maxes, local_sigs))
         #create an initial guess by supposing that the widths are each one half
         x0 = np.array([1.0, self.max_t, fwhm/2, 1.0, self.max_t+fwhm, fwhm/2])
         if local_maxes[0] != local_maxes[1]:
@@ -508,8 +515,8 @@ def opt_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N):
 
 def fix_double_pulse_order(res):
     '''Adjust the double pulse fit so that the first envelope comes first in time'''
-    #ensure that the pulses are ordeblue the way we expect
-    if res.x.shape[0] == 8 and res.x[1] > res.x[6]:
+    #ensure that the pulses are ordeblue the way we expect, fix the order such that the biggest pulse comes first
+    if res.x.shape[0] == 8 and res.x[0] < res.x[5]:
         res.x = np.dot(DOUB_SWAP_MAT, res.x)
         res.jac = np.dot(DOUB_SWAP_MAT, res.jac)
         res.hess_inv = np.dot(DOUB_SWAP_MAT, res.hess_inv)
@@ -574,7 +581,7 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
 
     return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
 
-def opt_pulse_env(t_pts, a_pts, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
+def opt_pulse_env(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
     if a_pts.shape != t_pts.shape:
         raise ValueError("t_pts and a_pts must have the same shape")
     if t_pts.shape[0] == 0:
@@ -609,12 +616,16 @@ def opt_pulse_env(t_pts, a_pts, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name='')
     #substantial evidence as defined by Jeffreys
     if np.isnan(ln_bayes) or ln_bayes > 1.15:
         env_res = env_res_1
-        res, low_t, hi_t = opt_double_pulse(t_pts, a_pts, env_res_1.x, est_omega_1, est_phi_1, keep_n=keep_n)
+        if omega_fft <= 0:
+            omega_fft = est_omega_1
+        res, low_t, hi_t = opt_double_pulse(t_pts, a_pts, env_res_1.x, omega_fft, est_phi_1, keep_n=keep_n)
         err = err_1
         used_double = True
     else:
         env_res = env_res_0
-        res, low_t, hi_t = opt_pulse(t_pts, a_pts, env_res_0.x, est_omega_0, est_phi_0, keep_n=keep_n)
+        if omega_fft <= 0:
+            omega_fft = est_omega_0
+        res, low_t, hi_t = opt_pulse(t_pts, a_pts, env_res_0.x, omega_fft, est_phi_0, keep_n=keep_n)
         err = err_0
         used_double = False
 
@@ -828,10 +839,13 @@ class phase_finder:
         # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
         #err_2 = 8*np.max(np.diff(v_pts)**2)
         err_2 = 0.02
+        vf_pts = fft(v_pts)
         if low_pass:
             vf_pts = fft(v_pts)*self.low_filter
             v_pts = ifft(vf_pts)
-        return v_pts, err_2
+        peak_i = np.argmax(np.abs(vf_pts))
+        peak_omega = 2*np.pi*self.f_pts[peak_i]
+        return v_pts, np.abs(peak_omega), err_2
 
     def read_cluster(self, clust, save_fit_figs=False):
         '''Read an h5 file and return three two dimensional numpy arrays of the form ([amplitudes, errors], [sigmas, errors], [phases, errors]
@@ -850,9 +864,9 @@ class phase_finder:
         good_js = []
         phase_cor = 0
         for j in range(len(points)):
-            v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
+            v_pts, guess_omega, err_2 = self.get_point_times(clust, j, low_pass=False)
             if verbose > 0:
-                print("clust={}, j={}\n\tfield error^2={}".format(clust, j, err_2*self.n_t_pts))
+                print("clust={}, j={}\n\tfield error^2={}\n\tomega_fft={}".format(clust, j, err_2*self.n_t_pts, guess_omega))
             #before doing anything else, save a plot of just the time series
             fig_name = ""
             if save_fit_figs:
@@ -863,13 +877,17 @@ class phase_finder:
             good_fit = True
             #now actually try optimizing
             try:
-                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
+                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
             except:
                 if verbose > 0:
                     print("\tfitting to raw time series failed, applying low pass filter")
-                v_pts, err_2 = self.get_point_times(clust, j, low_pass=True)
+                if verbose > 0:
+                    print("clust={}, j={}\n\tfield error^2={}\n\tomega_fft={}".format(clust, j, err_2*self.n_t_pts, guess_omega))
+                v_pts, guess_omega, err_2 = self.get_point_times(clust, j, low_pass=True)
+                #res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
                 try:
-                    res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name)
+                    print(guess_omega)
+                    res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
                 except:
                     good_fit = False
             if good_fit:
