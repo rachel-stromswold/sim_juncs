@@ -17,7 +17,7 @@ AMP_CUTOFF = 0.025
 OUTLIER_FACTOR = 20
 N_STDS = 2
 WIDTH_SCALE = 1000
-verbose = 10
+verbose = 1
 
 #The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
 HIGHEST_MODE=3
@@ -95,6 +95,19 @@ def deriv_num_2(t_pts, f_pts, i):
     tdif = t_pts[i+1]-t_pts[i-1]
     ret =(pside-mside)/tdif
     return ret
+
+def est_width(t_pts, f_pts, i, default=1):
+    '''Treating i as t_pts[i] as the center of a Gaussian distribution, estimate the width based on f_pts'''
+    der = deriv_num_2(t_pts, f_pts, i)
+    #scan right and then left to find a point with a negative derivative
+    m = 1
+    while der >= 0:
+        #if we move past the end of the array return 1
+        if m > i or i+m >= len(t_pts):
+            return default
+        der = min(deriv_num_2(t_pts,f_pts,i-m), deriv_num_2(t_pts,f_pts,i+m))
+        m += 1
+    return np.sqrt(-1/der)
 
 class EnvelopeFitter:
     def __init__(self, t_pts, a_pts, cutoff=AMP_CUTOFF, outlier=OUTLIER_FACTOR):
@@ -223,7 +236,7 @@ class EnvelopeFitter:
         #now take the logarithm to transform fitting a gaussian to fitting a parabola. We normalize so Open Choicethat the amplitude should be roughly 1.0. This is easily accounted for at the end
         trunc_ts = np.array(trunc_ts)
         trunc_vs = np.log(np.array(trunc_vs)/self.max_v)
-        if verbose > 1:
+        if verbose > 2:
             print("\tsingle_guess: peak={}, width={}".format(self.max_t, fwhm))
         #note that we fit to a form e**(-(t-t_0)^2/w) so using fwhm as an estimate for sigma we have w=2*sigma**2
         return np.array([1.0, self.max_t, fwhm]), trunc_ts, trunc_vs
@@ -268,7 +281,8 @@ class EnvelopeFitter:
         #now create crude estimates of omega and phi by looking at the spacing between peaks and the phase offset between the data peak and the estimate for t_0
         est_omega = np.pi/self.typ_spacing
         est_phi = fix_angle(est_omega*(self.max_t - res.x[1]))
-
+        if verbose > 2:
+            print("\tsingle optimized: {}", res.x)
         return res, est_omega, est_phi
 
     def find_response(self, kern_x):
@@ -298,7 +312,8 @@ class EnvelopeFitter:
                 
         l_ext_ts = np.array(self.ext_ts)
         l_ext_vs = np.array(self.ext_vs)/self.max_v
-        response, peaks = self.find_response(lambda t: np.exp( -t**2/(2*fwhm**2) ))
+        #response, peaks = self.find_response(lambda t: np.exp( -t**2/(2*fwhm**2) ))
+        response, peaks = self.find_response(lambda t: np.exp( -t**2/(2*fwhm**2) ) + 2/(1+np.exp(-t/fwhm)))
         #find the two highest peaks in the response function
         local_maxes = [0, 1]
         if response[local_maxes[1]] > response[local_maxes[0]]:
@@ -307,18 +322,19 @@ class EnvelopeFitter:
             local_maxes[1] = tmp
         for i in peaks:
             #only proceed if this is a maxima of l_ext_vs
-            if is_max(l_ext_vs, i):
-                if response[i] > response[local_maxes[0]]:
-                    local_maxes[0] = i
-                elif response[i] > response[local_maxes[1]]:
-                    local_maxes[1] = i
+            if response[i] > response[local_maxes[0]]:
+                local_maxes[1] = local_maxes[0]
+                local_maxes[0] = i
+            elif response[i] > response[local_maxes[1]]:
+                local_maxes[1] = i
         #now estimate the standard deviation from the second derivative
-        local_sigs = [1, 1]
+        local_sigs = [est_width(l_ext_ts, l_ext_vs, local_maxes[0]), est_width(l_ext_ts, l_ext_vs, local_maxes[1])]
+        '''local_sigs = [1, 1]
         for i in range(2):
             der = deriv_num_2(l_ext_ts, l_ext_vs, local_maxes[i])
-            local_sigs[i] = np.sqrt(-1/der) if der < 0 else fwhm #avoid nans by
-        if verbose > 1:
-            print("\tdouble_guess: peaks={}, widths={}".format(local_maxes, local_sigs))
+            local_sigs[i] = np.sqrt(-1/der) if der < 0 else fwhm #avoid nans by'''
+        if verbose > 2:
+            print("\tdouble guess: peaks={}, widths={}".format([l_ext_ts[i] for i in local_maxes], local_sigs))
         #create an initial guess by supposing that the widths are each one half
         x0 = np.array([1.0, self.max_t, fwhm/2, 1.0, self.max_t+fwhm, fwhm/2])
         if local_maxes[0] != local_maxes[1]:
@@ -373,6 +389,9 @@ class EnvelopeFitter:
         #now create crude estimates of omega and phi by looking at the spacing between peaks and the phase offset between the data peak and the estimate for t_0
         est_omega = np.pi/self.typ_spacing
         est_phi = fix_angle(est_omega*(self.max_t - res.x[1]))
+        if verbose > 3:
+            print("\tdouble input: {}", x0)
+            print("\tdouble optimized: {}", res.x)
         return res, est_omega, est_phi
 
     def sq_err_fit_single(self, x):
@@ -579,9 +598,10 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
     res.x[5] = np.abs(res.x[5])*env_x[0]
     #res.x[4] = fix_angle(res.x[4])
 
-    return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
+    #return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
+    return res, t_pts[0], t_pts[-1]
 
-def opt_pulse_env(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
+def opt_pulse_full(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
     if a_pts.shape != t_pts.shape:
         raise ValueError("t_pts and a_pts must have the same shape")
     if t_pts.shape[0] == 0:
@@ -611,7 +631,7 @@ def opt_pulse_env(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N
     err_1 = env_fit.sq_err_fit_double(env_res_1.x)
     #compute the bayes factor for the single and double pulses. We take both models to have identical priors. Note that under assumption of Gaussian errors the error cancels
     ln_bayes =  (0.5/skip_sigma_sq)*(err_0 - err_1)
-    if verbose > 0:
+    if verbose > 1:
         print("\tenvelope sigma={}, bayes factor={}".format(skip_sigma_sq, np.exp(ln_bayes)))
     #substantial evidence as defined by Jeffreys
     if np.isnan(ln_bayes) or ln_bayes > 1.15:
@@ -628,6 +648,8 @@ def opt_pulse_env(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N
         res, low_t, hi_t = opt_pulse(t_pts, a_pts, env_res_0.x, omega_fft, est_phi_0, keep_n=keep_n)
         err = err_0
         used_double = False
+    if verbose > 0:
+        print("\tenvelope type={}".format("double" if used_double else "single"))
 
     #plot figures if requested
     if fig_name != '':
@@ -657,12 +679,12 @@ def opt_pulse_env(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N
     return res, env_res
 
 def get_params(res):
-    '''Convert a scipy optimize result returned from opt_pulse_env into a human readable set of parameters
+    '''Convert a scipy optimize result returned from opt_pulse_full into a human readable set of parameters
     '''
     amp = res.x[0]
     t_0 = res.x[1]
     sig = np.sqrt(res.x[2]/2)
-    omega = res.x[2]
+    omega = res.x[3]
     cep = res.x[4]
     if amp < 0:
         amp *= -1
@@ -671,14 +693,17 @@ def get_params(res):
         else:
             cep += np.pi
     cep = fix_angle(cep)
-    return amp, t_0, sig, omega, cep
+    cepr = cep
+    if len(res.x) > 6:
+        cepr = cep + omega*(res.x[5] - res.x[1])
+    return amp, t_0, sig, omega, cep, cepr
 
-N_RES_PARAMS = 5
+N_RES_PARAMS = 6
 class cluster_res:
     def __init__(self, xs):
         self.n_pts = len(xs)
         self.xs = np.array(xs)
-        self.res_arr = np.zeros((2*N_RES_PARAMS, self.n_pts))
+        self.res_arr = np.zeros((2*N_RES_PARAMS + 1, self.n_pts))
 
     def fix_xs(self, x_0, scale):
         '''transforms all x points from x to x' where x'=(x-x_0)/scale
@@ -705,11 +730,17 @@ class cluster_res:
         return self.res_arr[8]
     def get_phase_err(self):
         return self.res_arr[9]
+    def get_phase_ref(self):
+        return self.res_arr[10]
+    def get_phase_ref_err(self):
+        return self.res_arr[11]
+    def get_err_sq(self):
+        return self.res_arr[12]
 
     def set_point(self, jj, res, err_2):
         '''set the point at index jj to have the paramters from the scipy optimization result res
         '''
-        amp, t0, sig, omega, cep = get_params(res)
+        amp, t0, sig, omega, cep, cepr = get_params(res)
         self.res_arr[0,jj] = amp
         self.res_arr[1,jj] = np.sqrt(res.hess_inv[0][0]/(err_2))/2
         self.res_arr[2,jj] = t0
@@ -720,6 +751,9 @@ class cluster_res:
         self.res_arr[7,jj] = np.sqrt(res.hess_inv[3][3]/(err_2))
         self.res_arr[8,jj] = cep/np.pi
         self.res_arr[9,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi))
+        self.res_arr[10,jj] = cepr/np.pi
+        self.res_arr[11,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi))
+        self.res_arr[12,jj] = res.fun
 
     def trim_to(self, trim_arr):
         '''trim the result so that it only contains points from indices specified by trim_arr
@@ -755,12 +789,18 @@ class cluster_res:
             new_xs = np.zeros(new_size)
             nr.res_arr = np.pad(self.res_arr, ((0,0),(0,new_size-nr.n_pts)))
             for ii in range(nr.n_pts - i_zer):
+                #update errors
+                nr.res_arr[2*N_RES_PARAMS, i_cent-ii] = (nr.res_arr[2*N_RES_PARAMS, i_cent-ii] + nr.res_arr[2*N_RES_PARAMS, i_cent+ii])/2
+                #update everything else
                 for k in range(N_RES_PARAMS):
                     vid = 2*k
                     eid = 2*k+1
                     nr.res_arr[vid, i_cent-ii] = (nr.res_arr[vid,i_cent-ii] + nr.res_arr[vid,i_zer+ii])/2
                     nr.res_arr[eid, i_cent-ii] = np.sqrt(nr.res_arr[eid,i_cent-ii]**2 + nr.res_arr[eid,i_zer+ii]**2)
             for ii in range(new_size - i_zer):
+                #update errors
+                nr.res_arr[2*N_RES_PARAMS, i_cent+ii] = nr.res_arr[2*N_RES_PARAMS, i_cent-ii]
+                #update everything else
                 new_xs[i_cent-ii] = nr.xs[i_cent-ii]
                 new_xs[i_zer+ii] = -nr.xs[i_cent-ii]
                 for k in range(N_RES_PARAMS):
@@ -877,17 +917,17 @@ class phase_finder:
             good_fit = True
             #now actually try optimizing
             try:
-                res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
             except:
                 if verbose > 0:
                     print("\tfitting to raw time series failed, applying low pass filter")
                 if verbose > 0:
                     print("clust={}, j={}\n\tfield error^2={}\n\tomega_fft={}".format(clust, j, err_2*self.n_t_pts, guess_omega))
                 v_pts, guess_omega, err_2 = self.get_point_times(clust, j, low_pass=True)
-                #res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                #res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
                 try:
                     print(guess_omega)
-                    res,res_env = opt_pulse_env(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                    res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
                 except:
                     good_fit = False
             if good_fit:
