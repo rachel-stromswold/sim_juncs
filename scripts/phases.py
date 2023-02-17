@@ -400,6 +400,82 @@ class EnvelopeFitter:
     def sq_err_fit_double(self, x):
         return np.sum( (np.abs(x[0])*np.exp(-0.5*((self.ext_ts - x[1])/x[2])**2) + np.abs(x[3])*np.exp(-0.5*((self.ext_ts - x[4])/x[5])**2) - self.ext_vs)**2 )
 
+def find_peaks(t_pts, vs, ns, width_steps=5):
+    '''Helper function for est_env_new
+    t_pts: the sampled points in time, this should have the same dimension as vs and ns
+    vs: the actual pulse
+    ns: the envelope of the pulse obtained through some signal processing
+    '''
+    dt = t_pts[1] - t_pts[0]
+    #now that we have an envolope, find its maxima
+    pulse_peaks = ssig.argrelmax(vs)[0]
+    env_peaks = ssig.argrelmax(ns, order=4)[0]
+    max_peak = np.max(ns.take(env_peaks))
+    #return a single default peak if no extrema were found to prevent out of bounds errors
+    if len(pulse_peaks) == 0 or len(env_peaks) == 0:
+        return np.array([[0, 1, 1]])
+    
+    #an array of peaks, each specified by time, width, and amplitude
+    peaks_arr = np.zeros((len(env_peaks),3))
+    i = 0
+    for v in env_peaks:
+        now = t_pts[v]
+        #find the nearest maxima in the actual pulse. The envelopes aren't great at getting amplitudes, but they are useful for widths and centers.
+        p_ind = 0
+        closest_sep = t_pts[-1] - t_pts[0]
+        for p in pulse_peaks:
+            sep = abs(t_pts[p] - now)
+            if sep < closest_sep:
+                p_ind = p
+                closest_sep = sep
+            else:
+                break
+        if vs[p_ind] > max_peak / 10:
+            peaks_arr[i, 2] = vs[p_ind]
+            peaks_arr[i, 0] = now
+            #make sure that we're inside the array but we take at least one step
+            stp = max(min(min(width_steps, v), len(t_pts)-v-1), 1) 
+            #do a quadratic fit to get a guess of the Gaussian width
+            samp_ts = t_pts[v-stp:v+stp] - t_pts[v]
+            samp_ls = np.log(max_peak)-np.log(ns[v-stp:v+stp])
+            reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, samp_ls)
+            peaks_arr[i, 1] = 1/np.sqrt(reg[0])
+            i += 1
+    peaks_arr.resize((i,3))
+    return peaks_arr
+
+def peaks_to_pulse(t_pts, peaks):
+    res = np.zeros(len(t_pts))
+    for p in peaks:
+        res += p[2]*np.exp( -((t_pts-p[0])/p[1])**2 )
+    return res
+
+def est_env_new(t_pts, v_pts):
+    '''Based on a time series sampled at t_pts with values v_pts, try to find a Gaussian pulse envelope.'''
+    freqs = fft.fftfreq(len(v_pts), d=t_pts[1]-t_pts[0])
+    vf = 2*fft.fft(v_pts)*np.heaviside(freqs, 1)
+    phi_est = np.angle(vf[0])
+    mags = np.abs(vf)
+    args = np.angle(vf)
+    #Shift the pulse so that the peak magnitude is at zero frequency. Taking the inverse fourier transform of this shifted magnitude gives pulse amplitude. The frequency at which the magnitude is maximized is the same as the unmodulated sine wave.
+    f0_ind = np.argmax(mags)
+    #comp = lambda x1,x2: True if abs(x1) > abs(x2) else False
+    v_abs = np.abs(v_pts)
+    t0_ind = np.argmax(v_abs)
+    mags = np.roll(mags, -f0_ind)
+    #take the inverse fourier transform and shift to the peak of the pulse
+    env_pts = np.roll( np.abs(fft.ifft(mags)), t0_ind )
+    #to identify useful points for placing a Gaussian, it is helpful to convolve the envelope function with a Gaussian pulse. Fortunately, we already have the fourier transform of the envelope.
+    s = 1
+    div = 0.5/np.sinh(np.pi*freqs*s)
+    div[0] = 0
+ 
+    return env_pts, find_peaks(t_pts, v_abs, env_pts), 2*np.pi*freqs[f0_ind], phi_est+np.pi
+
+#all of this is for debuging, first pick a cluster then get the double guess
+def doub_gauss_ser(x, t_pts):
+    return x[0]*np.exp(-0.5*((t_pts - x[1])/x[2])**2) + x[3]*np.exp(-0.5*((t_pts - x[4])/x[5])**2)
+
 #return a Gaussian envelope over the specified time points with an amplitude amp, a mean t_0 and a standard deviation sqrt(width_sq/2)
 def gauss_env(x, t_pts):
     return np.abs(x[0])*np.exp(-0.5*((t_pts - x[1])/x[2])**2)
@@ -601,7 +677,7 @@ def opt_double_pulse(t_pts, a_pts, env_x, est_omega, est_phi, keep_n=DEF_KEEP_N)
     #return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
     return res, t_pts[0], t_pts[-1]
 
-def opt_pulse_full(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
+def opt_pulse_full_old(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
     if a_pts.shape != t_pts.shape:
         raise ValueError("t_pts and a_pts must have the same shape")
     if t_pts.shape[0] == 0:
@@ -677,6 +753,64 @@ def opt_pulse_full(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_
         write_reses(res_name, [res,env_res])
 
     return res, env_res
+
+def opt_pulse_full(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
+    if a_pts.shape != t_pts.shape:
+        raise ValueError("t_pts and a_pts must have the same shape")
+    if t_pts.shape[0] == 0:
+        raise ValueError("empty time series supplied!")
+    env_fig_name = ''
+    env_fig_name_2 = ''
+    if fig_name != '':
+        env_fig_name = fig_name+"_env"
+        env_fig_name_2 = fig_name+"_env_2"
+
+    #do the signal processing to find the envelope and decompose it into a series of peaks
+    env_n, peak_arr, f0, phi = est_env_new(t_pts, a_pts)
+
+    used_double = False
+    res = None
+    low_t = t_pts[0]
+    hi_t = t_pts[-1]
+
+    #if there's more than one peak, use a double optimization
+    if len(peak_arr) > 1:
+        guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], peak_arr[1,2], peak_arr[1,0], peak_arr[1,1]])
+        res, low_t, hi_t = opt_double_pulse(t_pts, a_pts, guess_x, f0, phi, keep_n=keep_n)
+        used_double = True
+    else:
+        guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1]])
+        res, low_t, hi_t = opt_pulse(t_pts, a_pts, guess_x, f0, phi, keep_n=keep_n)
+
+    if verbose > 0:
+        print("\tenvelope type={}".format("double" if used_double else "single"))
+
+    #plot figures if requested
+    if fig_name != '':
+        fig = plt.figure()
+        ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+        ax.plot(t_pts, a_pts, color='black')
+        ax.plot(t_pts, gauss_env(env_res.x, t_pts), linestyle=':', color='red')
+        ax.plot(t_pts, gauss_env(res.x, t_pts), linestyle=':', color='blue')
+        if used_double:
+            x0 = np.array([env_res.x[0], env_res.x[1], env_res.x[2], est_omega_1, est_phi_1, env_res.x[3], env_res.x[4], env_res.x[5]])
+            ax.plot(t_pts, double_gauss_series(x0, t_pts), color='red')
+            ax.plot(t_pts, double_gauss_series(res.x, t_pts), color='blue')
+        else:
+            x0 = np.array([env_res.x[0], env_res.x[1], env_res.x[2], est_omega_0, est_phi_0])
+            ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
+            ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
+        ax.vlines([low_t, hi_t], -1.2, 1.2)
+        ax.set_ylim((-1.2, 1.2))
+        ax.annotate(r"$er^2={:.1f}$".format(res.fun), (0.01, 0.84), xycoords='axes fraction')
+        fig.savefig(fig_name+".png", dpi=300)
+        plt.close(fig)
+
+    if fig_name != '':
+        res_name = fig_name+"_res.txt"
+        write_reses(res_name, [res])
+
+    return res
 
 def get_params(res):
     '''Convert a scipy optimize result returned from opt_pulse_full into a human readable set of parameters
@@ -917,7 +1051,8 @@ class phase_finder:
             good_fit = True
             #now actually try optimizing
             try:
-                res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                #res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                res = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
             except:
                 if verbose > 0:
                     print("\tfitting to raw time series failed, applying low pass filter")
@@ -925,11 +1060,12 @@ class phase_finder:
                     print("clust={}, j={}\n\tfield error^2={}\n\tomega_fft={}".format(clust, j, err_2*self.n_t_pts, guess_omega))
                 v_pts, guess_omega, err_2 = self.get_point_times(clust, j, low_pass=True)
                 #res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
-                try:
+                res = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                '''try:
                     print(guess_omega)
                     res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
                 except:
-                    good_fit = False
+                    good_fit = False'''
             if good_fit:
                 n_evals += 1
                 if verbose > 0:
