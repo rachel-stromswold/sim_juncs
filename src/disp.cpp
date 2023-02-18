@@ -322,7 +322,7 @@ source_info::source_info(value info, parse_ercode* ercode) {
     //initialize default values
     type = SRC_GAUSSIAN;
     component = meep::Ex;
-    wavelen = 700.0;
+    wavelen = 0.7;
     width = 1;
     phase = 0;
     start_time = 0;

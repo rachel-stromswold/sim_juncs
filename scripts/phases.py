@@ -15,10 +15,12 @@ import matplotlib.pyplot as plt
 EPSILON = 0.125
 H_EPSILON = EPSILON/2
 AMP_CUTOFF = 0.025
+PEAK_AMP_THRESH = 0.1
+NOISE_THRESH = 0.1
 OUTLIER_FACTOR = 20
 N_STDS = 2
 WIDTH_SCALE = 1000
-verbose = 1
+verbose = 4
 
 #The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
 HIGHEST_MODE=3
@@ -29,6 +31,8 @@ DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],
 LOC_MAX_CUT = 1e-6
 #The number of standard deviations away from the local maxima to consider when performing least squares fits
 DEF_KEEP_N = 2.5
+
+MAX_LOWPASS_EVALS = 4
 
 def write_reses(fname, res_list):
     with open(fname, "w") as res_f:
@@ -401,10 +405,16 @@ class EnvelopeFitter:
     def sq_err_fit_double(self, x):
         return np.sum( (np.abs(x[0])*np.exp(-0.5*((self.ext_ts - x[1])/x[2])**2) + np.abs(x[3])*np.exp(-0.5*((self.ext_ts - x[4])/x[5])**2) - self.ext_vs)**2 )
 
+def peaks_to_pulse(t_pts, peaks):
+    res = np.zeros(len(t_pts))
+    for p in peaks:
+        res += p[2]*np.exp( -((t_pts-p[0])/p[1])**2 )
+    return res
+
 def find_peaks(t_pts, vs, ns, width_steps=5):
     '''Helper function for est_env_new
     t_pts: the sampled points in time, this should have the same dimension as vs and ns
-    vs: the actual pulse
+    vs: the absolute value of the actual pulse. This WILL break if there are any negative values.
     ns: the envelope of the pulse obtained through some signal processing
     '''
     dt = t_pts[1] - t_pts[0]
@@ -416,8 +426,8 @@ def find_peaks(t_pts, vs, ns, width_steps=5):
     if len(pulse_peaks) == 0 or len(env_peaks) == 0:
         return np.array([[0, 1, 1]])
     
-    #an array of peaks, each specified by time, width, and amplitude
-    peaks_arr = np.zeros((len(env_peaks),3))
+    #an array of peaks. The columns are time, width, amplitude, and the residual error. The error is cumulative i.e. The pulse incorporates all peaks before the current one and computes the square error.
+    peaks_arr = np.zeros((len(env_peaks),4))
     i = 0
     for v in env_peaks:
         now = t_pts[v]
@@ -431,9 +441,7 @@ def find_peaks(t_pts, vs, ns, width_steps=5):
                 closest_sep = sep
             else:
                 break
-        if vs[p_ind] > max_peak / 10:
-            peaks_arr[i, 2] = vs[p_ind]
-            peaks_arr[i, 0] = now
+        if vs[p_ind] > PEAK_AMP_THRESH*max_peak:
             #make sure that we're inside the array but we take at least one step
             stp = max(min(min(width_steps, v), len(t_pts)-v-1), 1) 
             #do a quadratic fit to get a guess of the Gaussian width
@@ -443,37 +451,63 @@ def find_peaks(t_pts, vs, ns, width_steps=5):
             peaks_arr[i, 1] = 1/np.sqrt(reg[0])
             #only add this to the array if the value isn't nan
             if not np.isnan(peaks_arr[i, 1]):
+                peaks_arr[i, 0] = now
+                peaks_arr[i, 2] = vs[p_ind]
+                peaks_arr[i, 3] = np.sum((peaks_to_pulse(t_pts[pulse_peaks], peaks_arr[0:i+1]) - vs[pulse_peaks])**2)
                 i += 1
-    peaks_arr.resize((i,3))
+    #sort peaks by intensity
+    peaks_arr = peaks_arr[(-peaks_arr)[:, 2].argsort()]
+    peaks_arr.resize((i,4))
     return peaks_arr
 
-def peaks_to_pulse(t_pts, peaks):
-    res = np.zeros(len(t_pts))
-    for p in peaks:
-        res += p[2]*np.exp( -((t_pts-p[0])/p[1])**2 )
-    return res
-
-def est_env_new(t_pts, v_pts):
+def est_env_new(t_pts, v_pts, fig_name='', lowpass_inc=1.0, max_n_peaks=4, in_freq=1.3, scan_length=5):
     '''Based on a time series sampled at t_pts with values v_pts, try to find a Gaussian pulse envelope.'''
+    #take the fourier transform
     freqs = fft.fftfreq(len(v_pts), d=t_pts[1]-t_pts[0])
-    vf = 2*fft.fft(v_pts)*np.heaviside(freqs, 1)
-    phi_est = np.angle(vf[0])
-    mags = np.abs(vf)
-    args = np.angle(vf)
-    #Shift the pulse so that the peak magnitude is at zero frequency. Taking the inverse fourier transform of this shifted magnitude gives pulse amplitude. The frequency at which the magnitude is maximized is the same as the unmodulated sine wave.
-    f0_ind = np.argmax(mags)
-    #comp = lambda x1,x2: True if abs(x1) > abs(x2) else False
-    v_abs = np.abs(v_pts)
-    t0_ind = np.argmax(v_abs)
-    mags = np.roll(mags, -f0_ind)
-    #take the inverse fourier transform and shift to the peak of the pulse
-    env_pts = np.roll( np.abs(fft.ifft(mags)), t0_ind )
-    #to identify useful points for placing a Gaussian, it is helpful to convolve the envelope function with a Gaussian pulse. Fortunately, we already have the fourier transform of the envelope.
-    s = 1
-    div = 0.5/np.sinh(np.pi*freqs*s)
-    div[0] = 0
+    vf0 = 2*fft.fft(v_pts)
+    vf = np.copy(vf0)
+    avg_len = 0.0
+    while True:
+        phi_est = np.angle(vf[0])
+        mags = np.abs(vf*np.heaviside(freqs, 1))
+        #Shift the pulse so that the peak magnitude is at zero frequency. Taking the inverse fourier transform of this shifted magnitude gives pulse amplitude. The frequency at which the magnitude is maximized is the same as the unmodulated sine wave.
+        f0_ind = np.argmax(mags)
+        #comp = lambda x1,x2: True if abs(x1) > abs(x2) else False
+        v_abs = np.abs(v_pts)
+        t0_ind = np.argmax(v_abs)
+        #take the inverse fourier transform and shift to the peak of the pulse
+        env_pts = np.roll( np.abs(fft.ifft(np.roll(mags, -f0_ind))), t0_ind )
+        peaks_arr = find_peaks(t_pts, v_abs, env_pts)
+        #if there are many peaks that is a sign that this is a noisy signal. We apply a lowpass filter in this case. Default to 2*peak_magnitude to ensure that a lowpass filter is applied in the case where the array is empty.
+        noisiness = np.max(mags[4*f0_ind-scan_length:4*f0_ind+scan_length]) if 4*f0_ind-scan_length < len(mags) else 2*mags[f0_ind]
+        if noisiness < NOISE_THRESH*mags[f0_ind] or avg_len >= MAX_LOWPASS_EVALS*lowpass_inc:
+            break
+        else:
+            avg_len += lowpass_inc
+            vf = vf0*np.sinc(freqs*avg_len)
+            v_pts = np.real(fft.ifft(vf))
+            if verbose > 0:
+                print("\tNoisy data, applying low pass filter strength={}".format(avg_len))
+
+    #make plots if requested
+    if fig_name != '':
+        if fig_name != '':
+            fig, ax = plt.subplots(2)
+            #plot time domain stuff
+            ax[0].set_title("Time domain")
+            ax[0].plot(t_pts, v_pts, color='black')
+            for i in range(len(peaks_arr)):
+                ax[0].plot(t_pts, peaks_to_pulse(t_pts, peaks_arr[i:i+1]), color='gray')
+            ax[0].plot(t_pts, peaks_to_pulse(t_pts, peaks_arr), color='green', linestyle=':')
+            #plot frequency domain stuff
+            ax[1].set_title("Frequency domain")
+            ax[1].plot(freqs, vf, color='black')
+            ax[1].plot(freqs, mags, color='gray', linestyle=':')
+            fig.savefig(fig_name+".png", dpi=300)
+            plt.close(fig)
  
-    return env_pts, find_peaks(t_pts, v_abs, env_pts), 2*np.pi*freqs[f0_ind], phi_est
+    #We want to return the actual time series that was used for analysis. So we check if any lowpass filters were applied.
+    return v_pts, peaks_arr, 2*np.pi*freqs[f0_ind], phi_est
 
 def est_env_new_wip(t_pts, v_pts, fig_name='', lowpass_strength=1.0, max_n_peaks=4):
     '''Based on a time series sampled at t_pts with values v_pts, try to find a Gaussian pulse envelope.'''
@@ -786,8 +820,8 @@ def opt_pulse_full_old(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_K
             x0 = np.array([env_res.x[0], env_res.x[1], env_res.x[2], est_omega_0, est_phi_0])
             ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
             ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
-        ax.vlines([low_t, hi_t], -1.2, 1.2)
-        ax.set_ylim((-1.2, 1.2))
+        '''ax.vlines([low_t, hi_t], -1.2, 1.2)
+        ax.set_ylim((-1.2, 1.2))'''
         ax.annotate(r"$er^2={:.1f}$".format(res.fun), (0.01, 0.84), xycoords='axes fraction')
         fig.savefig(fig_name+".png", dpi=300)
         plt.close(fig)
@@ -798,7 +832,7 @@ def opt_pulse_full_old(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_K
 
     return res, env_res
 
-def opt_pulse_full(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_N, fig_name=''):
+def opt_pulse_full(t_pts, a_pts, err_sq, lowpass_inc=1.0, keep_n=DEF_KEEP_N, fig_name='', in_freq=1.3):
     if a_pts.shape != t_pts.shape:
         raise ValueError("t_pts and a_pts must have the same shape")
     if t_pts.shape[0] == 0:
@@ -808,20 +842,26 @@ def opt_pulse_full(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_
         env_fig_name = fig_name+"_env"
 
     #do the signal processing to find the envelope and decompose it into a series of peaks
-    env_n, peak_arr, f0, phi = est_env_new(t_pts, a_pts, fig_name=env_fig_name)
+    a_pts, peak_arr, f0, phi = est_env_new(t_pts, a_pts, fig_name=env_fig_name, lowpass_inc=lowpass_inc, in_freq=in_freq)
+
+    if verbose > 5:
+        print(peak_arr)
 
     used_double = False
     res = None
     low_t = t_pts[0]
     hi_t = t_pts[-1]
 
-    #if there's more than one peak, use a double optimization
-    guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1]])
-    if len(peak_arr) > 1:
+    #substantial evidence as defined by Jeffreys
+    ln_bayes = (0.5/err_sq)*(peak_arr[0,3] - peak_arr[1,3]) if peak_arr.shape[0] > 1 else 0.0
+    if verbose > 1:
+        print("\tenvelope sigma={}, bayes factor={}".format(err_sq, np.exp(ln_bayes)))
+    if np.isnan(ln_bayes) or ln_bayes > 1.15:
         guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], peak_arr[1,2], peak_arr[1,0], peak_arr[1,1]])
         res, low_t, hi_t = opt_double_pulse(t_pts, a_pts, guess_x, f0, phi, keep_n=keep_n)
         used_double = True
     else:
+        guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1]])
         res, low_t, hi_t = opt_pulse(t_pts, a_pts, guess_x, f0, phi, keep_n=keep_n)
 
     if verbose > 0:
@@ -852,7 +892,7 @@ def opt_pulse_full(t_pts, a_pts, omega_fft=-1, a_sigmas_sq=0.1, keep_n=DEF_KEEP_
         res_name = fig_name+"_res.txt"
         write_reses(res_name, [res])
 
-    return res
+    return res, None
 
 def get_params(res):
     '''Convert a scipy optimize result returned from opt_pulse_full into a human readable set of parameters
@@ -1016,12 +1056,15 @@ class phase_finder:
         #create a numpy array for time points, this will be shared across all points
         keylist = list(self.f[self.clust_names[0]].keys())
         self.n_t_pts = len(self.f[self.clust_names[0]][keylist[1]]['time'])
+        #convert wavelength in um to frequency in 1/fs
+        self.in_freq = .299792458 / self.f['info']['sources']['wavelen']
         #read information to figure out time units and step sizes
         t_min = self.f['info']['time_bounds'][0]
         t_max = self.f['info']['time_bounds'][1]
         self.dt = (t_max-t_min)/self.n_t_pts
         self.t_pts = np.linspace(t_min, t_max, num=self.n_t_pts)
         #these are used for applying a low pass filter to the time data, the low-pass is a sinc function applied in frequency space
+        self.lowpass_inc = pass_alpha
         self.f_pts = fft.fftfreq(self.n_t_pts, d=self.dt)
         self.low_filter = np.sin(self.f_pts*np.pi*pass_alpha) / (self.f_pts*np.pi*pass_alpha)
         self.low_filter[0] = 1
@@ -1049,7 +1092,7 @@ class phase_finder:
         return self.f[clust]['locations'][self.slice_name][0]
 
     def get_point_times(self, clust, ind, low_pass=False):
-        #fetch a list of points and their associated coordinates
+        '''#fetch a list of points and their associated coordinates
         points = list(self.f[clust].keys())[1:]
         v_pts = np.array(self.f[clust][points[ind]]['time']['Re']) + 1j*np.array(self.f[clust][points[ind]]['time']['Im'])
         # (dt*|dE/dt|)^2 evaluated at t=t_max (one factor of two comes from the imaginary part, the other from the gaussian. We do something incredibly hacky to account for the spatial part. We assume that it has an error identical to the time error, and add the two in quadrature hence the other factor of two.
@@ -1061,7 +1104,11 @@ class phase_finder:
             v_pts = fft.ifft(vf_pts)
         peak_i = np.argmax(np.abs(vf_pts))
         peak_omega = 2*np.pi*self.f_pts[peak_i]
-        return v_pts, np.abs(peak_omega), err_2
+        return v_pts, np.abs(peak_omega), err_2'''
+        points = list(self.f[clust].keys())[1:]
+        #TODO: generate an estimate of err_2
+        err_2 = 0.02
+        return np.array(self.f[clust][points[ind]]['time']['Re']), err_2
 
     def read_cluster(self, clust, save_fit_figs=False):
         '''Read an h5 file and return three two dimensional numpy arrays of the form ([amplitudes, errors], [sigmas, errors], [phases, errors]
@@ -1080,9 +1127,10 @@ class phase_finder:
         good_js = []
         phase_cor = 0
         for j in range(len(points)):
-            v_pts, guess_omega, err_2 = self.get_point_times(clust, j, low_pass=False)
+            v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
             if verbose > 0:
-                print("clust={}, j={}\n\tfield error^2={}\n\tomega_fft={}".format(clust, j, err_2*self.n_t_pts, guess_omega))
+                #print("clust={}, j={}\n\tfield error^2={}\n\tomega_fft={}".format(clust, j, err_2*self.n_t_pts, guess_omega))
+                print("clust={}, j={}\n\tfield error^2={}\n".format(clust, j, err_2*self.n_t_pts))
             #before doing anything else, save a plot of just the time series
             fig_name = ""
             if save_fit_figs:
@@ -1092,17 +1140,18 @@ class phase_finder:
                 fig_name = "{}/fit_figs/fit_{}_{}".format(self.prefix,clust,j)
             good_fit = True
             #now actually try optimizing
+            res,_ = opt_pulse_full(self.t_pts, np.real(v_pts), err_2, keep_n=2.5, fig_name=fig_name, lowpass_inc=self.lowpass_inc, in_freq=self.in_freq)
             try:
                 #res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
-                res = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                res,_ = opt_pulse_full(self.t_pts, np.real(v_pts), err_2, keep_n=2.5, fig_name=fig_name, lowpass_inc=self.lowpass_inc)
             except:
                 if verbose > 0:
                     print("\tfitting to raw time series failed, applying low pass filter")
                 if verbose > 0:
                     print("clust={}, j={}\n\tfield error^2={}\n\tomega_fft={}".format(clust, j, err_2*self.n_t_pts, guess_omega))
                 v_pts, guess_omega, err_2 = self.get_point_times(clust, j, low_pass=True)
-                #res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
-                res = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                #res,res_env = opt_pulse_full_old(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
+                res,_ = opt_pulse_full(self.t_pts, np.real(v_pts), err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
                 '''try:
                     print(guess_omega)
                     res,res_env = opt_pulse_full(self.t_pts, np.real(v_pts), a_sigmas_sq=err_2, keep_n=2.5, fig_name=fig_name, omega_fft=guess_omega)
