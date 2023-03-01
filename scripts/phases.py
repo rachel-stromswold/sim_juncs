@@ -2,6 +2,7 @@ import numpy as np
 import argparse
 import h5py
 import scipy.optimize as opt
+from scipy.stats import linregress
 #from scipy.fft import ifft, fft, fftfreq
 import scipy.fft as fft
 import scipy.signal as ssig
@@ -158,11 +159,12 @@ class signal:
         cut_amp = self.mags[self.f0_ind]/2
         f_min = self.f0_ind
         f_max = self.f0_ind
-        for j in range(self.f0_ind):
+        j_bound = min(self.f0_ind, len(self.mags)-self.f0_ind-1)
+        for j in range(j_bound):
             if self.mags[self.f0_ind - j] > cut_amp:
-                f_min = self.f0_ind - j
+                f_min = self.f0_ind - j - 1
             if self.mags[self.f0_ind + j] > cut_amp:
-                f_max = self.f0_ind + j
+                f_max = self.f0_ind + j + 1
         '''while self.mags[f_max] > cut_amp:
             f_max += 1'''
         return [f_min, f_max]
@@ -171,6 +173,7 @@ class signal:
         f_min = freq_range[0]
         f_max = freq_range[1]
         #using this frequency range, perform a linear regression to estimate phi and t0
+        print(np.angle(self.vf[f_min:f_max]))
         res = linregress(self.freqs[f_min:f_max], np.angle(self.vf[f_min:f_max]))
         t0 = -res.slope/(2*np.pi)
         phi = res.intercept
@@ -257,7 +260,6 @@ class signal:
         plt_fs = self.freqs[0:len(self.dif_ser)]
         re_env = np.abs(self.sum_ser)*np.cos(2*np.pi*plt_fs*self._t0_corr) - np.abs(self.dif_ser)*np.sin(2*np.pi*plt_fs*self._t0_corr)
         im_env = np.abs(self.sum_ser)*np.sin(2*np.pi*plt_fs*self._t0_corr) + np.abs(self.dif_ser)*np.cos(2*np.pi*plt_fs*self._t0_corr)
-        print(self.vf.shape[0],re_env.shape[0])
         env_fft = np.pad((re_env - 1j*im_env), (0, self.vf.shape[0]-re_env.shape[0]))
         #apply a lowpass filter first if requested
         if lowpass_scale > 0:
@@ -325,56 +327,76 @@ class signal:
                     break
 
             if v_abs[p_ind] > peak_amp_thresh*max_peak:
-                 #make sure that we're inside the array but we take at least one step
-                 stp = max(min(min(width_steps, v), len(self.t_pts)-v-1), 1)
-                 #do a quadratic fit to get a guess of the Gaussian width
-                 samp_ts = self.t_pts[v-stp:v+stp] - self.t_pts[v]
-                 samp_ls = np.log(max_peak) - np.log(this_env[v-stp:v+stp])
-                 reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, samp_ls)
-                 #only add this to the array if the value isn't nan
-                 if reg[0] > 0:
-                     self.peaks_arr[i, 1] = 1/np.sqrt(reg[0])
-                     self.peaks_arr[i, 0] = now
-                     self.peaks_arr[i, 2] = v_abs[p_ind]
-                     self.peaks_arr[i, 3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - v_abs[pulse_peaks])**2)
-                     i += 1
+                #make sure that we're inside the array but we take at least one step. If there are any zeros in the envelope array then skip over this one before the program crashes because of NaNs
+                stp = max(min(min(width_steps, v), len(self.t_pts)-v-1), 1)
+                if 0 in this_env[v-stp:v+stp]:
+                    continue
+                #do a quadratic fit to get a guess of the Gaussian width
+                samp_ts = self.t_pts[v-stp:v+stp] - self.t_pts[v]
+                samp_ls = np.log(max_peak) - np.log(np.abs(this_env[v-stp:v+stp]))
+                reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, samp_ls)
+                #only add this to the array if the value isn't nan
+                if reg[0] > 0:
+                    self.peaks_arr[i, 1] = 1/np.sqrt(reg[0])
+                    self.peaks_arr[i, 0] = now
+                    self.peaks_arr[i, 2] = v_abs[p_ind]*np.sign(this_env[v])
+                    self.peaks_arr[i, 3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - v_abs[pulse_peaks])**2)
+                    i += 1
 
         self.peaks_arr.resize((i,4))
         return self.peaks_arr
 
     def save_raw_plt(self, fname):
-        fig, ax1 = plt.subplots()
+        fig, axs = plt.subplots(2)
         plt.title("Frequency space representation of a simulated pulse")
         # Add the magnitude 
-        ax1.set_xlabel('frequency (1/fs)') 
-        ax1.set_ylabel('magnitude (arb. units)', color = 'black') 
-        plt1 = ax1.plot(self.freqs, np.abs(self.vf), color = 'black')
-        ax1.axvline(self.freqs[mini], color='gray', linestyle=':')
-        ax1.axvline(self.freqs[maxi], color='gray', linestyle=':')
-        ax1.tick_params(axis ='y', labelcolor = 'black')
+        axs[0].set_xlabel('frequency (1/fs)') 
+        axs[0].set_ylabel('magnitude (arb. units)', color = 'black') 
+        plt1 = axs[0].plot(self.freqs, np.abs(self.vf), color = 'black')
+        plt1 = axs[0].plot(self.freqs[:len(self.sum_ser)], np.abs(self.sum_ser)/2, color = 'blue')
+        plt1 = axs[0].plot(self.freqs[:len(self.dif_ser)], np.abs(self.dif_ser), color = 'orange')
+        #plot the bounds used for fitting
+        frange = self.get_freq_fwhm()
+        axs[0].axvline(self.freqs[frange[0]], color='gray', linestyle=':')
+        axs[0].axvline(self.freqs[frange[1]], color='gray', linestyle=':')
+        axs[0].tick_params(axis ='y', labelcolor = 'black')
         # Adding Twin Axes
-        ax2 = ax1.twinx()
+        ax2 = axs[0].twinx()
         ax2.set_ylabel('phase', color = 'green')
         ax2.set_ylim([-np.pi, np.pi])
         ax2.tick_params(axis ='y', labelcolor = 'green')
-        ax2.plot(fft.fftshift(self.freqs), fft.fftshift(np.angle(self.vf)), color='green')
+        ax2.plot(self.freqs, np.angle(self.vf), color='green')
+        #save time domain
+        axs[1].plot(self.t_pts, self.v_pts, color='black', label='simulated data')
+        axs[1].plot(self.t_pts, self.get_envelope_asym(), color='teal', label='envelope')
         plt.savefig(fname)
         plt.clf()
 
-    def save_fit_plt(self, fname):
-        phi_test = np.pi-self.phi - peak_t/self.f0
+    def opt_phase(self, env, peak_t):
+        x0 = np.array([1.0, 2*np.pi*self.f0, self.phi])
+        def ff(x):
+            return np.sum( (x[0]*env*np.cos(x[1]*(self.t_pts-peak_t)+x[2]) - self.v_pts)**2 )
+        res = opt.minimize(ff, x0)
+        return res
+
+    def make_fit_plt(self, ax):
+        #git the envelope and perform a fitting
+        env = self.get_envelope_asym()
+        peak_t = np.argmax(env)*self.dt
+        res = self.opt_phase(env, peak_t)
+        #extract gaussian peaks
         s_peaks = self.get_peaks()
-        plt.title("Comparisons in time space")
-        plt.xlabel("time (fs)")
-        plt.ylabel("amplitude (arb. units)")
-        plt.plot(pf.t_pts, env_test, color='teal', label='envelope')
-        plt.plot(pf.t_pts, peaks_to_pulse(pf.t_pts, s_peaks), color='red', label='fitted peaks')
-        plt.plot(pf.t_pts, self.v_pts, color='black', label='simulated data')
-        plt.plot(pf.t_pts, res.x[0]*env_test*np.cos(res.x[1]*(pf.t_pts-peak_t)+res.x[2]), color='orange', label='extracted pulse')
-        plt.axvline(peak_t, color='teal', linestyle=':')
-        plt.legend()
-        plt.savefig(fname)
-        plt.clf()
+        #make plots
+        ax.set_title("Comparisons in time space")
+        ax.set_xlabel("time (fs)")
+        ax.set_ylabel("amplitude (arb. units)")
+        ax.set_ylim([-0.5, 0.5])
+        ax.plot(self.t_pts, env, color='teal', label='envelope')
+        ax.plot(self.t_pts, peaks_to_pulse(self.t_pts, s_peaks), color='darkturquoise', label='fitted peaks')
+        ax.plot(self.t_pts, self.v_pts, color='black', label='simulated data')
+        ax.plot(self.t_pts, res.x[0]*env*np.cos(res.x[1]*(self.t_pts-peak_t)+res.x[2]), color='orange', label='extracted pulse')
+        ax.axvline(peak_t, color='teal', linestyle=':')
+        ax.legend()
 
 N_RES_PARAMS = 6
 class cluster_res:
@@ -755,10 +777,6 @@ class phase_finder:
             raise ValueError("t_pts and a_pts must have the same shape")
         if t_pts.shape[0] == 0:
             raise ValueError("empty time series supplied!")
-        env_fig_name = ''
-        if fig_name != '':
-
-
         #do the signal processing to find the envelope and decompose it into a series of peaks
         #a_pts, peak_arr, f0, phi = self.est_env_new(t_pts, a_pts, fig_name=env_fig_name)
         psig = signal(t_pts, a_pts)
@@ -789,8 +807,7 @@ class phase_finder:
 
         #plot figures if requested
         '''if fig_name != '':
-            fig = plt.figure()
-            ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+
             ax.plot(t_pts, psig.v_pts, color='black')
             ax.plot(t_pts, gauss_env(guess_x, t_pts), linestyle=':', color='red')
             ax.plot(t_pts, gauss_env(res.x, t_pts), linestyle=':', color='blue')
@@ -802,15 +819,25 @@ class phase_finder:
                 x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], f0, phi])
                 ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
                 ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
-            ax.annotate(r"$er^2={:.1f}$".format(res.fun), (0.01, 0.84), xycoords='axes fraction')
-            fig.savefig(fig_name+".png", dpi=300)
-            plt.close(fig)'''
-
+            ax.annotate(r"$er^2={:.1f}$".format(res.fun), (0.01, 0.84), xycoords='axes fraction')'''
         if fig_name != '':
             res_name = fig_name+"_res.txt"
             write_reses(res_name, [res])
             psig.save_raw_plt(fig_name+"_env.png")
-            psig.save_fit_plt(fig_name+".png")
+            #save plots of the final fitted waveform
+            fig = plt.figure()
+            ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+            psig.make_fit_plt(ax)
+            if used_double:
+                x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], psig.f0, psig.phi, peak_arr[1,2], peak_arr[1,0], peak_arr[1,1]])
+                ax.plot(t_pts, double_gauss_series(x0, t_pts), color='red')
+                ax.plot(t_pts, double_gauss_series(res.x, t_pts), color='blue')
+            else:
+                x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], psig.f0, psig.phi])
+                ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
+                ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
+            fig.savefig(fig_name+".png", dpi=300)
+            plt.close(fig)
 
         return res, None
 
