@@ -70,7 +70,7 @@ def fix_angle(theta):
 def peaks_to_pulse(t_pts, peaks):
     res = np.zeros(len(t_pts))
     for p in peaks:
-        res += p[2]*np.exp( -((t_pts-p[0])/p[1])**2 )
+        res += p[2]*np.exp( -0.5*((t_pts-p[0])/p[1])**2 )
     return res
 
 def find_peaks(t_pts, vs, ns, width_steps=5):
@@ -124,7 +124,7 @@ def find_peaks(t_pts, vs, ns, width_steps=5):
 
 #all of this is for debuging, first pick a cluster then get the double guess
 def doub_gauss_ser(x, t_pts):
-    return x[0]*np.exp(-0.5*((t_pts - x[1])/x[2])**2) + x[3]*np.exp(-0.5*((t_pts - x[4])/x[5])**2)
+    return x[0]*np.exp(-0.5*((t_pts - x[1])/x[2])**2) + x[5]*np.exp(-0.5*((t_pts - x[6])/x[7])**2)
 
 #return a Gaussian envelope over the specified time points with an amplitude amp, a mean t_0 and a standard deviation sqrt(width_sq/2)
 def gauss_env(x, t_pts):
@@ -160,6 +160,8 @@ class signal:
         f_min = self.f0_ind
         f_max = self.f0_ind
         j_bound = min(self.f0_ind, len(self.mags)-self.f0_ind-1)
+        if verbose > 2 and len(self.mags)-self.f0_ind-1 < self.f0_ind:
+            print("\tanomalous high frequency! peak f={}".format(self.freqs[self.f0_ind]))
         for j in range(j_bound):
             if self.mags[self.f0_ind - j] > cut_amp:
                 f_min = self.f0_ind - j - 1
@@ -265,7 +267,8 @@ class signal:
         if lowpass_scale > 0:
             env_fft = env_fft*np.sinc((self.freqs-self.freqs[self.f0_ind])*lowpass_scale)
         env_test = fft.irfft(env_fft)
-        
+        return np.roll(env_test, self.t0_ind)
+        '''
         #we start off with a reasonable guess for the index that we should shift the envelope by. Then we calculate the response between the envelope and actual data in points near this region. Continue until we reach half of the peak maximum. I found that this guess isn't great, so we calculate the convolution between the envelope and the peaks and shift in time correspondingly.
         guess_ind = int( -(np.angle(env_fft[2]) - np.angle(env_fft[0]))/((self.freqs[2] - self.freqs[0])*2*np.pi*self.dt) ) if len(env_fft) > 2 else 0
         #only the peaks in the pulse are relevant for fitting the envelope
@@ -293,7 +296,7 @@ class signal:
                 best_ind = guess_ind-j
             if p_res < best_res/2 and m_res < best_res/2:
                 break
-        return np.roll(env_test, best_ind)
+        return np.roll(env_test, best_ind)'''
 
     def get_peaks(self, peak_amp_thresh=0.1, width_steps=5):
         '''Return an array containing peaks in the envelope
@@ -337,16 +340,29 @@ class signal:
                 reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, samp_ls)
                 #only add this to the array if the value isn't nan
                 if reg[0] > 0:
-                    self.peaks_arr[i, 1] = 1/np.sqrt(reg[0])
+                    self.peaks_arr[i, 1] = 1/np.sqrt(2*reg[0])
                     self.peaks_arr[i, 0] = now
                     self.peaks_arr[i, 2] = v_abs[p_ind]*np.sign(this_env[v])
+                    #self.peaks_arr[i, 2] = this_env[v]
                     self.peaks_arr[i, 3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - v_abs[pulse_peaks])**2)
                     i += 1
 
-        self.peaks_arr.resize((i,4))
+        self.peaks_arr = self.peaks_arr[:i]
         return self.peaks_arr
 
+    def opt_phase(self, env, peak_t):
+        x0 = np.array([1.0, 2*np.pi*self.f0, self.phi])
+        def ff(x):
+            return np.sum( (x[0]*env*np.cos(x[1]*(self.t_pts-peak_t)+x[2]) - self.v_pts)**2 )
+        res = opt.minimize(ff, x0)
+        return res
+
     def save_raw_plt(self, fname):
+        #get the envelope and perform a fitting
+        env = self.get_envelope_asym()
+        peak_t = np.argmax(env)*self.dt
+        res = self.opt_phase(env, peak_t)
+        #setup the plot
         fig, axs = plt.subplots(2)
         plt.title("Frequency space representation of a simulated pulse")
         # Add the magnitude 
@@ -368,34 +384,22 @@ class signal:
         ax2.plot(self.freqs, np.angle(self.vf), color='green')
         #save time domain
         axs[1].plot(self.t_pts, self.v_pts, color='black', label='simulated data')
-        axs[1].plot(self.t_pts, self.get_envelope_asym(), color='teal', label='envelope')
+        axs[1].plot(self.t_pts, env, color='teal', label='envelope')
+        axs[1].axvline(peak_t, color='teal', linestyle=':')
+        axs[1].plot(self.t_pts, res.x[0]*env*np.cos(res.x[1]*(self.t_pts-peak_t)+res.x[2]), color='orange', label='extracted pulse')
         plt.savefig(fname)
         plt.clf()
 
-    def opt_phase(self, env, peak_t):
-        x0 = np.array([1.0, 2*np.pi*self.f0, self.phi])
-        def ff(x):
-            return np.sum( (x[0]*env*np.cos(x[1]*(self.t_pts-peak_t)+x[2]) - self.v_pts)**2 )
-        res = opt.minimize(ff, x0)
-        return res
-
     def make_fit_plt(self, ax):
-        #git the envelope and perform a fitting
-        env = self.get_envelope_asym()
-        peak_t = np.argmax(env)*self.dt
-        res = self.opt_phase(env, peak_t)
         #extract gaussian peaks
         s_peaks = self.get_peaks()
         #make plots
         ax.set_title("Comparisons in time space")
         ax.set_xlabel("time (fs)")
         ax.set_ylabel("amplitude (arb. units)")
-        ax.set_ylim([-0.5, 0.5])
-        ax.plot(self.t_pts, env, color='teal', label='envelope')
+        ax.set_ylim([-1.0, 1.0])
         ax.plot(self.t_pts, peaks_to_pulse(self.t_pts, s_peaks), color='darkturquoise', label='fitted peaks')
         ax.plot(self.t_pts, self.v_pts, color='black', label='simulated data')
-        ax.plot(self.t_pts, res.x[0]*env*np.cos(res.x[1]*(self.t_pts-peak_t)+res.x[2]), color='orange', label='extracted pulse')
-        ax.axvline(peak_t, color='teal', linestyle=':')
         ax.legend()
 
 N_RES_PARAMS = 6
@@ -445,12 +449,12 @@ class cluster_res:
         sig = np.sqrt(res.x[2]/2)
         omega = res.x[3]
         cep = res.x[4]
-        if amp < 0:
+        '''if amp < 0:
             amp *= -1
             if cep > 0:
                 cep -= np.pi
             else:
-                cep += np.pi
+                cep += np.pi'''
         cep = fix_angle(cep)
         cepr = cep
         if len(res.x) > 6:
@@ -707,11 +711,11 @@ class phase_finder:
         x0[4] = fix_angle(x0[4])
 
         #now we actually perform the minimization
-        res = opt.minimize(fp, x0, jac=jac_fp)
+        res = opt.minimize(fp, x0)
 
         #renormalize thingies
         res.x[0] = res.x[0]*env_x[0]
-        res.x[4] = fix_angle(res.x[4])
+        #res.x[4] = fix_angle(res.x[4])
 
         return res, t_pts[0], t_pts[-1]
     def opt_double_pulse(self, t_pts, a_pts, env_x, est_omega, est_phi):
@@ -769,8 +773,11 @@ class phase_finder:
         res.x[5] = np.abs(res.x[5])*env_x[0]
         #res.x[4] = fix_angle(res.x[4])
 
-        #return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
-        return res, t_pts[0], t_pts[-1]
+        flipped_res = fix_double_pulse_order(res)
+        if fp(flipped_res.x) < res.fun:
+            return flipped_res, t_pts[0], t_pts[-1]
+        else:
+            return res, t_pts[0], t_pts[-1]
 
     def opt_pulse_full(self, t_pts, a_pts, err_sq, fig_name=''):
         if a_pts.shape != t_pts.shape:
@@ -796,11 +803,11 @@ class phase_finder:
             print("\tenvelope sigma={}, bayes factor={}".format(err_sq, np.exp(ln_bayes)))
         if np.isnan(ln_bayes) or ln_bayes > 1.15:
             guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], peak_arr[1,2], peak_arr[1,0], peak_arr[1,1]])
-            res, low_t, hi_t = self.opt_double_pulse(t_pts, psig.v_pts, guess_x, psig.f0, psig.phi)
+            res, low_t, hi_t = self.opt_double_pulse(t_pts, psig.v_pts, guess_x, 2*np.pi*psig.f0, psig.phi)
             used_double = True
         else:
             guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1]])
-            res, low_t, hi_t = self.opt_pulse(t_pts, psig.v_pts, guess_x, psig.f0, psig.phi)
+            res, low_t, hi_t = self.opt_pulse(t_pts, psig.v_pts, guess_x, 2*np.pi*psig.f0, psig.phi)
 
         if verbose > 0:
             print("\tenvelope type={}".format("double" if used_double else "single"))
@@ -829,11 +836,15 @@ class phase_finder:
             ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
             psig.make_fit_plt(ax)
             if used_double:
-                x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], psig.f0, psig.phi, peak_arr[1,2], peak_arr[1,0], peak_arr[1,1]])
+                x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], 2*np.pi*psig.f0, psig.phi, peak_arr[1,2], peak_arr[1,0], peak_arr[1,1]])
+                ax.plot(t_pts, doub_gauss_ser(x0, t_pts), color='red', linestyle=':')
+                ax.plot(t_pts, doub_gauss_ser(res.x, t_pts), color='blue', linestyle=':')
                 ax.plot(t_pts, double_gauss_series(x0, t_pts), color='red')
                 ax.plot(t_pts, double_gauss_series(res.x, t_pts), color='blue')
             else:
-                x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], psig.f0, psig.phi])
+                x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], 2*np.pi*psig.f0, psig.phi])
+                ax.plot(t_pts, gauss_env(x0, t_pts), color='red', linestyle=':')
+                ax.plot(t_pts, gauss_env(res.x, t_pts), color='blue', linestyle=':')
                 ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
                 ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
             fig.savefig(fig_name+".png", dpi=300)
