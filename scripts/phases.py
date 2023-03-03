@@ -67,60 +67,25 @@ def fix_angle(theta):
             theta -= 2*np.pi
     return theta
 
+def fix_angle_seq(angles):
+    '''Given a sequence of angles from -pi to pi look for -pi -> pi rollovers and perform adjustments such that each angle is the closest equivalent angle to the previous.'''
+    shift = 0
+    n = len(angles)
+    for i in range(1,n):
+        dist_raw = abs(angles[i] - angles[i-1])
+        if abs(angles[i]+2*np.pi - angles[i-1]) < dist_raw:
+            for j in range(i,n):
+                angles[j] += 2*np.pi
+        elif abs(angles[i]-2*np.pi - angles[i-1]) < dist_raw:
+            for j in range(i,n):
+                angles[j] -= 2*np.pi
+    return angles
+
 def peaks_to_pulse(t_pts, peaks):
     res = np.zeros(len(t_pts))
     for p in peaks:
         res += p[2]*np.exp( -0.5*((t_pts-p[0])/p[1])**2 )
     return res
-
-def find_peaks(t_pts, vs, ns, width_steps=5):
-    '''Helper function for est_env_new
-    t_pts: the sampled points in time, this should have the same dimension as vs and ns
-    vs: the absolute value of the actual pulse. This WILL break if there are any negative values.
-    ns: the envelope of the pulse obtained through some signal processing
-    '''
-    dt = t_pts[1] - t_pts[0]
-    #now that we have an envolope, find its maxima
-    pulse_peaks = ssig.argrelmax(vs)[0]
-    env_peaks = ssig.argrelmax(ns, order=4)[0]
-    max_peak = np.max(ns.take(env_peaks))
-    #return a single default peak if no extrema were found to prevent out of bounds errors
-    if len(pulse_peaks) == 0 or len(env_peaks) == 0:
-        return np.array([[0, 1, 1]])
-    
-    #an array of peaks. The columns are time, width, amplitude, and the residual error. The error is cumulative i.e. The pulse incorporates all peaks before the current one and computes the square error.
-    peaks_arr = np.zeros((len(env_peaks),4))
-    i = 0
-    for v in env_peaks:
-        now = t_pts[v]
-        #find the nearest maxima in the actual pulse. The envelopes aren't great at getting amplitudes, but they are useful for widths and centers.
-        p_ind = 0
-        closest_sep = t_pts[-1] - t_pts[0]
-        for p in pulse_peaks:
-            sep = abs(t_pts[p] - now)
-            if sep < closest_sep:
-                p_ind = p
-                closest_sep = sep
-            else:
-                break
-        if vs[p_ind] > PEAK_AMP_THRESH*max_peak:
-            #make sure that we're inside the array but we take at least one step
-            stp = max(min(min(width_steps, v), len(t_pts)-v-1), 1) 
-            #do a quadratic fit to get a guess of the Gaussian width
-            samp_ts = t_pts[v-stp:v+stp] - t_pts[v]
-            samp_ls = np.log(max_peak)-np.log(ns[v-stp:v+stp])
-            reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, samp_ls)
-            peaks_arr[i, 1] = 1/np.sqrt(reg[0])
-            #only add this to the array if the value isn't nan
-            if not np.isnan(peaks_arr[i, 1]):
-                peaks_arr[i, 0] = now
-                peaks_arr[i, 2] = vs[p_ind]
-                peaks_arr[i, 3] = np.sum((peaks_to_pulse(t_pts[pulse_peaks], peaks_arr[0:i+1]) - vs[pulse_peaks])**2)
-                i += 1
-    #sort peaks by intensity
-    peaks_arr = peaks_arr[(-peaks_arr)[:, 2].argsort()]
-    peaks_arr.resize((i,4))
-    return peaks_arr
 
 #all of this is for debuging, first pick a cluster then get the double guess
 def double_gauss_env(x, t_pts):
@@ -301,7 +266,7 @@ class signal:
                 break
         return np.roll(env_test, best_ind)
 
-    def get_peaks(self, peak_amp_thresh=0.1, width_steps=5):
+    def get_peaks(self, peak_amp_thresh=0.1):
         '''Return an array containing peaks in the envelope
         '''
         if self.peaks_arr is not None:
@@ -334,8 +299,14 @@ class signal:
                     break
 
             if v_abs[p_ind] > peak_amp_thresh*max_peak:
+                #include only the full width at half max for regression
+                if v < 2:
+                    continue
+                cut = this_env[v]/2
+                stp = 0
+                while v-stp >= 0 and v+stp < len(this_env) and this_env[v-stp] > cut and this_env[v+stp] > cut:
+                    stp += 1
                 #make sure that we're inside the array but we take at least one step. If there are any zeros in the envelope array then skip over this one before the program crashes because of NaNs
-                stp = max(min(min(width_steps, v), len(self.t_pts)-v-1), 1)
                 if stp < 1 or 0 in this_env[v-stp:v+stp]:
                     continue
                 #do a quadratic fit to get a guess of the Gaussian width
@@ -775,7 +746,7 @@ class phase_finder:
         #a_pts, peak_arr, f0, phi = self.est_env_new(t_pts, a_pts, fig_name=env_fig_name)
         psig = signal(t_pts, a_pts)
         stp = 5
-        peak_arr = psig.get_peaks(width_steps=20)
+        peak_arr = psig.get_peaks()
 
         if verbose > 5:
             print(peak_arr)
