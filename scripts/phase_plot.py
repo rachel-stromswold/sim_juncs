@@ -5,6 +5,7 @@ import numpy as np
 import h5py
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 from scipy.stats import linregress
 
 plt.rc('font', size=14)
@@ -335,8 +336,8 @@ def plot_average_phase(pf, n_groups=-1):
         cl_xs.append(cr.xs)
         cl_amp.append(cr.get_amp())
         cl_phs.append(cr.get_phase())
-        '''cl_phsr.append(cr.get_phase_ref())
-        cl_err.append(cr.get_err_sq())'''
+        cl_phsr.append(cr.get_phase_ref())
+        cl_err.append(cr.get_err_sq())
     cl_xs = np.array(cl_xs)
     cl_amp = np.array(cl_amp)
     cl_phs = np.array(cl_phs)
@@ -349,15 +350,20 @@ def plot_average_phase(pf, n_groups=-1):
     z_min = pf.get_clust_location(pf.clust_names[0])
     z_max = pf.get_clust_location(pf.clust_names[-1])
 
+    #phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.28,0.32,0.17)]
+    phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
+    cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
+
     #save heatmaps of amplitudes and phases
     for i in range(n_groups):
         heat_fig, heat_ax = plt.subplots(2,2, gridspec_kw={'width_ratios':[24,1]})
-        make_heatmap(heat_fig, heat_ax[0], cl_amp[i*grp_len:(i+1)*grp_len], r"Amplitudes L={} $\mu$m $\lambda$={} $\mu$m".format(args.gap_thick, wg.vac_wavelen), "amplitude (arb. units)", rng=AMP_RANGE)
-        make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
+        make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], r"Amplitudes L={} $\mu$m $\lambda$={} $\mu$m".format(args.gap_thick, wg.vac_wavelen), "amplitude (arb. units)", rng=AMP_RANGE, cmap='Reds')
+        #make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
+        make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap)
         heat_fig.savefig(args.prefix+"/heatmap_grp{}.pdf".format(i))
         plt.close(heat_fig)
         #plot errors
-        '''heat_fig, heat_ax = plt.subplots(1,2, gridspec_kw={'width_ratios':[24,1]})
+        heat_fig, heat_ax = plt.subplots(1,2, gridspec_kw={'width_ratios':[24,1]})
         make_heatmap(heat_fig, heat_ax, cl_err[i*grp_len:(i+1)*grp_len], "Square errors", "fit error (arb. units)")
         heat_fig.savefig(args.prefix+"/heatmap_err_grp{}.pdf".format(i))
         plt.close(heat_fig)
@@ -366,7 +372,7 @@ def plot_average_phase(pf, n_groups=-1):
         make_heatmap(heat_fig, heat_ax[0], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
         make_heatmap(heat_fig, heat_ax[1], cl_phsr[i*grp_len:(i+1)*grp_len], "Reflected Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
         heat_fig.savefig(args.prefix+"/heatmap_phs_grp{}.pdf".format(i))
-        plt.close(heat_fig)'''
+        plt.close(heat_fig)
 
     #save a figure of the average phase
     n_x_pts = len(cl_xs[0])
