@@ -109,7 +109,7 @@ def double_gauss_series(x, t_pts):
 def fix_double_pulse_order(res):
     '''Adjust the double pulse fit so that the first envelope comes first in time'''
     #ensure that the pulses are ordeblue the way we expect, fix the order such that the biggest pulse comes first
-    if res.x.shape[0] == 8 and res.x[0] < res.x[5]:
+    if res.x.shape[0] == 8 and res.x[1] > res.x[6]:
         res.x = np.dot(DOUB_SWAP_MAT, res.x)
         res.jac = np.dot(DOUB_SWAP_MAT, res.jac)
         res.hess_inv = np.dot(DOUB_SWAP_MAT, res.hess_inv)
@@ -311,7 +311,10 @@ class signal:
             reg,cov = opt.curve_fit(lambda x,a,b,c: a*x**2 + b*x+c, samp_ts, samp_ls)
             #only add this to the array if the value isn't nan
             if reg[0] > 0:
-                self.peaks_arr[i, 1] = 0.5/np.sqrt(2*reg[0])
+                '''self.peaks_arr[i, 1] = 0.5/np.sqrt(reg[0])
+                self.peaks_arr[i, 0] = now + reg[1]/(2*reg[0]) 
+                self.peaks_arr[i, 2] = max_peak*np.exp(-reg[2])'''
+                self.peaks_arr[i, 1] = 0.5/np.sqrt(reg[0])
                 self.peaks_arr[i, 0] = now
                 self.peaks_arr[i, 2] = this_env[v]
         #now sort peaks by their heights descending and calculate the square errors for including each
@@ -401,9 +404,9 @@ class cluster_res:
         return self.res_arr[8]
     def get_phase_err(self):
         return self.res_arr[9]
-    def get_phase_ref(self):
+    def get_amp_ref(self):
         return self.res_arr[10]
-    def get_phase_ref_err(self):
+    def get_amp_ref_err(self):
         return self.res_arr[11]
     def get_err_sq(self):
         return self.res_arr[12]
@@ -416,16 +419,10 @@ class cluster_res:
         sig = np.sqrt(res.x[2]/2)
         omega = res.x[3]
         cep = res.x[4]
-        '''if amp < 0:
-            amp *= -1
-            if cep > 0:
-                cep -= np.pi
-            else:
-                cep += np.pi'''
+        if omega < 0:
+            omega *= -1
+            cep *= -1
         cep = fix_angle(cep)
-        cepr = cep
-        if len(res.x) > 6:
-            cepr = cep + omega*(res.x[5] - res.x[1])
         self.res_arr[0,jj] = amp
         self.res_arr[1,jj] = np.sqrt(res.hess_inv[0][0]/(err_2))/2
         self.res_arr[2,jj] = t0
@@ -436,8 +433,9 @@ class cluster_res:
         self.res_arr[7,jj] = np.sqrt(res.hess_inv[3][3]/(err_2))
         self.res_arr[8,jj] = cep/np.pi
         self.res_arr[9,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi))
-        self.res_arr[10,jj] = cepr/np.pi
-        self.res_arr[11,jj] = np.sqrt(res.hess_inv[4][4]/(err_2*np.pi))
+        if len(res.x) > 6:
+            self.res_arr[10,jj] = np.abs(res.x[5])
+            self.res_arr[11,jj] = np.sqrt(res.hess_inv[5][5]/err_2)/2
         self.res_arr[12,jj] = res.fun
 
     def trim_to(self, trim_arr):
@@ -661,6 +659,7 @@ class phase_finder:
 
         #renormalize thingies
         res.x[0] = res.x[0]*env_x[0]
+        res.fun *= env_x[0]**2
         #res.x[4] = fix_angle(res.x[4])
 
         return res, t_pts[0], t_pts[-1]
@@ -712,18 +711,16 @@ class phase_finder:
         x0[4] = fix_angle(x0[4])
 
         #now we actually perform the minimization
-        res = opt.minimize(fp, x0)
+        res = opt.minimize(fp, x0, jac=jac_fp)
+        if not res.success:
+            res = opt.minimize(fp, x0)
 
         #renormalize thingies
         res.x[0] = np.abs(res.x[0])*env_x[0]
         res.x[5] = np.abs(res.x[5])*env_x[0]
+        res.fun *= env_x[0]**2
         #res.x[4] = fix_angle(res.x[4])
-
-        flipped_res = fix_double_pulse_order(res)
-        if fp(flipped_res.x) < res.fun:
-            return flipped_res, t_pts[0], t_pts[-1]
-        else:
-            return res, t_pts[0], t_pts[-1]
+        return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
 
     def opt_pulse_full(self, t_pts, a_pts, err_sq, fig_name='', raw_ax=None, final_ax=None):
         '''Put all of the different fitting subroutines together!
@@ -769,7 +766,7 @@ class phase_finder:
 
         if fig_name != '':
             res_name = fig_name+"_res.txt"
-            write_reses(res_name, [res])
+            write_reses(res_name, [res, {"x": guess_x}])
         #save plots of the frequency domain and envelope extraction
         if raw_ax is not None:
             psig.make_raw_plt(raw_ax)

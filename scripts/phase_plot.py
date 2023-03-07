@@ -327,7 +327,7 @@ def plot_average_phase(pf, n_groups=-1):
     cl_xs = []
     cl_amp = []
     cl_phs = []
-    cl_phsr = []
+    cl_ampr = []
     cl_err = []
     wg = waveguide_est(args.gap_width, args.gap_thick, pf)
     for clust in pf.clust_names:
@@ -336,12 +336,12 @@ def plot_average_phase(pf, n_groups=-1):
         cl_xs.append(cr.xs)
         cl_amp.append(cr.get_amp())
         cl_phs.append(cr.get_phase())
-        cl_phsr.append(cr.get_phase_ref())
+        cl_ampr.append(cr.get_amp_ref())
         cl_err.append(cr.get_err_sq())
     cl_xs = np.array(cl_xs)
     cl_amp = np.array(cl_amp)
     cl_phs = np.array(cl_phs)
-    cl_phsr = np.array(cl_phsr)
+    cl_ampr = np.array(cl_ampr)
     cl_err = np.array(cl_err)
 
     #figure out the extent in the x and z directions
@@ -364,13 +364,13 @@ def plot_average_phase(pf, n_groups=-1):
         plt.close(heat_fig)
         #plot errors
         heat_fig, heat_ax = plt.subplots(1,2, gridspec_kw={'width_ratios':[24,1]})
-        make_heatmap(heat_fig, heat_ax, cl_err[i*grp_len:(i+1)*grp_len], "Square errors", "fit error (arb. units)")
+        make_heatmap(heat_fig, heat_ax, cl_err[i*grp_len:(i+1)*grp_len], "Square errors", "fit error (arb. units)", rng=[0,1])
         heat_fig.savefig(args.prefix+"/heatmap_err_grp{}.pdf".format(i))
         plt.close(heat_fig)
         #plot reflected phases
         heat_fig, heat_ax = plt.subplots(2,2, gridspec_kw={'width_ratios':[24,1]})
         make_heatmap(heat_fig, heat_ax[0], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
-        make_heatmap(heat_fig, heat_ax[1], cl_phsr[i*grp_len:(i+1)*grp_len], "Reflected Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
+        make_heatmap(heat_fig, heat_ax[1], cl_ampr[i*grp_len:(i+1)*grp_len], "Reflected amplitudes", r"$\phi/2\pi$", rng=AMP_RANGE, cmap='Reds')
         heat_fig.savefig(args.prefix+"/heatmap_phs_grp{}.pdf".format(i))
         plt.close(heat_fig)
 
