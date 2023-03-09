@@ -161,13 +161,17 @@ class signal:
         self.v_pts = np.roll( np.real(fft.irfft(self.vf)), self.t0_ind )
         self.v_abs = np.abs(self.v_pts)
 
-    def is_noisy(self, cutoff, scan_length=5):
+    def is_noisy(self, cutoff, scan_length=5, noise_thresh=0.2):
         '''Checks whether a signal is noisy by testing how strong high frequency components (arbitrarily chosen to be twice the central frequency) are compared to the central frequency.
         cutoff: The relative strength of the high frequency component to central frequency at which a cutoff is performed
         '''
-        start = max(2*self.f0_ind-scan_length, 0)
-        end = 2*self.f0_ind+scan_length
-        return (start >= self.mags.shape[0] or np.max(self.mags[start:end]) < cutoff*self.mags[self.f0_ind])
+        mag_peaks,_ = ssig.find_peaks(self.mags, prominence=noise_thresh*self.mags[self.f0_ind])
+        if len(mag_peaks) < 2:
+            return False
+        for i in mag_peaks:
+            if i > self.f0_ind*3:
+                return True
+        return False
 
     def __init__(self, t_pts, v_pts, scan_length=5, lowpass_inc=1.0, noise_thresh=0.1, max_f0=-1, lowpass_center=-1.0):
         '''Based on a time series sampled at t_pts with values v_pts, try to find a Gaussian pulse envelope.
@@ -249,7 +253,7 @@ class signal:
         if lowpass_scale > 0:
             env_fft = env_fft*np.sinc((self.freqs-self.freqs[self.f0_ind])*lowpass_scale)
         env = fft.irfft(env_fft)
-        return np.roll(env, self.t0_ind)
+        #return np.roll(env, self.t0_ind)
         
         #we start off with a reasonable guess for the index that we should shift the envelope by. Then we calculate the response between the envelope and actual data in points near this region. Continue until we reach half of the peak maximum. I found that this guess isn't great, so we calculate the convolution between the envelope and the peaks and shift in time correspondingly.
         guess_ind = int( -(np.angle(env_fft[2]) - np.angle(env_fft[0]))/((self.freqs[2] - self.freqs[0])*2*np.pi*self.dt) ) if len(env_fft) > 2 else 0
@@ -283,6 +287,40 @@ class signal:
         else:
             env = np.resize(env, self.t_pts.shape[0])
         return env
+
+    def get_peaks_new(self, peak_amp_thresh=0.1):
+        if self.peaks_arr is not None:
+            return self.peaks_arr
+        this_env = self.get_envelope_asym(lowpass_scale=1.0)
+        max_peak = np.max(this_env)
+        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
+        env_peaks,env_props = ssig.find_peaks(this_env, prominence=max_peak*0.01)
+        #return a single default peak if no extrema were found to prevent out of bounds errors
+        if len(pulse_peaks) == 0 or len(env_peaks) == 0:
+            return np.array([[0, 1, 1, 0]])
+        #an array of peaks, each specified by time, width, and amplitude
+        self.peaks_arr = np.zeros((len(env_peaks),4))
+        for i, v in enumerate(env_peaks):
+            now = self.t_pts[v]
+            #Look only at points near this peak. Make sure that we're inside the array but we take at least one step. If there are any zeros in the envelope array then skip over this one before the program crashes because of NaNs
+            stp = min(v-env_props['left_bases'][i], env_props['right_bases'][i]-v)
+            if stp < 1 or 0 in this_env[v-stp:v+stp]:
+                continue
+            #do a quadratic fit to get a guess of the Gaussian width
+            samp_ts = self.t_pts[v-stp:v+stp+1] - self.t_pts[v]
+            samp_ls = np.log(max_peak) - np.log(np.abs(this_env[v-stp:v+stp+1]))
+            reg,cov = opt.curve_fit(lambda x,a,b,c: a*x**2 + b*x + c, samp_ts, samp_ls)
+            #only add this to the array if the value isn't nan
+            if reg[0] > 0:
+                self.peaks_arr[i, 1] = 1/np.sqrt(reg[0])
+                self.peaks_arr[i, 0] = now
+                self.peaks_arr[i, 2] = this_env[v]
+        #now sort peaks by their heights descending and calculate the square errors for including each
+        self.peaks_arr = self.peaks_arr[np.argsort(-self.peaks_arr[:,2])]
+        for i in range(len(self.peaks_arr)):
+            self.peaks_arr[i,3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - self.v_abs[pulse_peaks])**2)
+
+        return self.peaks_arr
 
     def get_peaks(self, peak_amp_thresh=0.1, width_steps=5):
         '''Helper function for est_env_new
@@ -343,6 +381,14 @@ class signal:
             return np.sum( (x[0]*env*np.cos(x[1]*(self.t_pts-peak_t)+x[2]) - self.v_pts)**2 )
         res = opt.minimize(ff, x0)
         return res
+
+    def extract_phi_asym(self):
+        '''returns: tuple with amplitude and phase'''
+        env = self.get_envelope_asym()
+        peak_i = np.argmax(env)
+        peak_t = peak_i*self.dt
+        res = self.opt_phase(env, peak_t)
+        return env[peak_i]*res.x[0], res.x[2]
 
     def make_raw_plt(self, axs):
         #get the envelope and perform a fitting
@@ -653,8 +699,6 @@ class phase_finder:
         #renormalize thingies
         res.x[0] = res.x[0]*env_x[0]
         res.x[4] = fix_angle(res.x[4])
-        #res.fun *= env_x[0]**2
-
         return res, t_pts[0], t_pts[-1]
     def opt_double_pulse(self, t_pts, a_pts, env_x, est_omega, est_phi):
         '''Set values for the a_pts for each time point
@@ -709,10 +753,6 @@ class phase_finder:
         #renormalize thingies
         res.x[0] = np.abs(res.x[0])*env_x[0]
         res.x[5] = np.abs(res.x[5])*env_x[0]
-        #res.fun *= env_x[0]**2
-        #res.x[4] = fix_angle(res.x[4])
-
-        #return fix_double_pulse_order(res), t_pts[0], t_pts[-1]
         return res, t_pts[0], t_pts[-1]
 
     def opt_pulse_full(self, t_pts, a_pts, err_sq, fig_name='', raw_ax=None, final_ax=None):
@@ -722,8 +762,7 @@ class phase_finder:
             raise ValueError("empty time series supplied!")
 
         #do the signal processing to find the envelope and decompose it into a series of peaks
-
-        psig = signal(t_pts, a_pts, lowpass_center=0.0)
+        psig = signal(t_pts, a_pts, lowpass_inc=2.0)
         w0 = 2*np.pi*psig.f0
         phi = psig.phi
         peak_arr = psig.get_peaks()
