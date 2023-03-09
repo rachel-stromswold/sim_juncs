@@ -91,7 +91,7 @@ def peaks_to_pulse(t_pts, peaks):
     return res
 
 #all of this is for debuging, first pick a cluster then get the double guess
-def doub_gauss_ser(x, t_pts):
+def double_gauss_env(x, t_pts):
     return x[0]*np.exp(-0.5*((t_pts - x[1])/x[2])**2) + x[3]*np.exp(-0.5*((t_pts - x[4])/x[5])**2)
 
 #return a Gaussian envelope over the specified time points with an amplitude amp, a mean t_0 and a standard deviation sqrt(width_sq/2)
@@ -155,52 +155,84 @@ class signal:
         self.dif_ser = np.concatenate((self.dif_ser, end_arr))
         self.sum_ser = np.concatenate((self.sum_ser, end_arr))
 
-    def __init__(self, t_pts, v_pts, scan_length=5, lowpass_inc=1.0):
-        '''Based on a time series sampled at t_pts with values v_pts, try to find a Gaussian pulse envelope.'''
-        #take the fourier transform
-        self.dt = t_pts[1]-t_pts[0]
+    def _apply_lowpass(self, vf0, cent_freq, strength):
+        self.vf = vf0*np.sinc((self.freqs-cent_freq)*strength)
+        self.mags = np.abs(self.vf)
+        self.v_pts = np.roll( np.real(fft.irfft(self.vf)), self.t0_ind )
+        self.v_abs = np.abs(self.v_pts)
+
+    def is_noisy(self, cutoff, scan_length=5):
+        '''Checks whether a signal is noisy by testing how strong high frequency components (arbitrarily chosen to be twice the central frequency) are compared to the central frequency.
+        cutoff: The relative strength of the high frequency component to central frequency at which a cutoff is performed
+        '''
+        start = max(2*self.f0_ind-scan_length, 0)
+        end = 2*self.f0_ind+scan_length
+        return (start >= self.mags.shape[0] or np.max(self.mags[start:end]) < cutoff*self.mags[self.f0_ind])
+
+    def __init__(self, t_pts, v_pts, scan_length=5, lowpass_inc=1.0, noise_thresh=0.1, max_f0=-1, lowpass_center=-1.0):
+        '''Based on a time series sampled at t_pts with values v_pts, try to find a Gaussian pulse envelope.
+        t_pts: a numpy array with the times of each sampled point. This must have the same dimensions as v_pts
+        v_pts: a numpy array with the field at each sampled time
+        lowpass_inc: in the case of a bad fit, a lowpass filter with increasingly high strength is applied. This specifies the increment at which the strength of the lowpass filter increases.
+        scan_length: This is used when checking for noise
+        noise_thresh: This is the ratio of peak frequency magnitude to high frequency components at which a signal is decided to be noisy.
+        max_f0: This specifies the maximum allowable frequency at which the central frequency may occur. If the central frequency is found to be higher than this value, then a lowpass filter is applied.
+        lowpass_center: if >0, then lowpass filters are centered around this frequency so as to avoid attenuating genuine signal
+        '''
         self.t_pts = t_pts
-        self.freqs = fft.rfftfreq(len(v_pts), d=self.dt)
-        vf0 = 2*fft.rfft(v_pts)
-        self.vf = np.copy(vf0)
         self.v_pts = v_pts
+        #inferred values
+        self.dt = t_pts[1]-t_pts[0]
+        self.v_abs = np.abs(v_pts)
+        self.t0_ind = np.argmax(self.v_abs)       
+        #take the fourier transform       
+        self.freqs = fft.rfftfreq(len(v_pts), d=self.dt)
+        max_f0_ind = len(self.freqs)//2
+        if max_f0 > 0:
+            max_f0_ind = int(max_f0 / (self.freqs[1]-self.freqs[0]))
+        #Shift the pulse so that the peak magnitude is at zero frequency. Taking the inverse fourier transform of this shifted magnitude gives pulse amplitude. The frequency at which the magnitude is maximized is the same as the unmodulated sine wave.
+        vf0 = 2*fft.rfft(np.roll(v_pts, -self.t0_ind))
+        self.vf = np.copy(vf0) 
+        self.mags = np.abs(self.vf)
         avg_len = 0.0
         while True:
             self.phi = np.angle(self.vf[0])
-            self.mags = np.abs(self.vf)
-            #Shift the pulse so that the peak magnitude is at zero frequency. Taking the inverse fourier transform of this shifted magnitude gives pulse amplitude. The frequency at which the magnitude is maximized is the same as the unmodulated sine wave.
             self.f0_ind = np.argmax(self.mags)
-            self.v_abs = np.abs(v_pts)
-            #if there are many peaks that is a sign that this is a noisy signal. We apply a lowpass filter in this case. Default to 2*peak_magnitude to ensure that a lowpass filter is applied in the case where the array is empty.
-            start = 2*self.f0_ind-scan_length
-            end = 2*self.f0_ind+scan_length
-            noisiness = np.max(self.mags[start:end]) if start < len(self.mags) else 2*self.mags[self.f0_ind]
-            if noisiness < NOISE_THRESH*self.mags[self.f0_ind] or avg_len >= MAX_LOWPASS_EVALS*lowpass_inc:
+            #apply lowpass filters to noisy signals
+            if avg_len >= MAX_LOWPASS_EVALS*lowpass_inc:
                 break
-            else:
+            #there are two seperate cases we check for, one is a suspiciously high central frequency, and the other is strong signal well above the (otherwise normal) central frequency
+            cent_freq = -1.0
+            if self.f0_ind > max_f0_ind:
+                cent_freq = 0.0
+            elif self.is_noisy(noise_thresh, scan_length=scan_length):
+                cent_freq = self.freqs[self.f0_ind]/2
+            if cent_freq >= 0.0:
                 avg_len += lowpass_inc
-                self.vf = vf0*np.sinc(self.freqs*avg_len)
-                self.v_pts = np.real(fft.irfft(self.vf))
+                if lowpass_center >= 0.0:
+                    self._apply_lowpass(vf0, lowpass_center, avg_len)
+                else:
+                    self._apply_lowpass(vf0, cent_freq, avg_len)
                 if verbose > 0:
-                    print("\tNoisy data, applying low pass filter strength={}".format(avg_len))
-
+                    print("\tNoisy data, applying low pass filter strength={}, f0={}".format(avg_len, cent_freq))
+            else:
+                break
         #perform post-processing
         self._calc_sumdif()
         self._param_est()
-
         self.envelope = None
         self.envelope_asym = None
         self.asym_lowpass = DEF_LOW_SCALE
         self.peaks_arr = None
         self.f0 = self.freqs[self.f0_ind]
+        self.t0_ind = np.argmax(self.v_abs)
 
     def get_envelope(self):
         if self.envelope is not None:
             return self.envelope
-        t0_ind = np.argmax(self.v_abs)
         #take the inverse fourier transform and shift to the peak of the pulse
         full_fft = np.pad(self.mags, (0, self.mags.shape[0]-2))
-        self.envelope = np.abs( np.roll(fft.ifft(np.roll(full_fft, -self.f0_ind)), t0_ind) )
+        self.envelope = np.abs( np.roll(fft.ifft(np.roll(full_fft, -self.f0_ind)), self.t0_ind) )
         return self.envelope
 
     def get_envelope_asym(self, lowpass_scale=DEF_LOW_SCALE):
@@ -217,7 +249,7 @@ class signal:
         if lowpass_scale > 0:
             env_fft = env_fft*np.sinc((self.freqs-self.freqs[self.f0_ind])*lowpass_scale)
         env = fft.irfft(env_fft)
-        #return np.roll(env, self.t0_ind)
+        return np.roll(env, self.t0_ind)
         
         #we start off with a reasonable guess for the index that we should shift the envelope by. Then we calculate the response between the envelope and actual data in points near this region. Continue until we reach half of the peak maximum. I found that this guess isn't great, so we calculate the convolution between the envelope and the peaks and shift in time correspondingly.
         guess_ind = int( -(np.angle(env_fft[2]) - np.angle(env_fft[0]))/((self.freqs[2] - self.freqs[0])*2*np.pi*self.dt) ) if len(env_fft) > 2 else 0
@@ -260,7 +292,7 @@ class signal:
         '''
         if self.peaks_arr is not None:
             return self.peaks_arr
-        ns = np.abs( self.get_envelope() )
+        ns = self.get_envelope()
         #now that we have an envolope, find its maxima
         pulse_peaks = ssig.argrelmax(self.v_abs)[0]
         env_peaks = ssig.argrelmax(ns, order=4)[0]
@@ -338,6 +370,7 @@ class signal:
         #save time domain
         axs[1].plot(self.t_pts, self.v_pts, color='black', label='simulated data')
         axs[1].plot(self.t_pts, env, color='teal', label='envelope')
+        axs[1].plot(self.t_pts, self.get_envelope(), color='red', label='envelope')
         axs[1].axvline(peak_t, color='teal', linestyle=':')
         axs[1].plot(self.t_pts, res.x[0]*env*np.cos(res.x[1]*(self.t_pts-peak_t)+res.x[2]), color='orange', label='extracted pulse')
 
@@ -690,7 +723,7 @@ class phase_finder:
 
         #do the signal processing to find the envelope and decompose it into a series of peaks
 
-        psig = signal(t_pts, a_pts)
+        psig = signal(t_pts, a_pts, lowpass_center=0.0)
         w0 = 2*np.pi*psig.f0
         phi = psig.phi
         peak_arr = psig.get_peaks()
