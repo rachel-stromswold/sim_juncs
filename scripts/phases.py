@@ -121,38 +121,6 @@ def fix_double_pulse_order(res):
         res.x[4] += res.x[3]*(res.x[1]-res.x[6])
     return res
 
-def _smoosh_sig_peaks(ns, env_peaks, env_props):
-    '''Given a series of peaks returned from scipy.signal.find_peaks() smoosh points together if they are close
-    '''
-    prev_w = np.sqrt(np.abs( 1/(ns[env_peaks[0]-1]-2*ns[env_peaks[0]]+ns[env_peaks[0]+1]) ))
-    i = 1
-    while i < len(env_peaks):
-        j = i
-        tot_ind = env_peaks[i-1]
-        weight = ns[env_peaks[i-1]]
-        while j < len(env_peaks):
-            this_w = np.sqrt(np.abs( 1/(ns[env_peaks[j]-1]-2*ns[env_peaks[j]]+ns[env_peaks[j]+1]) ))
-            if env_peaks[i-1] + prev_w > env_peaks[j] - this_w:
-                print("merging points {} and {} widths ({},{})".format(env_peaks[i-1], env_peaks[j], prev_w,this_w))
-                tot_ind += env_peaks[j]*ns[env_peaks[j]]
-                weight += ns[env_peaks[j]]
-                env_props['right_bases'][i-1] = env_props['right_bases'][i]
-                j += 1
-            else:
-                if j > i:
-                    env_peaks[i-1] = tot_ind / weight
-                break
-        prev_w = this_w
-        if i == j:
-            env_peaks[i] = env_peaks[j]
-            i += 1
-        else:
-            if j == len(env_peaks):
-                env_peaks[i-1] = tot_ind / weight
-            else:
-                i = j
-    return env_peaks[:i], env_props[:i]
-
 class dummy_result:
     def __init__(self, amp, omega, phi):
         self.x = np.array([amp, 1, 1, omega, phi])
@@ -293,9 +261,9 @@ class signal:
 
         #perform post-processing
         self._param_est()
-        print("\tt0_corr: {}\n\tphi_corr: {}".format(self._t0_corr, self._phi_corr))
+        if verbose > 1:
+            print("\tt0_corr: {}\n\tphi_corr: {}".format(self._t0_corr, self._phi_corr))
         self._calc_sumdif()
-        #self._param_est()
         self.envelope = None
         self.envelope_asym = None
         self.asym_lowpass = DEF_LOW_SCALE
@@ -327,7 +295,7 @@ class signal:
         #apply a lowpass filter first if requested
         if lowpass_scale > 0:
             env_fft = env_fft*np.sinc((self.freqs-self.freqs[self.f0_ind])*lowpass_scale)
-        env = -fft.irfft(env_fft)
+        env = fft.irfft(env_fft)
         if len(self.t_pts) > len(env):
             env = np.pad( env, (0,len(self.t_pts)-len(env)) )
         #return np.roll(env, self.t0_ind+int(self._t0_corr/self.dt))
@@ -402,21 +370,6 @@ class signal:
             self.peaks_arr[n, 0] = now
             self.peaks_arr[n, 2] = this_env[v]
             n += 1
-            #only add this to the array if the value isn't nan
-            '''if reg[0] > 0:
-                #self.peaks_arr[n, 1] = 1/np.sqrt(reg[0])
-                self.peaks_arr[n, 1] = self.dt*stp/np.sqrt(2)
-                self.peaks_arr[n, 0] = now
-                self.peaks_arr[n, 2] = this_env[v]
-                #self.peaks_arr[n, 3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[n:n+1]) - self.v_abs[pulse_peaks])**2)
-                n += 1
-                #check to see if this peak overlaps with the previous
-                if n > 0 and self.peaks_arr[n,0] - self.peaks_arr[n, 1] < self.peaks_arr[n-1,0] + self.peaks_arr[n-1, 1]:
-                    tot_amp = self.peaks_arr[n-1,2]+self.peaks_arr[n,2]
-                    self.peaks_arr[n-1, 0] = (self.peaks_arr[n-1,0]*self.peaks_arr[n-1,2] + self.peaks_arr[n,0]*self.peaks_arr[n,2]) / tot_amp
-                    self.peaks_arr[n-1, 1] = np.sqrt(self.peaks_arr[n-1, 1]**2 + self.peaks_arr[n, 1]**2)
-                    self.peaks_arr[n-1, 2] = tot_amp / 2
-                    n -= 1'''
         #now sort peaks by their heights descending and calculate the square errors for including each
         self.peaks_arr.resize((n,4))
         self.peaks_arr = self.peaks_arr[np.argsort(-self.peaks_arr[:,2])]
@@ -434,79 +387,6 @@ class signal:
         samp_ls = ns[i-stp:i+stp]
         return samp_ts, samp_ls
 
-    def get_peaks_blah(self, peak_amp_thresh=0.1, width_steps=5):
-        '''Helper function for est_env_new
-        t_pts: the sampled points in time, this should have the same dimension as vs and ns
-        vs: the absolute value of the actual pulse. This WILL break if there are any negative values.
-        ns: the envelope of the pulse obtained through some signal processing
-        '''
-        if self.peaks_arr is not None:
-            return self.peaks_arr
-        ns = self.get_envelope()
-        #now that we have an envolope, find its maxima
-        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
-        #env_peaks = ssig.argrelmax(ns, order=4)[0]
-        max_peak = np.max(ns)
-        env_peaks,env_props = ssig.find_peaks(ns, prominence=max_peak*0.01)
-        #max_peak = np.max(ns.take(env_peaks))
-        #return a single default peak if no extrema were found to prevent out of bounds errors
-        if len(pulse_peaks) == 0 or len(env_peaks) == 0:
-            return np.array([[0, 1, 1]])
-        
-        #an array of peaks. The columns are time, width, amplitude, and the residual error. The error is cumulative i.e. The pulse incorporates all peaks before the current one and computes the square error.
-        self.peaks_arr = np.zeros((len(env_peaks),4))
-        n = 0
-        for i, v in enumerate(env_peaks):
-            if v >= len(self.t_pts):
-                break
-            now = self.t_pts[v]
-            #find the nearest maxima in the actual pulse. The envelopes aren't great at getting amplitudes, but they are useful for widths and centers.
-            p_ind = 0
-            closest_sep = self.t_pts[-1] - self.t_pts[0]
-            for p in pulse_peaks:
-                sep = abs(self.t_pts[p] - now)
-                if sep < closest_sep:
-                    p_ind = p
-                    closest_sep = sep
-                else:
-                    break
-            if self.v_abs[p_ind] > peak_amp_thresh*max_peak:
-                #make sure that we're inside the array but we take at least one step
-                '''stp = max(min(min(width_steps, v), len(self.t_pts)-v-1), 1) 
-                #do a quadratic fit to get a guess of the Gaussian width
-                samp_ts = self.t_pts[v-stp:v+stp] - self.t_pts[v]
-                samp_ls = np.log(max_peak)-np.log(ns[v-stp:v+stp])'''
-                stp = min(v-env_props['left_bases'][i], env_props['right_bases'][i]-v)//4
-                if stp <= 0:
-                    continue
-                samp_ts, samp_ls = self._get_region(ns, v, stp)
-                reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, np.log(max_peak)-np.log(samp_ls))
-                this_w = 1/np.sqrt(reg[0])
-                #check to see if this peak overlaps with the previous
-                '''if n > 0 and self.peaks_arr[n,0] - this_w < self.peaks_arr[n-1,0] + self.peaks_arr[n-1, 1]:
-                    tot_amp = self.peaks_arr[n-1,2]+self.peaks_arr[n,2]
-                    now = (self.peaks_arr[n-1,0]*self.peaks_arr[n-1,2] + self.peaks_arr[n,0]*self.peaks_arr[n,2]) / tot_amp
-                    width = (this_w + self.peaks_arr[n-1, 1])/2 + self.peaks_arr[n,0] - self.peaks_arr[n-1,0]
-                    samp_ts, samp_ls = self._get_region(ns, v, int(width/self.dt))
-                    reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, np.log(max_peak)-np.log(samp_ls))
-                    this_w = 1/np.sqrt(reg[0])
-                    n -= 1'''
-                #only add this to the array if the value isn't nan
-                if not np.isnan(this_w):
-                    self.peaks_arr[n, 0] = now
-                    self.peaks_arr[n, 1] = this_w
-                    self.peaks_arr[n, 2] = self.v_abs[p_ind]
-                    #self.peaks_arr[n, 3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[n:n+1]) - self.v_abs[pulse_peaks])**2)
-                    n += 1
-
-        #sort peaks by intensity
-        self.peaks_arr.resize((n,4))
-        self.peaks_arr = self.peaks_arr[(-self.peaks_arr)[:, 2].argsort()]
-        #self.peaks_arr = self.peaks_arr[(self.peaks_arr)[:, 3].argsort()]
-        for i in range(len(self.peaks_arr)):
-            self.peaks_arr[i,3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - self.v_abs[pulse_peaks])**2)
-        return self.peaks_arr
-
     def get_peaks(self, peak_amp_thresh=0.1, width_steps=5):
         '''Helper function for est_env_new
         t_pts: the sampled points in time, this should have the same dimension as vs and ns
@@ -523,8 +403,6 @@ class signal:
         #return a single default peak if no extrema were found to prevent out of bounds errors
         if len(pulse_peaks) == 0 or len(env_peaks) == 0:
             return np.array([[0, 1, 1]])
-
-        #env_peaks, env_props = _smoosh_sig_peaks(ns, env_peaks, env_props)
         
         #an array of peaks. The columns are time, width, amplitude, and the residual error. The error is cumulative i.e. The pulse incorporates all peaks before the current one and computes the square error.
         self.peaks_arr = np.zeros((len(env_peaks),4))
@@ -1010,20 +888,6 @@ class phase_finder:
         else:
             guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1]])
             res, low_t, hi_t, init_fun = self.opt_pulse(t_pts, a_pts, guess_x, w0, phi)
-
-        #in the event that fitting failed, try fitting just the extracted peaks
-        '''if not res.success:
-            if used_double:
-                env = peaks_to_pulse(t_pts, peak_arr[:2])
-            else:
-                env = peaks_to_pulse(t_pts, peak_arr[:1])
-            ph_res = psig.opt_phase(env, peak_arr[0,0])
-            res.x[0] = peak_arr[0,2]*ph_res.x[0]
-            res.x[1] = peak_arr[0,0]
-            res.x[2] = peak_arr[0,1]
-            res.x[3] = ph_res.x[1]
-            res.x[4] = ph_res.x[2]
-            res.fun = ph_res.fun'''
 
         if verbose > 0:
             print("\tenvelope type={}".format("double" if used_double else "single"))
