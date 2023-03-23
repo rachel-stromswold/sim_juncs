@@ -32,11 +32,13 @@ parser.add_argument('--fname', type=str, help='h5 file to read', default='field_
 parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
 parser.add_argument('--recompute', action='store_true', help='If set, then phase estimation is recomputed. Otherwise, information is read from files saved in <prefix>', default=False)
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
+parser.add_argument('--skip-time-fits', action='store_true', help='If set, then no phase fitting in the time domain is performed after extracting information from frequency space.', default=False)
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
 parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)
 parser.add_argument('--lowpass', type=float, help='If optimizations fail, then the phase finder tries them again after applying a lowpass filter to the timeseries. This parameter specifies the strength of the lowpass filter. If this script is crashing, then try increasing this parameter.', default=1.0)
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
+parser.add_argument('--point', type=str, help='if specified (as a comma separated tuple where the first index is the cluster number and the second is the point index) make a plot of fit parameters for a single point', default='')
 parser.add_argument('--slice-dir', type=str, help='prefix to use when opening files', default='x')
 args = parser.parse_args()
 
@@ -328,6 +330,7 @@ def plot_average_phase(pf, n_groups=-1):
     cl_amp = []
     cl_phs = []
     cl_ampr = []
+    cl_skew = []
     cl_err = []
     wg = waveguide_est(args.gap_width, args.gap_thick, pf)
     for clust in pf.clust_names:
@@ -337,11 +340,13 @@ def plot_average_phase(pf, n_groups=-1):
         cl_amp.append(cr.get_amp())
         cl_phs.append(cr.get_phase())
         cl_ampr.append(cr.get_amp_ref())
+        cl_skew.append(cr.get_skew())
         cl_err.append(cr.get_err_sq())
     cl_xs = np.array(cl_xs)
     cl_amp = np.array(cl_amp)
     cl_phs = np.array(cl_phs)
     cl_ampr = np.array(cl_ampr)
+    cl_skew = np.array(cl_skew)
     cl_err = np.array(cl_err)
 
     #figure out the extent in the x and z directions
@@ -362,9 +367,14 @@ def plot_average_phase(pf, n_groups=-1):
         make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap)
         heat_fig.savefig(args.prefix+"/heatmap_grp{}.pdf".format(i))
         plt.close(heat_fig)
+        #plot skews
+        heat_fig, heat_ax = plt.subplots(1,2, gridspec_kw={'width_ratios':[24,1]})
+        make_heatmap(heat_fig, heat_ax, cl_skew[i*grp_len:(i+1)*grp_len], "Skews", "fit error (arb. units)", cmap='Reds')
+        heat_fig.savefig(args.prefix+"/heatmap_skew_grp{}.pdf".format(i))
+        plt.close(heat_fig)
         #plot errors
         heat_fig, heat_ax = plt.subplots(1,2, gridspec_kw={'width_ratios':[24,1]})
-        make_heatmap(heat_fig, heat_ax, cl_err[i*grp_len:(i+1)*grp_len], "Square errors", "fit error (arb. units)", rng=[0,1])
+        make_heatmap(heat_fig, heat_ax, cl_err[i*grp_len:(i+1)*grp_len], "Square errors", "fit error (arb. units)")
         heat_fig.savefig(args.prefix+"/heatmap_err_grp{}.pdf".format(i))
         plt.close(heat_fig)
         #plot reflected phases
@@ -401,6 +411,21 @@ def plot_average_phase(pf, n_groups=-1):
         avg_ax[1].scatter(cl_xs[0], tot_amp[i])
     avg_fig.savefig(args.prefix+"/avgs.pdf")
 
-pf = phases.phase_finder(args.fname, args.gap_width, args.gap_thick, prefix=args.prefix, pass_alpha=args.lowpass)
-make_fits(pf, n_groups=args.n_groups, recompute=args.recompute)
-plot_average_phase(pf, n_groups=args.n_groups)
+pf = phases.phase_finder(args.fname, prefix=args.prefix, pass_alpha=args.lowpass, keep_n=-1, skip_fits=args.skip_time_fits)
+if args.point == '':
+    make_fits(pf, n_groups=args.n_groups, recompute=args.recompute)
+    plot_average_phase(pf, n_groups=args.n_groups)
+else:
+    point_arr = args.point.split(",")
+    clust = "cluster_"+point_arr[0]
+    j = int(point_arr[1])
+    #setup the plots
+    fig_name = "{}/fit_{}_{}".format(pf.prefix,clust,j)
+    raw_fig, raw_ax = plt.subplots(2)
+    fin_fig = plt.figure()
+    fin_ax = fin_fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    v_pts, err_2 = pf.get_point_times(clust, j, low_pass=False)
+    res,skew = pf.opt_pulse_full(pf.t_pts, np.real(v_pts), err_2, fig_name=fig_name, raw_ax=raw_ax, final_ax=fin_ax)
+    raw_fig.savefig("{}/fit_{}_{}_raw.svg".format(args.prefix, clust, j))
+    fin_fig.savefig("{}/fit_{}_{}.svg".format(args.prefix, clust, j))
+    print("\tskew:", skew)
