@@ -25,7 +25,7 @@ verbose = 4
 
 #The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
 HIGHEST_MODE=3
-MAX_PARAM_EVALS=0
+MAX_PARAM_EVALS=1
 
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
@@ -176,11 +176,15 @@ class signal:
             self.t0_ind -= int(self._t0_corr/self.dt)
             #self._param_est(n_evals=n_evals+1)
 
-    def _calc_sumdif(self):
+    def _calc_sumdif(self, f0=-1):
         '''return the sum and difference series expanded about the peak in frequency space.'''
-        freq_range = self._get_freq_fwhm()
-        mid = self.f0_ind
-        #mid = (freq_range[0] + freq_range[1])//2
+        if f0 < 0:
+            #freq_range = self._get_freq_fwhm()
+            #mid = (freq_range[0] + freq_range[1])//2
+            #mid = self.f0_ind
+            mid = self.f0_ind
+        else:
+            mid = min( len(self.freqs)-1, int(f0/(self.freqs[1]-self.freqs[0])) )
         drange = min(mid, len(self.freqs)//2 - mid-1)
         self.dif_ser = (self.vf[mid:mid+drange] - self.vf[mid:mid-drange:-1])
         self.sum_ser = (self.vf[mid:mid+drange] + self.vf[mid:mid-drange:-1])
@@ -263,10 +267,10 @@ class signal:
         self._param_est()
         if verbose > 1:
             print("\tt0_corr: {}\n\tphi_corr: {}".format(self._t0_corr, self._phi_corr))
-        self._calc_sumdif()
         self.envelope = None
         self.envelope_asym = None
         self.asym_lowpass = DEF_LOW_SCALE
+        self.asym_f0 = None
         self.peaks_arr = None
         self.f0 = self.freqs[self.f0_ind]
         self.t0_ind = np.argmax(self.v_abs)
@@ -282,60 +286,31 @@ class signal:
             self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
         return self.envelope
 
-    def get_envelope_asym(self, lowpass_scale=DEF_LOW_SCALE):
+    def get_envelope_asym(self, f0=-1):
         '''Get the envelope of the packet under the assumption that said envelope is not purely even nor purely odd.'''
-        if self.envelope_asym is not None and self.asym_lowpass == lowpass_scale:
+        if self.envelope_asym is not None and self.asym_f0 is not None and self.asym_f0 == f0:
             return self.envelope_asym
-        self.asym_lowpass = lowpass_scale
+        if self.asym_f0 is None or f0 != self.asym_f0:
+            self._calc_sumdif(f0=f0)
         #use some math to figure out the real and imaginary parts of the envelope Fourier transform.
         plt_fs = self.freqs[0:len(self.dif_ser)]
-        re_env = np.abs(self.sum_ser)*np.cos(2*np.pi*plt_fs*self._t0_corr) - np.abs(self.dif_ser)*np.sin(2*np.pi*plt_fs*self._t0_corr)
-        im_env = np.abs(self.sum_ser)*np.sin(2*np.pi*plt_fs*self._t0_corr) + np.abs(self.dif_ser)*np.cos(2*np.pi*plt_fs*self._t0_corr)
-        env_fft = np.pad((re_env - 1j*im_env), (0, self.vf.shape[0]-re_env.shape[0]))
-        #apply a lowpass filter first if requested
-        if lowpass_scale > 0:
-            env_fft = env_fft*np.sinc((self.freqs-self.freqs[self.f0_ind])*lowpass_scale)
-        env = fft.irfft(env_fft)
-        if len(self.t_pts) > len(env):
-            env = np.pad( env, (0,len(self.t_pts)-len(env)) )
-        #return np.roll(env, self.t0_ind+int(self._t0_corr/self.dt))
-        
-        #we start off with a reasonable guess for the index that we should shift the envelope by. Then we calculate the response between the envelope and actual data in points near this region. Continue until we reach half of the peak maximum. I found that this guess isn't great, so we calculate the convolution between the envelope and the peaks and shift in time correspondingly.
-        guess_ind = int( -(np.angle(env_fft[2]) - np.angle(env_fft[0]))/((self.freqs[2] - self.freqs[0])*2*np.pi*self.dt) ) if len(env_fft) > 2 else 0
-        #only the peaks in the pulse are relevant for fitting the envelope
-        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
-        def calc_response(ii):
-            ret = 0.0
-            for t_ind in pulse_peaks:
-                #prevent out of bounds errors
-                if np.abs(t_ind-ii) >= env.shape[0]:
-                    break
-                ret += self.v_abs[t_ind]*np.abs(env[t_ind-ii])
-            return ret
+        c_ser = np.cos(2*np.pi*plt_fs*self._t0_corr)
+        s_ser = np.sin(2*np.pi*plt_fs*self._t0_corr)        
+        rec_env = np.real(sig.sum_ser)*c_ser - np.imag(sig.dif_ser)*s_ser
+        imc_env = np.real(sig.sum_ser)*s_ser + np.imag(sig.dif_ser)*c_ser
+        res_env = np.imag(sig.sum_ser)*c_ser + np.real(sig.dif_ser)*s_ser
+        ims_env = np.imag(sig.sum_ser)*s_ser - np.real(sig.dif_ser)*c_ser
+        #compute the magnitude and the angle of the fourier transform of the envelope. if there are any nans just set them to zero
+        mag_env = np.sqrt( rec_env**2 + res_env**2 + imc_env**2 + ims_env**2 )
+        ang_env = np.arctan(imc_env/rec_env)
+        ang_env[np.isnan(ang_env)] = 0
+        shift_fact = np.exp( 1j*(ang_env-2*np.pi*plt_fs*(sig.t_pts[sig.t0_ind])) )
+        env_fft = np.pad(mag_env*shift_fact, (0, sig.vf.shape[0]-mag_env.shape[0]))
+        return fft.irfft(env_fft)
 
-        best_ind = guess_ind
-        best_res = calc_response(guess_ind)
-        for j in range(1, self.t_pts.shape[0]-guess_ind-1):
-            p_res = calc_response(guess_ind+j)
-            m_res = calc_response(guess_ind-j)
-            if p_res > best_res:
-                best_res = p_res
-                best_ind = guess_ind+j
-            if m_res > best_res:
-                best_res = m_res
-                best_ind = guess_ind-j
-            if p_res < best_res/2 and m_res < best_res/2:
-                break
-        env = np.roll(env, best_ind)
-        if env.shape[0] < self.t_pts.shape[0]:
-            env = np.pad(env, (0, self.t_pts.shape[0] - env.shape[0]))
-        else:
-            env = np.resize(env, self.t_pts.shape[0])
-        return env
-
-    def get_skewness(self, lowpass_scale=DEF_LOW_SCALE):
+    def get_skewness(self):
         #get the asymmetric envelope and normalize
-        env = np.abs( self.get_envelope_asym(lowpass_scale=lowpass_scale) )
+        env = np.abs( self.get_envelope_asym() )
         norm = np.trapz(env)
         env = env / norm
         #Calculate mu and sigma. Use these to get the skewness
@@ -346,7 +321,7 @@ class signal:
     def get_peaks_new(self, peak_amp_thresh=0.1):
         if self.peaks_arr is not None:
             return self.peaks_arr
-        this_env = self.get_envelope_asym(lowpass_scale=1.0)
+        this_env = self.get_envelope_asym()
         max_peak = np.max(this_env)
         pulse_peaks = ssig.argrelmax(self.v_abs)[0]
         env_peaks,env_props = ssig.find_peaks(this_env, prominence=max_peak*0.1)
