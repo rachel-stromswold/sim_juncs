@@ -426,6 +426,8 @@ else:
     fin_ax = fin_fig.add_axes([0.1, 0.1, 0.8, 0.8])
     v_pts, err_2 = pf.get_point_times(clust, j, low_pass=False)
     res,skew = pf.opt_pulse_full(pf.t_pts, np.real(v_pts), err_2, fig_name=fig_name, raw_ax=raw_ax, final_ax=fin_ax)
+    psig = phases.signal(pf.t_pts, v_pts)
+    psig.sample_params(err_2)
     raw_fig.savefig("{}/fit_{}_{}_raw.svg".format(args.prefix, clust, j))
     fin_fig.savefig("{}/fit_{}_{}.svg".format(args.prefix, clust, j))
     print("\tskew:", skew)

@@ -1818,8 +1818,20 @@ parse_ercode context::read_from_lines(line_buffer b) {
 		    } else if (line[i] == '[') {
 			match_tok = ']';
 		    } else if (line[i] == '{') {
-			match_tok = '}';
-			sep_tok = ';';
+			/*match_tok = '}';
+			sep_tok = ';';*/
+			//curly braces (specifying contexts) are a special case
+			long tmp = lineno;
+			line_buffer lines_enc(b.get_enclosed(lineno, &tmp, line[i], match_tok, i, true));
+			if (tmp < 0) { free(buf);return E_BAD_SYNTAX; }
+			lineno = (size_t)tmp;
+			value tmp_val;
+			tmp_val.type = VAL_INST;
+			tmp_val.val.c = new context(this);
+			tmp_val.val.c->read_from_lines(lines_enc);
+			emplace(CGS_trim_whitespace(buf, NULL), tmp_val);
+			cleanup_val(&tmp_val);
+			break;
 		    }
 		    if (match_tok != 0 && i > rval_start) {
 			long tmp = lineno;
@@ -1915,7 +1927,7 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
 	for (size_t i = 0; i < call_sig.n_args; ++i) {
 	    func_scope.emplace(call_sig.arg_names[i], call.args[i]);
 	}
-	size_t lineno = 0
+	size_t lineno = 0;
     } else {
 	er = E_LACK_TOKENS;
     }

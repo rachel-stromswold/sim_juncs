@@ -13,6 +13,10 @@ import os.path
 import matplotlib
 import matplotlib.pyplot as plt
 
+import emcee
+import corner
+from multiprocessing import Pool
+
 EPSILON = 0.125
 H_EPSILON = EPSILON/2
 AMP_CUTOFF = 0.025
@@ -174,7 +178,7 @@ class signal:
             tmp_vf = 2*fft.rfft( np.roll(self.v_pts, -self.t0_ind) )
             self._apply_lowpass(tmp_vf, self._last_cent_f, self._low_stren)
             self.t0_ind -= int(self._t0_corr/self.dt)
-            #self._param_est(n_evals=n_evals+1)
+            self._param_est(n_evals=n_evals+1)
 
     def _calc_sumdif(self, f0=-1):
         '''return the sum and difference series expanded about the peak in frequency space.'''
@@ -286,27 +290,71 @@ class signal:
             self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
         return self.envelope
 
-    def get_envelope_asym(self, f0=-1):
+    def get_envelope_asym(self, t0=-1, f0=-1):
         '''Get the envelope of the packet under the assumption that said envelope is not purely even nor purely odd.'''
         if self.envelope_asym is not None and self.asym_f0 is not None and self.asym_f0 == f0:
             return self.envelope_asym
         if self.asym_f0 is None or f0 != self.asym_f0:
             self._calc_sumdif(f0=f0)
+        if t0 < 0:
+            t0 = self._t0_corr
+        t_shift = self.t_pts[self.t0_ind]-self._t0_corr
         #use some math to figure out the real and imaginary parts of the envelope Fourier transform.
         plt_fs = self.freqs[0:len(self.dif_ser)]
-        c_ser = np.cos(2*np.pi*plt_fs*self._t0_corr)
-        s_ser = np.sin(2*np.pi*plt_fs*self._t0_corr)        
-        rec_env = np.real(sig.sum_ser)*c_ser - np.imag(sig.dif_ser)*s_ser
-        imc_env = np.real(sig.sum_ser)*s_ser + np.imag(sig.dif_ser)*c_ser
-        res_env = np.imag(sig.sum_ser)*c_ser + np.real(sig.dif_ser)*s_ser
-        ims_env = np.imag(sig.sum_ser)*s_ser - np.real(sig.dif_ser)*c_ser
+        c_ser = np.cos(2*np.pi*plt_fs*t0)
+        s_ser = np.sin(2*np.pi*plt_fs*t0)        
+        rec_env = np.real(self.sum_ser)*c_ser - np.imag(self.dif_ser)*s_ser
+        imc_env = np.real(self.sum_ser)*s_ser + np.imag(self.dif_ser)*c_ser
+        res_env = np.imag(self.sum_ser)*c_ser + np.real(self.dif_ser)*s_ser
+        ims_env = np.imag(self.sum_ser)*s_ser - np.real(self.dif_ser)*c_ser
         #compute the magnitude and the angle of the fourier transform of the envelope. if there are any nans just set them to zero
         mag_env = np.sqrt( rec_env**2 + res_env**2 + imc_env**2 + ims_env**2 )
         ang_env = np.arctan(imc_env/rec_env)
         ang_env[np.isnan(ang_env)] = 0
-        shift_fact = np.exp( 1j*(ang_env-2*np.pi*plt_fs*(sig.t_pts[sig.t0_ind])) )
-        env_fft = np.pad(mag_env*shift_fact, (0, sig.vf.shape[0]-mag_env.shape[0]))
+        shift_fact = np.exp( 1j*(ang_env-2*np.pi*plt_fs*t_shift) )
+        env_fft = np.pad(mag_env*shift_fact, (0, self.vf.shape[0]-mag_env.shape[0]))
         return fft.irfft(env_fft)
+
+    def sample_params(self, verr, countour_fname=''):
+        '''Use MCMC sampling near the estimated parameters t0 shift, t0 correction, central frequency, and phase'''
+        theta_0 = np.array([self._t0_corr, self.f0, self._phi_corr])
+        t0_span = 0.5/self.f0
+        print(t0_span)
+        t0_range = [self._t0_corr-t0_span, self._t0_corr+t0_span]
+        t_peaks = ssig.argrelmax(self.v_pts)[0]
+        def log_prior(t_0, omega_0, phi):
+            if t0_range[0] < t_0 < t0_range[1] and 0.0 < omega_0 < 2*np.pi*self.f0 and -np.pi < phi < np.pi:
+                return 0.0
+            return -np.inf
+        def log_prob(theta, ts, vs, er):
+            env = self.get_envelope_asym(t0=theta[0], f0=theta[1])
+            #get parameters and the prior distribution
+            t_0 = theta[0]
+            omega_0 = 2*np.pi*theta[1]
+            phi = theta[2]
+            lp = log_prior(t_0, omega_0, phi)
+            if not np.isfinite(lp):
+                return -np.inf
+            #actually compute the log likelihood
+            return lp - (0.5/er**2)*np.sum( (env*np.cos(omega_0*(ts - t_0) + phi) - vs)**2 )
+        pos = np.random.normal(theta_0, [t0_span/2, self.f0/4, np.pi/2], size=(32, 3))
+        nwalkers, ndim = pos.shape
+        with Pool() as pool:
+            sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, args=(self.t_pts, self.v_pts, verr))
+            sampler.run_mcmc(pos, 2000, progress=True)
+        flat_samples = sampler.get_chain(discard=200, thin=20, flat=True)
+        if countour_fname != ''
+            fig = corner.corner(flat_samples, labels=["t0", "f0", "phi"], truths=theta_0)
+            fig.savefig(countour_fname)
+        #find mean and one standard deviation from mcmc samples
+        theta_f = np.zeros((ndim, 3))
+        for i in range(ndim):
+            percs = np.percentile(flat_samples[:,i], [16, 50, 84])
+            q = np.diff(percs)
+            theta_f[i, 0] = percs[1]
+            theta_f[i, 1] = q[0]
+            theta_f[i, 2] = q[1]
+        return theta_f
 
     def get_skewness(self):
         #get the asymmetric envelope and normalize
@@ -442,8 +490,7 @@ class signal:
     def make_raw_plt(self, axs):
         #get the envelope and perform a fitting
         env = self.get_envelope_asym()
-        peak_t = np.argmax(env)*self.dt
-        res = self.opt_phase(env, peak_t)
+        peak_t = self.t_pts[self.t0_ind] - self._t0_corr
         axs[0].set_title("Frequency space representation of a simulated pulse")
         # Add the magnitude 
         axs[0].set_xlabel('frequency (1/fs)') 
@@ -464,10 +511,10 @@ class signal:
         ax2.plot(self.freqs, np.angle(self.vf), color='green')
         #save time domain
         axs[1].plot(self.t_pts, self.v_pts, color='black', label='simulated data')
-        axs[1].plot(self.t_pts, res.x[0]*env, color='teal', label='envelope')
+        axs[1].plot(self.t_pts, env, color='teal', label='envelope')
         axs[1].plot(self.t_pts, self.get_envelope(), color='red', label='envelope')
         axs[1].axvline(peak_t, color='teal', linestyle=':')
-        axs[1].plot(self.t_pts, res.x[0]*env*np.cos(res.x[1]*(self.t_pts-peak_t)+res.x[2]), color='orange', label='extracted pulse')
+        axs[1].plot(self.t_pts, env*np.cos(2*np.pi*self.f0*(self.t_pts-peak_t)+self._phi_corr), color='orange', label='extracted pulse')
 
     def make_fit_plt(self, ax):
         #extract gaussian peaks
