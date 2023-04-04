@@ -32,7 +32,7 @@ parser.add_argument('--fname', type=str, help='h5 file to read', default='field_
 parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
 parser.add_argument('--recompute', action='store_true', help='If set, then phase estimation is recomputed. Otherwise, information is read from files saved in <prefix>', default=False)
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
-parser.add_argument('--skip-time-fits', action='store_true', help='If set, then no phase fitting in the time domain is performed after extracting information from frequency space.', default=False)
+parser.add_argument('--do-time-fits', action='store_true', help='If set, then an additional post processing step is performed. This post processing applies phase fitting in the time domain after extracting parameters from the frequency domain. This can produce smoother looking figures, but tends to break in extremal cases.', default=False)
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
 parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)
@@ -369,7 +369,7 @@ def plot_average_phase(pf, n_groups=-1):
         plt.close(heat_fig)
         #plot skews
         heat_fig, heat_ax = plt.subplots(1,2, gridspec_kw={'width_ratios':[24,1]})
-        make_heatmap(heat_fig, heat_ax, cl_skew[i*grp_len:(i+1)*grp_len], "Skews", "fit error (arb. units)", cmap='Reds')
+        make_heatmap(heat_fig, heat_ax, cl_skew[i*grp_len:(i+1)*grp_len], "Skews", "skewness", cmap='Reds')
         heat_fig.savefig(args.prefix+"/heatmap_skew_grp{}.pdf".format(i))
         plt.close(heat_fig)
         #plot errors
@@ -411,7 +411,7 @@ def plot_average_phase(pf, n_groups=-1):
         avg_ax[1].scatter(cl_xs[0], tot_amp[i])
     avg_fig.savefig(args.prefix+"/avgs.pdf")
 
-pf = phases.phase_finder(args.fname, prefix=args.prefix, pass_alpha=args.lowpass, keep_n=-1, skip_fits=args.skip_time_fits)
+pf = phases.phase_finder(args.fname, prefix=args.prefix, pass_alpha=args.lowpass, keep_n=-1, do_time_fits=args.do_time_fits)
 if args.point == '':
     make_fits(pf, n_groups=args.n_groups, recompute=args.recompute)
     plot_average_phase(pf, n_groups=args.n_groups)

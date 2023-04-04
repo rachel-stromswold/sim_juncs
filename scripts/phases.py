@@ -25,7 +25,7 @@ verbose = 4
 
 #The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
 HIGHEST_MODE=3
-MAX_PARAM_EVALS=0
+MAX_PARAM_EVALS=1
 
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
@@ -295,7 +295,6 @@ class signal:
             self.asym_f0 = f0
         if t0 < 0:
             t0 = self._t0_corr
-        t_shift = self.t_pts[self.t0_ind]-self._t0_corr
         #use some math to figure out the real and imaginary parts of the envelope Fourier transform.
         plt_fs = self.freqs[0:len(self.dif_ser)]
         c_ser = np.cos(2*np.pi*plt_fs*t0)
@@ -308,7 +307,7 @@ class signal:
         mag_env = np.sqrt( rec_env**2 + res_env**2 + imc_env**2 + ims_env**2 )
         ang_env = np.arctan(imc_env/rec_env)
         ang_env[np.isnan(ang_env)] = 0
-        shift_fact = np.exp( 1j*(ang_env-2*np.pi*plt_fs*t_shift) )
+        shift_fact = np.exp( 1j*(ang_env-2*np.pi*plt_fs*self.t_pts[self.t0_ind]) )
         env_fft = np.pad(mag_env*shift_fact, (0, self.vf.shape[0]-mag_env.shape[0]))
         return fft.irfft(env_fft)/2
 
@@ -346,6 +345,64 @@ class signal:
         _,env_w,_ = self.get_sig(env=env/(np.trapz(env)*self.dt))
         dum = dummy_result(env_amp, self.f0, self._phi_corr, t0=self._t0_corr+self.t_pts[self.t0_ind], w=env_w)
         return dum
+
+    def get_peaks(self, peak_amp_thresh=0.1, width_steps=5):
+        '''Helper function for est_env_new
+        t_pts: the sampled points in time, this should have the same dimension as vs and ns
+        vs: the absolute value of the actual pulse. This WILL break if there are any negative values.
+        ns: the envelope of the pulse obtained through some signal processing
+        '''
+        if self.peaks_arr is not None:
+            return self.peaks_arr
+        ns = self.get_envelope()
+        #now that we have an envolope, find its maxima
+        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
+        max_peak = np.max(ns)
+        env_peaks,env_props = ssig.find_peaks(ns, prominence=max_peak*0.05)
+        #return a single default peak if no extrema were found to prevent out of bounds errors
+        if len(pulse_peaks) == 0 or len(env_peaks) == 0:
+            return np.array([[0, 1, 1]])
+        
+        #an array of peaks. The columns are time, width, amplitude, and the residual error. The error is cumulative i.e. The pulse incorporates all peaks before the current one and computes the square error.
+        self.peaks_arr = np.zeros((len(env_peaks),4))
+        n = 0
+        for i, v in enumerate(env_peaks):
+            if v >= len(self.t_pts):
+                break
+            now = self.t_pts[v]
+            #find the nearest maxima in the actual pulse. The envelopes aren't great at getting amplitudes, but they are useful for widths and centers.
+            p_ind = 0
+            closest_sep = self.t_pts[-1] - self.t_pts[0]
+            for p in pulse_peaks:
+                sep = abs(self.t_pts[p] - now)
+                if sep < closest_sep:
+                    p_ind = p
+                    closest_sep = sep
+                else:
+                    break
+            if self.v_abs[p_ind] > peak_amp_thresh*max_peak:
+                #make sure that we're inside the array but we take at least one step
+                stp = min(v-env_props['left_bases'][i], env_props['right_bases'][i]-v)//4
+                if stp <= 0:
+                    continue
+                samp_ts, samp_ls = self._get_region(ns, v, stp)
+                reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, np.log(max_peak)-np.log(samp_ls))
+                this_w = 1/np.sqrt(reg[0])
+                #only add this to the array if the value isn't nan
+                if not np.isnan(this_w):
+                    self.peaks_arr[n, 0] = now
+                    self.peaks_arr[n, 1] = this_w
+                    self.peaks_arr[n, 2] = self.v_abs[p_ind]
+                    #self.peaks_arr[n, 3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[n:n+1]) - self.v_abs[pulse_peaks])**2)
+                    n += 1
+
+        #sort peaks by intensity
+        self.peaks_arr.resize((n,4))
+        self.peaks_arr = self.peaks_arr[(-self.peaks_arr)[:, 2].argsort()]
+        #self.peaks_arr = self.peaks_arr[(self.peaks_arr)[:, 3].argsort()]
+        for i in range(len(self.peaks_arr)):
+            self.peaks_arr[i,3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - self.v_abs[pulse_peaks])**2)
+        return self.peaks_arr
 
     def _get_region(self, ns, i, width_steps):
         #make sure that we're inside the array but we take at least one step
@@ -541,7 +598,7 @@ class phase_finder:
     height: the thickness of the junction
     pass_alpha: The scale of the low pass filter applied to the time series. This corresponds to taking a time average of duration 2/pass_alpha on either side
     '''
-    def __init__(self, fname, pass_alpha=1.0, slice_dir='x', prefix='.', keep_n=2.5, scan_length=5, skip_fits=False):
+    def __init__(self, fname, pass_alpha=1.0, slice_dir='x', prefix='.', keep_n=2.5, scan_length=5, do_time_fits=False):
         self.prefix = prefix
         self.slice_dir = slice_dir
         self.slice_name = 'z'
@@ -549,7 +606,7 @@ class phase_finder:
             self.slice_name = 'x'
         self.keep_n = keep_n
         self.scan_length = scan_length
-        self.skip_fits = skip_fits
+        self.do_time_fits = do_time_fits
         #open the h5 file and identify all the clusters
         self.f = h5py.File(fname, "r")
         self.clust_names = []
@@ -750,12 +807,14 @@ class phase_finder:
         #do the signal processing to find the envelope and decompose it into a series of peaks
         psig = signal(t_pts, a_pts, lowpass_inc=2.0)
         w0 = 2*np.pi*psig.f0
-        phi = psig.phi
-        if self.skip_fits:
-            print("skipping!")
-            amp = np.max(np.abs(a_pts))
-            #res = dummy_result(amp, w0, psig._phi_corr)
-            res = psig.opt_envelope_asym()
+        phi = psig._phi_corr
+        #from the envelope find the amplitude and phase
+        sig_env = psig.get_envelope_asym()
+        max_env_ind = np.argmax(sig_env)
+        amp = sig_env[max_env_ind]
+        if not self.do_time_fits:
+            #phi = fix_angle(phi + w0*psig._t0_corr)
+            res = dummy_result(amp, w0, phi)
             if fig_name != '':
                 res_name = fig_name+"_res.txt"
                 write_reses(res_name, [res])
@@ -815,7 +874,11 @@ class phase_finder:
                 final_ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
                 final_ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
 
-        return res, psig.get_skewness()
+        if not res.success:
+            amp = np.max(np.abs(psig.get_envelope_asym()))
+            res = dummy_result(amp, w0, psig._phi_corr)
+        _,_,skew,_ = psig.get_skewness()
+        return res, skew
 
     def read_cluster(self, clust, save_fit_figs=False):
         '''Read an h5 file and return three two dimensional numpy arrays of the form ([amplitudes, errors], [sigmas, errors], [phases, errors]
