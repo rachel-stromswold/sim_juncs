@@ -13,10 +13,6 @@ import os.path
 import matplotlib
 import matplotlib.pyplot as plt
 
-import emcee
-import corner
-from multiprocessing import Pool
-
 EPSILON = 0.125
 H_EPSILON = EPSILON/2
 AMP_CUTOFF = 0.025
@@ -29,7 +25,7 @@ verbose = 4
 
 #The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
 HIGHEST_MODE=3
-MAX_PARAM_EVALS=1
+MAX_PARAM_EVALS=0
 
 DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
 
@@ -177,7 +173,7 @@ class signal:
             self.t0_ind += int(self._t0_corr/self.dt)
             tmp_vf = 2*fft.rfft( np.roll(self.v_pts, -self.t0_ind) )
             self._apply_lowpass(tmp_vf, self._last_cent_f, self._low_stren)
-            self.t0_ind -= int(self._t0_corr/self.dt)
+            #self.t0_ind -= int(self._t0_corr/self.dt)
             self._param_est(n_evals=n_evals+1)
 
     def _calc_sumdif(self, f0=-1):
@@ -296,6 +292,7 @@ class signal:
             return self.envelope_asym
         if self.asym_f0 is None or f0 != self.asym_f0:
             self._calc_sumdif(f0=f0)
+            self.asym_f0 = f0
         if t0 < 0:
             t0 = self._t0_corr
         t_shift = self.t_pts[self.t0_ind]-self._t0_corr
@@ -313,39 +310,66 @@ class signal:
         ang_env[np.isnan(ang_env)] = 0
         shift_fact = np.exp( 1j*(ang_env-2*np.pi*plt_fs*t_shift) )
         env_fft = np.pad(mag_env*shift_fact, (0, self.vf.shape[0]-mag_env.shape[0]))
-        return fft.irfft(env_fft)
+        return fft.irfft(env_fft)/2
+
+    def opt_envelope_asym(self, verr=1.0):
+        x0 = np.array([self._t0_corr, 2*np.pi*self.f0, self._phi_corr])
+        def fp(x):
+            env = self.get_envelope_asym(t0=x[0], f0=x[1])
+            #actually compute the log likelihood
+            return (0.5/verr**2)*np.sum((env*np.cos(x[1]*(self.t_pts - x[0]) + x[2]) - self.v_pts)**2)
+        res = opt.minimize(fp, x0)
+        print(fp(x0), res.fun)
+        self._t0_corr = res.x[0]
+        self.f0 = res.x[1]/(2*np.pi)
+        self._phi_corr = np.sign(res.x[1])*res.x[2]
+        return res
 
     def sample_params(self, verr, countour_fname=''):
+        import emcee
+        import corner
+        from multiprocessing import Pool
         '''Use MCMC sampling near the estimated parameters t0 shift, t0 correction, central frequency, and phase'''
-        theta_0 = np.array([self._t0_corr, self.f0, self._phi_corr])
-        t0_span = 0.5/self.f0
-        print(t0_span)
-        t0_range = [self._t0_corr-t0_span, self._t0_corr+t0_span]
-        t_peaks = ssig.argrelmax(self.v_pts)[0]
-        def log_prior(t_0, omega_0, phi):
-            if t0_range[0] < t_0 < t0_range[1] and 0.0 < omega_0 < 2*np.pi*self.f0 and -np.pi < phi < np.pi:
-                return 0.0
-            return -np.inf
-        def log_prob(theta, ts, vs, er):
+        #theta is parameters for t0, f0, phi_0, and phi_s. The actual phase is assumed to be linear in choice of t0
+        freq_range = self._get_freq_fwhm()
+        f_min = freq_range[0]
+        f_max = freq_range[1]
+        theta_0 = np.array([self._t0_corr, self.f0, self._phi_corr, 2*np.pi*self.f0])
+        t0_span = 2/self.f0
+        prior_ranges = np.array([[self._t0_corr-t0_span, self._t0_corr+t0_span], [0.0, 2*self.f0], [-2*np.pi, 2*np.pi], [0.0, 4*np.pi*self.f0]])
+        t_peaks = ssig.argrelmax(np.abs(self.v_pts))[0]
+        def log_prior(theta):
+            for i, v in enumerate(theta):
+                if v < prior_ranges[i, 0] or v > prior_ranges[i, 1]:
+                    return -np.inf
+            return 0.0
+        def log_prob(theta, ts, vs, p_inds, er):
             env = self.get_envelope_asym(t0=theta[0], f0=theta[1])
             #get parameters and the prior distribution
-            t_0 = theta[0]
-            omega_0 = 2*np.pi*theta[1]
-            phi = theta[2]
-            lp = log_prior(t_0, omega_0, phi)
+            lp = log_prior(theta)
             if not np.isfinite(lp):
                 return -np.inf
+            t_0 = theta[0]
+            omega_0 = 2*np.pi*theta[1]
+            phi_0 = theta[2]
+            phi_s = theta[3]
             #actually compute the log likelihood
-            return lp - (0.5/er**2)*np.sum( (env*np.cos(omega_0*(ts - t_0) + phi) - vs)**2 )
-        pos = np.random.normal(theta_0, [t0_span/2, self.f0/4, np.pi/2], size=(32, 3))
+            return lp - (0.5/er**2)*( np.sum((env*np.cos(omega_0*(ts - t_0) + phi_0 + phi_s*t_0) - vs)**2)
+                                     + np.sum((env[p_inds] - np.abs(vs[p_inds]))**2) )
+        pos = np.random.normal(theta_0, [t0_span/2, (f_max-f_min)/2, np.pi/16, self.f0/4], size=(16, 4))
         nwalkers, ndim = pos.shape
         with Pool() as pool:
-            sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, args=(self.t_pts, self.v_pts, verr))
+            sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, args=(self.t_pts, self.v_pts, t_peaks, verr))
             sampler.run_mcmc(pos, 2000, progress=True)
         flat_samples = sampler.get_chain(discard=200, thin=20, flat=True)
-        if countour_fname != ''
-            fig = corner.corner(flat_samples, labels=["t0", "f0", "phi"], truths=theta_0)
+        for i in range(len(flat_samples)):
+            old_ang = flat_samples[i,2]
+            flat_samples[i,2] = fix_angle(old_ang)
+        if countour_fname != '':
+            fig = corner.corner(flat_samples, labels=["t0", "f0", "phi_0", "phi_s"], truths=theta_0)
             fig.savefig(countour_fname)
+            samps = sampler.get_chain()
+            chain_fig, chain_axs = plt.subplots(ndim+1)
         #find mean and one standard deviation from mcmc samples
         theta_f = np.zeros((ndim, 3))
         for i in range(ndim):
@@ -354,6 +378,16 @@ class signal:
             theta_f[i, 0] = percs[1]
             theta_f[i, 1] = q[0]
             theta_f[i, 2] = q[1]
+            chain_axs[i].axhline(y=theta_0[i])
+            chain_axs[i].plot(samps[:,:,i])
+            chain_axs[i].set_ylim(prior_ranges[i])
+            chain_axs[i].get_xaxis().set_visible(False)
+        chain_axs[-1].plot(sampler.get_log_prob())
+        chain_axs[-1].set_ylim([-10, 0])
+        chain_fig.savefig(countour_fname[:-4]+'_chains.svg')
+        self._t0_corr = theta_f[0, 0]
+        self.f0 = theta_f[1, 0]
+        self._phi_corr = theta_f[2, 0] + theta_f[3,0]*theta_f[0,0]
         return theta_f
 
     def get_skewness(self):
