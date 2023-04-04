@@ -122,8 +122,8 @@ def fix_double_pulse_order(res):
     return res
 
 class dummy_result:
-    def __init__(self, amp, omega, phi):
-        self.x = np.array([amp, 1, 1, omega, phi])
+    def __init__(self, amp, omega, phi, t0=1, w=1):
+        self.x = np.array([amp, t0, w, omega, phi])
         #todo: give these useful values
         self.fun = 0.0
         self.hess_inv = np.zeros((5,5))
@@ -312,129 +312,40 @@ class signal:
         env_fft = np.pad(mag_env*shift_fact, (0, self.vf.shape[0]-mag_env.shape[0]))
         return fft.irfft(env_fft)/2
 
-    def opt_envelope_asym(self, verr=1.0):
-        x0 = np.array([self._t0_corr, 2*np.pi*self.f0, self._phi_corr])
-        def fp(x):
-            env = self.get_envelope_asym(t0=x[0], f0=x[1])
-            #actually compute the log likelihood
-            return (0.5/verr**2)*np.sum((env*np.cos(x[1]*(self.t_pts - x[0]) + x[2]) - self.v_pts)**2)
-        res = opt.minimize(fp, x0)
-        print(fp(x0), res.fun)
-        self._t0_corr = res.x[0]
-        self.f0 = res.x[1]/(2*np.pi)
-        self._phi_corr = np.sign(res.x[1])*res.x[2]
-        return res
+    def get_mu(self, env=None):
+        if env is None:
+            env = np.abs( self.get_envelope_asym() )
+            env = env / (np.trapz(env)*self.dt)
+        mu = np.trapz(env*self.t_pts)*self.dt
+        return mu, env
 
-    def sample_params(self, verr, countour_fname=''):
-        import emcee
-        import corner
-        from multiprocessing import Pool
-        '''Use MCMC sampling near the estimated parameters t0 shift, t0 correction, central frequency, and phase'''
-        #theta is parameters for t0, f0, phi_0, and phi_s. The actual phase is assumed to be linear in choice of t0
-        freq_range = self._get_freq_fwhm()
-        f_min = freq_range[0]
-        f_max = freq_range[1]
-        theta_0 = np.array([self._t0_corr, self.f0, self._phi_corr, 2*np.pi*self.f0])
-        t0_span = 2/self.f0
-        prior_ranges = np.array([[self._t0_corr-t0_span, self._t0_corr+t0_span], [0.0, 2*self.f0], [-2*np.pi, 2*np.pi], [0.0, 4*np.pi*self.f0]])
-        t_peaks = ssig.argrelmax(np.abs(self.v_pts))[0]
-        def log_prior(theta):
-            for i, v in enumerate(theta):
-                if v < prior_ranges[i, 0] or v > prior_ranges[i, 1]:
-                    return -np.inf
-            return 0.0
-        def log_prob(theta, ts, vs, p_inds, er):
-            env = self.get_envelope_asym(t0=theta[0], f0=theta[1])
-            #get parameters and the prior distribution
-            lp = log_prior(theta)
-            if not np.isfinite(lp):
-                return -np.inf
-            t_0 = theta[0]
-            omega_0 = 2*np.pi*theta[1]
-            phi_0 = theta[2]
-            phi_s = theta[3]
-            #actually compute the log likelihood
-            return lp - (0.5/er**2)*( np.sum((env*np.cos(omega_0*(ts - t_0) + phi_0 + phi_s*t_0) - vs)**2)
-                                     + np.sum((env[p_inds] - np.abs(vs[p_inds]))**2) )
-        pos = np.random.normal(theta_0, [t0_span/2, (f_max-f_min)/2, np.pi/16, self.f0/4], size=(16, 4))
-        nwalkers, ndim = pos.shape
-        with Pool() as pool:
-            sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, args=(self.t_pts, self.v_pts, t_peaks, verr))
-            sampler.run_mcmc(pos, 2000, progress=True)
-        flat_samples = sampler.get_chain(discard=200, thin=20, flat=True)
-        for i in range(len(flat_samples)):
-            old_ang = flat_samples[i,2]
-            flat_samples[i,2] = fix_angle(old_ang)
-        if countour_fname != '':
-            fig = corner.corner(flat_samples, labels=["t0", "f0", "phi_0", "phi_s"], truths=theta_0)
-            fig.savefig(countour_fname)
-            samps = sampler.get_chain()
-            chain_fig, chain_axs = plt.subplots(ndim+1)
-        #find mean and one standard deviation from mcmc samples
-        theta_f = np.zeros((ndim, 3))
-        for i in range(ndim):
-            percs = np.percentile(flat_samples[:,i], [16, 50, 84])
-            q = np.diff(percs)
-            theta_f[i, 0] = percs[1]
-            theta_f[i, 1] = q[0]
-            theta_f[i, 2] = q[1]
-            chain_axs[i].axhline(y=theta_0[i])
-            chain_axs[i].plot(samps[:,:,i])
-            chain_axs[i].set_ylim(prior_ranges[i])
-            chain_axs[i].get_xaxis().set_visible(False)
-        chain_axs[-1].plot(sampler.get_log_prob())
-        chain_axs[-1].set_ylim([-10, 0])
-        chain_fig.savefig(countour_fname[:-4]+'_chains.svg')
-        self._t0_corr = theta_f[0, 0]
-        self.f0 = theta_f[1, 0]
-        self._phi_corr = theta_f[2, 0] + theta_f[3,0]*theta_f[0,0]
-        return theta_f
+    def get_sig(self, env=None):
+        mu, env = self.get_mu(env=env)
+        sig = np.sqrt( np.trapz(env*(self.t_pts-mu)**2)*self.dt )
+        return mu, sig, env
 
-    def get_skewness(self):
-        #get the asymmetric envelope and normalize
-        env = np.abs( self.get_envelope_asym() )
-        norm = np.trapz(env)
-        env = env / norm
+    def get_skewness(self, env=None):
         #Calculate mu and sigma. Use these to get the skewness
-        mu = np.trapz(env*self.t_pts)
-        sig = np.sqrt( np.trapz(env*(self.t_pts-mu)**2) )
-        return np.trapz(env*(self.t_pts - mu)**3)/(sig**3)
+        mu, sig, env = self.get_sig(env=env)
+        skew = np.trapz(env*(self.t_pts - mu)**3)/(sig**3)
+        return mu, sig, skew, env
 
-    def get_peaks_new(self, peak_amp_thresh=0.1):
-        if self.peaks_arr is not None:
-            return self.peaks_arr
-        this_env = self.get_envelope_asym()
-        max_peak = np.max(this_env)
-        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
-        env_peaks,env_props = ssig.find_peaks(this_env, prominence=max_peak*0.1)
-        #return a single default peak if no extrema were found to prevent out of bounds errors
-        if len(pulse_peaks) == 0 or len(env_peaks) == 0:
-            return np.array([[0, 1, 1, 0]])
-        #an array of peaks, each specified by time, width, and amplitude
-        self.peaks_arr = np.zeros((len(env_peaks),4))
-        n = 0
-        for i, v in enumerate(env_peaks):
-            now = self.t_pts[v]
-            #Look only at points near this peak. Make sure that we're inside the array but we take at least one step. If there are any zeros in the envelope array then skip over this one before the program crashes because of NaNs
-            stp = min(v-env_props['left_bases'][i], env_props['right_bases'][i]-v)
-            if stp < 1 or 0 in this_env[v-stp:v+stp]:
-                continue
-            #do a quadratic fit to get a guess of the Gaussian width
-            samp_ts = self.t_pts[v-stp:v+stp+1] - self.t_pts[v]
-            samp_ls = np.log(max_peak) - np.log(np.abs(this_env[v-stp:v+stp+1]))
-            reg,cov = opt.curve_fit(lambda x,a,b,c: a*x**2 + b*x + c, samp_ts, samp_ls)
-            self.peaks_arr[n, 1] = self.dt*stp/np.sqrt(2)
-            self.peaks_arr[n, 0] = now
-            self.peaks_arr[n, 2] = this_env[v]
-            n += 1
-        #now sort peaks by their heights descending and calculate the square errors for including each
-        self.peaks_arr.resize((n,4))
-        self.peaks_arr = self.peaks_arr[np.argsort(-self.peaks_arr[:,2])]
-        #self.peaks_arr = self.peaks_arr[np.argsort(self.peaks_arr[:,3])]
-        for i in range(n):
-            self.peaks_arr[i,3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - self.v_abs[pulse_peaks])**2)
-
-        return self.peaks_arr
+    def opt_envelope_asym(self):
+        env = self.get_envelope_asym()
+        samp_is = np.argmax(np.abs(self.v_pts))
+        vs = self.v_pts[samp_is]
+        def fp(x):
+            this_env = np.roll(env, int(x/self.dt))
+            return np.sum((this_env[samp_is] - vs)**2)
+        res = opt.minimize(fp, 0.0)
+        print(fp(0.0), res.fun)
+        self._t0_corr += res.x
+        self._phi_corr = fix_angle(self._phi_corr + 2*np.pi*self.f0*res.x)
+        #find the envelope to do some proce
+        env_amp = np.max(env)
+        _,env_w,_ = self.get_sig(env=env/(np.trapz(env)*self.dt))
+        dum = dummy_result(env_amp, self.f0, self._phi_corr, t0=self._t0_corr+self.t_pts[self.t0_ind], w=env_w)
+        return dum
 
     def _get_region(self, ns, i, width_steps):
         #make sure that we're inside the array but we take at least one step
@@ -443,83 +354,6 @@ class signal:
         samp_ts = self.t_pts[i-stp:i+stp] - self.t_pts[i]
         samp_ls = ns[i-stp:i+stp]
         return samp_ts, samp_ls
-
-    def get_peaks(self, peak_amp_thresh=0.1, width_steps=5):
-        '''Helper function for est_env_new
-        t_pts: the sampled points in time, this should have the same dimension as vs and ns
-        vs: the absolute value of the actual pulse. This WILL break if there are any negative values.
-        ns: the envelope of the pulse obtained through some signal processing
-        '''
-        if self.peaks_arr is not None:
-            return self.peaks_arr
-        ns = self.get_envelope()
-        #now that we have an envolope, find its maxima
-        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
-        max_peak = np.max(ns)
-        env_peaks,env_props = ssig.find_peaks(ns, prominence=max_peak*0.05)
-        #return a single default peak if no extrema were found to prevent out of bounds errors
-        if len(pulse_peaks) == 0 or len(env_peaks) == 0:
-            return np.array([[0, 1, 1]])
-        
-        #an array of peaks. The columns are time, width, amplitude, and the residual error. The error is cumulative i.e. The pulse incorporates all peaks before the current one and computes the square error.
-        self.peaks_arr = np.zeros((len(env_peaks),4))
-        n = 0
-        for i, v in enumerate(env_peaks):
-            if v >= len(self.t_pts):
-                break
-            now = self.t_pts[v]
-            #find the nearest maxima in the actual pulse. The envelopes aren't great at getting amplitudes, but they are useful for widths and centers.
-            p_ind = 0
-            closest_sep = self.t_pts[-1] - self.t_pts[0]
-            for p in pulse_peaks:
-                sep = abs(self.t_pts[p] - now)
-                if sep < closest_sep:
-                    p_ind = p
-                    closest_sep = sep
-                else:
-                    break
-            if self.v_abs[p_ind] > peak_amp_thresh*max_peak:
-                #make sure that we're inside the array but we take at least one step
-                stp = min(v-env_props['left_bases'][i], env_props['right_bases'][i]-v)//4
-                if stp <= 0:
-                    continue
-                samp_ts, samp_ls = self._get_region(ns, v, stp)
-                reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, np.log(max_peak)-np.log(samp_ls))
-                this_w = 1/np.sqrt(reg[0])
-                #only add this to the array if the value isn't nan
-                if not np.isnan(this_w):
-                    self.peaks_arr[n, 0] = now
-                    self.peaks_arr[n, 1] = this_w
-                    self.peaks_arr[n, 2] = self.v_abs[p_ind]
-                    #self.peaks_arr[n, 3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[n:n+1]) - self.v_abs[pulse_peaks])**2)
-                    n += 1
-
-        #sort peaks by intensity
-        self.peaks_arr.resize((n,4))
-        self.peaks_arr = self.peaks_arr[(-self.peaks_arr)[:, 2].argsort()]
-        #self.peaks_arr = self.peaks_arr[(self.peaks_arr)[:, 3].argsort()]
-        for i in range(len(self.peaks_arr)):
-            self.peaks_arr[i,3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - self.v_abs[pulse_peaks])**2)
-        return self.peaks_arr
-
-    def opt_phase(self, env, peak_t):
-        n_pts = min(min(env.shape[0], self.t_pts.shape[0]), self.v_pts.shape[0])
-        nenv = env[:n_pts]
-        ts = self.t_pts[:n_pts]
-        vs = self.v_pts[:n_pts]
-        x0 = np.array([1.0, 2*np.pi*self.f0, self.phi])
-        def ff(x):
-            return np.sum( (x[0]*nenv*np.cos(x[1]*(ts-peak_t)+x[2]) - vs)**2 )
-        res = opt.minimize(ff, x0)
-        return res
-
-    def extract_phi_asym(self):
-        '''returns: tuple with amplitude and phase'''
-        env = self.get_envelope_asym()
-        peak_i = np.argmax(env)
-        peak_t = peak_i*self.dt
-        res = self.opt_phase(env, peak_t)
-        return env[peak_i]*res.x[0], res.x[2]
 
     def make_raw_plt(self, axs):
         #get the envelope and perform a fitting
@@ -920,8 +754,15 @@ class phase_finder:
         if self.skip_fits:
             print("skipping!")
             amp = np.max(np.abs(a_pts))
-            res = dummy_result(amp, w0, psig._phi_corr)
-            return res, psig.get_skewness()
+            #res = dummy_result(amp, w0, psig._phi_corr)
+            res = psig.opt_envelope_asym()
+            if fig_name != '':
+                res_name = fig_name+"_res.txt"
+                write_reses(res_name, [res])
+            if raw_ax is not None:
+                psig.make_raw_plt(raw_ax)
+            _,_,skew,_ = psig.get_skewness() 
+            return res, skew
 
         peak_arr = psig.get_peaks()
 
