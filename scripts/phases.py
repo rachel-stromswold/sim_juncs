@@ -128,6 +128,12 @@ class dummy_result:
         self.fun = 0.0
         self.hess_inv = np.zeros((5,5))
         self.jac = np.zeros(5)
+    def keys(self):
+        return ["x"]
+    def get(self, reskey):
+        if reskey == "x":
+            return self.x
+        return None
 
 class signal:
     def _guess_t0_ind(self):
@@ -279,41 +285,19 @@ class signal:
         if self.envelope is not None:
             return self.envelope
         #take the inverse fourier transform and shift to the peak of the pulse
-        full_fft = np.pad(self.mags, (0, self.mags.shape[0]-2))
-        self.envelope = np.abs( np.roll(fft.ifft(np.roll(full_fft, -self.f0_ind)), self.t0_ind) )
+        full_fft = np.pad(self.vf, (0, self.mags.shape[0]-2))
+        self.envelope = 2*self._roll_envelope(np.abs( fft.ifft(np.roll(full_fft, -self.f0_ind)) ))
+        #self.envelope = np.abs( np.roll(fft.ifft(np.roll(full_fft, -self.f0_ind)), self.t0_ind) )
         #for odd numbers of time points, the inverse fourier transform will have one fewer points
         if len(self.t_pts) > len(self.envelope):
             self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
+        mu, env = self.get_mu(env=self.envelope)
+        #self.phi = (mu-self.t_pts[np.argmax(self.v_pts)])*2*np.pi*self.f0
         return self.envelope
-
-    def get_envelope_asym(self, t0=-1, f0=-1):
-        '''Get the envelope of the packet under the assumption that said envelope is not purely even nor purely odd.'''
-        if self.envelope_asym is not None and self.asym_f0 is not None and self.asym_f0 == f0:
-            return self.envelope_asym
-        if self.asym_f0 is None or f0 != self.asym_f0:
-            self._calc_sumdif(f0=f0)
-            self.asym_f0 = f0
-        if t0 < 0:
-            t0 = self._t0_corr
-        #use some math to figure out the real and imaginary parts of the envelope Fourier transform.
-        plt_fs = self.freqs[0:len(self.dif_ser)]
-        c_ser = np.cos(2*np.pi*plt_fs*t0)
-        s_ser = np.sin(2*np.pi*plt_fs*t0)        
-        rec_env = np.real(self.sum_ser)*c_ser - np.imag(self.dif_ser)*s_ser
-        imc_env = np.real(self.sum_ser)*s_ser + np.imag(self.dif_ser)*c_ser
-        res_env = np.imag(self.sum_ser)*c_ser + np.real(self.dif_ser)*s_ser
-        ims_env = np.imag(self.sum_ser)*s_ser - np.real(self.dif_ser)*c_ser
-        #compute the magnitude and the angle of the fourier transform of the envelope. if there are any nans just set them to zero
-        mag_env = np.sqrt( rec_env**2 + res_env**2 + imc_env**2 + ims_env**2 )
-        ang_env = np.arctan(imc_env/rec_env)
-        ang_env[np.isnan(ang_env)] = 0
-        shift_fact = np.exp( 1j*(ang_env-2*np.pi*plt_fs*self.t_pts[self.t0_ind]) )
-        env_fft = np.pad(mag_env*shift_fact, (0, self.vf.shape[0]-mag_env.shape[0]))
-        return fft.irfft(env_fft)/2
 
     def get_mu(self, env=None):
         if env is None:
-            env = np.abs( self.get_envelope_asym() )
+            env = np.abs( self.get_envelope() )
             env = env / (np.trapz(env)*self.dt)
         mu = np.trapz(env*self.t_pts)*self.dt
         return mu, env
@@ -330,7 +314,7 @@ class signal:
         return mu, sig, skew, env
 
     def opt_envelope_asym(self):
-        env = self.get_envelope_asym()
+        env = self.get_envelope()
         samp_is = np.argmax(np.abs(self.v_pts))
         vs = self.v_pts[samp_is]
         def fp(x):
@@ -414,7 +398,7 @@ class signal:
 
     def make_raw_plt(self, axs):
         #get the envelope and perform a fitting
-        env = self.get_envelope_asym()
+        env = self.get_envelope()
         peak_t = self.t_pts[self.t0_ind] - self._t0_corr
         axs[0].set_title("Frequency space representation of a simulated pulse")
         # Add the magnitude 
@@ -809,7 +793,7 @@ class phase_finder:
         w0 = 2*np.pi*psig.f0
         phi = psig._phi_corr
         #from the envelope find the amplitude and phase
-        sig_env = psig.get_envelope_asym()
+        sig_env = psig.get_envelope()
         max_env_ind = np.argmax(sig_env)
         amp = sig_env[max_env_ind]
         if not self.do_time_fits:
@@ -875,7 +859,7 @@ class phase_finder:
                 final_ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
 
         if not res.success:
-            amp = np.max(np.abs(psig.get_envelope_asym()))
+            amp = np.max(np.abs(psig.get_envelope()))
             res = dummy_result(amp, w0, psig._phi_corr)
         _,_,skew,_ = psig.get_skewness()
         return res, skew
