@@ -182,22 +182,6 @@ class signal:
             #self.t0_ind -= int(self._t0_corr/self.dt)
             self._param_est(n_evals=n_evals+1)
 
-    def _calc_sumdif(self, f0=-1):
-        '''return the sum and difference series expanded about the peak in frequency space.'''
-        if f0 < 0:
-            #freq_range = self._get_freq_fwhm()
-            #mid = (freq_range[0] + freq_range[1])//2
-            #mid = self.f0_ind
-            mid = self.f0_ind
-        else:
-            mid = min( len(self.freqs)-1, int(f0/(self.freqs[1]-self.freqs[0])) )
-        drange = min(mid, len(self.freqs)//2 - mid-1)
-        self.dif_ser = (self.vf[mid:mid+drange] - self.vf[mid:mid-drange:-1])
-        self.sum_ser = (self.vf[mid:mid+drange] + self.vf[mid:mid-drange:-1])
-        end_arr = self.vf[mid+drange:]
-        self.dif_ser = np.concatenate((self.dif_ser, end_arr))
-        self.sum_ser = np.concatenate((self.sum_ser, end_arr))
-
     def _apply_lowpass(self, vf0, cent_freq, strength):
         self.vf = vf0*np.sinc((self.freqs-cent_freq)*strength)
         self.mags = np.abs(self.vf)
@@ -280,6 +264,27 @@ class signal:
         self.peaks_arr = None
         self.f0 = self.freqs[self.f0_ind]
         self.t0_ind = np.argmax(self.v_abs)
+
+
+    def _roll_envelope(self, env):
+        env = fft.fftshift(env)
+        env_peak = np.argmax(env)
+        x0 = self.dt*(np.argmax(self.v_abs) - env_peak)
+        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
+        def fp(x):
+            #linearly interpolate between envelope points to make the cost function continuous
+            shift_fl = int(x/self.dt)
+            shift_rm = x/self.dt - shift_fl
+            ret = 0.0
+            for i in pulse_peaks:
+                val = shift_rm*(env[(i-shift_fl+1) % len(env)]-env[(i-shift_fl) % len(env)]) + env[(i-shift_fl) % len(env)]
+                ret += (val - self.v_abs[i])**2
+            return ret
+        res = opt.minimize(fp, x0)
+        best_ind = int(res.x/self.dt)
+        self.t0 = self.t_pts[env_peak + best_ind]
+        self.phi = self.t_pts[env_peak+best_ind-np.argmax(self.v_pts)]*2*np.pi*self.f0
+        return np.roll(env, best_ind)
 
     def get_envelope(self):
         if self.envelope is not None:
@@ -405,8 +410,6 @@ class signal:
         axs[0].set_xlabel('frequency (1/fs)') 
         axs[0].set_ylabel('magnitude (arb. units)', color = 'black') 
         plt1 = axs[0].plot(self.freqs, np.abs(self.vf), color = 'black')
-        plt1 = axs[0].plot(self.freqs[:len(self.sum_ser)], np.abs(self.sum_ser)/2, color = 'blue')
-        plt1 = axs[0].plot(self.freqs[:len(self.dif_ser)], np.abs(self.dif_ser), color = 'orange')
         #plot the bounds used for fitting
         frange = self._get_freq_fwhm()
         axs[0].axvline(self.freqs[frange[0]], color='gray', linestyle=':')
