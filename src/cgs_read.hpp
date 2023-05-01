@@ -72,20 +72,28 @@ private:
     size_t* line_sizes;
     size_t n_lines;
     //helper function for jmp_enclosed and get_enclosed. If the line at index 
-    char* it_single(size_t i, char start_delim, char end_delim, bool include_delims, long* start_ind, int* depth, long* end_line, size_t* jp);
+#ifndef DEBUG_INFO
+    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delims) const;
 public:
-    line_buffer() { lines = NULL; line_sizes = NULL; n_lines = 0; }
+#else
+public:
+    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delims) const;
+#endif
+    line_buffer();
     line_buffer(char* p_fname);
     line_buffer(const char** p_lines, size_t pn_lines);
     line_buffer(const char* line, char sep, const char* ignore_blocks = "\"\"()[]{}");
     line_buffer(const line_buffer& o);
+    line_buffer& operator=(line_buffer& o);
+    line_buffer& operator=(line_buffer&& o);
     line_buffer(line_buffer&& o);
     ~line_buffer();
-    line_buffer_ind jmp_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset=0, bool include_delims=false);
-    line_buffer get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset=0, bool include_delims=false);
-    char* get_line(size_t i) { return (i < n_lines) ? lines[i] : NULL; }
-    size_t get_n_lines() { return n_lines; }
-    char* flatten(char sep_char = 0);
+    void split(char split_delim);
+    line_buffer_ind jmp_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset=0, bool include_delims=false) const;
+    line_buffer get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset=0, bool include_delims=false) const;
+    char* get_line(size_t i) const;
+    size_t get_n_lines() const { return n_lines; }
+    char* flatten(char sep_char = 0) const;
 };
 
 /** ============================ stack ============================ **/
@@ -122,7 +130,6 @@ protected:
 
 	return E_SUCCESS;
     }
-
 public:
     stack() {
 	stack_ptr = 0;
@@ -352,8 +359,22 @@ public:
 /** ============================ context ============================ **/
 class context : public stack<name_val_pair> {
 private:
+    struct read_state {
+	const line_buffer& b;
+	size_t lineno;
+	stack<block_type> blk_stk;
+	size_t buf_size;
+	char* buf;
+	read_state(const line_buffer& pb) : b(pb) {
+	    buf_size = BUF_SIZE;
+	    buf = (char*)calloc(buf_size, sizeof(char));
+	    lineno = 0;
+	}
+    };
     context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
+    //parse_ercode read_single_line(char* line, read_state& b);
+    parse_ercode read_single_line(char* line, const line_buffer& b, size_t lineno, stack<block_type>& blk_stk, size_t buf_size, char* buf);
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
@@ -367,7 +388,7 @@ public:
     value parse_list(char* str, parse_ercode& sto);
     void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }
     parse_ercode set_value(const char* name, value new_val);
-    parse_ercode read_from_lines(line_buffer b);
+    parse_ercode read_from_lines(const line_buffer& b);
 
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
 };

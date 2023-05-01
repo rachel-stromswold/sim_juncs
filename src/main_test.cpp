@@ -1039,6 +1039,86 @@ TEST_CASE("Test operations") {
     }
 }
 
+TEST_CASE("test it_single") {
+    const char* lines[] = { "def test_fun(a)", "{", "if a > 5 {", "return 1", "}", "return 0", "}" };
+    size_t n_lines = sizeof(lines)/sizeof(char*);
+    //check the lines (curly brace on new line)
+    line_buffer lb(lines, n_lines);
+    //test it_single
+    int depth = 0;
+    char* it_single_str = NULL;
+    //including braces
+    for (size_t i = 0; i < n_lines; ++i) {
+	line_buffer_ind start(i, 0);
+	line_buffer_ind end(i, 0);
+	int it_start = lb.it_single(&it_single_str, '{', '}', &start, &end, &depth, true);
+	if (i == 1)
+	    CHECK(it_start == 0);
+	else
+	    CHECK(it_start == -1);
+	CHECK(strcmp(it_single_str, lines[i]) == 0);
+	CHECK(start.line == i);
+	CHECK(start.off == 0);
+	if (i < n_lines-1)
+	    CHECK(end.line == start.line+1);
+	else
+	    CHECK(end.line == start.line);
+	CHECK(end.off == strlen(lines[i]));
+	if (i == 0 or i == n_lines-1)
+	    CHECK(depth == 0);
+	else
+	    CHECK(depth >= 1);
+    }
+    //excluding braces
+    const char* lines_exc[] = { "def test_fun(a)", "", "if a > 5 {", "return 1", "}", "return 0", "}" };
+    for (size_t i = 0; i < n_lines; ++i) {
+	line_buffer_ind start(i, 0);
+	line_buffer_ind end(i, 0);
+	int it_start = lb.it_single(&it_single_str, '{', '}', &start, &end, &depth, false);
+	if (i == 1)
+	    CHECK(it_start == 0);
+	else
+	    CHECK(it_start == -1);
+	CHECK(strcmp(it_single_str, lines_exc[i]) == 0);
+	//check that lines start where expected
+	CHECK(start.line == i);
+	if (i == 1)
+	    CHECK(start.off == 1);
+	else
+	    CHECK(start.off == 0);
+	if (i < n_lines-1)
+	    CHECK(end.line == start.line+1);
+	else
+	    CHECK(end.line == start.line);
+	//check that lines end where expected
+	if (i == n_lines-1)
+	    CHECK(end.off == 0);
+	else
+	    CHECK(end.off == strlen(lines[i]));
+	//CHECK that the depths are correct
+	if (i == 0 or i == n_lines-1)
+	    CHECK(depth == 0);
+	else
+	    CHECK(depth >= 1);
+    }
+}
+
+TEST_CASE("Test splitting") {
+    const char* lines[] = { "apple; banana;c", ";orange" };
+    size_t n_lines = sizeof(lines)/sizeof(char*);
+    line_buffer lb(lines, n_lines);
+    CHECK(lb.get_n_lines() == 2);
+    char* strval = lb.get_line(0);CHECK(strcmp(lines[0], strval) == 0);free(strval);
+    strval = lb.get_line(1);CHECK(strcmp(lines[1], strval) == 0);free(strval);
+    lb.split(';');
+    CHECK(lb.get_n_lines() == 5);
+    strval = lb.get_line(0);CHECK(strcmp("apple", strval) == 0);free(strval);
+    strval = lb.get_line(1);CHECK(strcmp(" banana", strval) == 0);free(strval);
+    strval = lb.get_line(2);CHECK(strcmp("c", strval) == 0);free(strval);
+    strval = lb.get_line(3);CHECK(strcmp("", strval) == 0);free(strval);
+    strval = lb.get_line(4);CHECK(strcmp("orange", strval) == 0);free(strval);
+}
+
 TEST_CASE("Test get_enclosed") {
     const char* fun_contents[] = {"", "if a > 5 {", "return 1", "}", "return 0", ""};
     const char* if_contents[] = {"", "return 1", ""};
@@ -1046,32 +1126,36 @@ TEST_CASE("Test get_enclosed") {
     size_t if_n = sizeof(if_contents)/sizeof(char*);
 
     long end_ind;
+    char* strval = NULL;
 
     SUBCASE("open brace on a different line") {
 	const char* lines[] = { "def test_fun(a)", "{", "if a > 5 {", "return 1", "}", "return 0", "}" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	//check the lines (curly brace on new line)
-	line_buffer b_1(lines, n_lines);
+	line_buffer lb(lines, n_lines);
 	for (size_t i = 0; i < n_lines; ++i) {
-	    CHECK(strcmp(lines[i], b_1.get_line(i)) == 0);
+	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
-	line_buffer b_fun_con(b_1.get_enclosed(0, &end_ind, '{', '}'));
+	//test wrapper functions that use it_single
+	line_buffer b_fun_con = lb.get_enclosed(0, &end_ind, '{', '}');
 	CHECK(b_fun_con.get_n_lines() == fun_n);
 	CHECK(end_ind == 6);
 	for (size_t i = 0; i < fun_n; ++i) {
-	    CHECK(strcmp(fun_contents[i], b_fun_con.get_line(i)) == 0);
+	    strval = b_fun_con.get_line(i);CHECK(strcmp(fun_contents[i], strval) == 0);free(strval);
 	}
-	line_buffer b_if_con(b_fun_con.get_enclosed(0, &end_ind, '{', '}'));
+	line_buffer b_if_con = b_fun_con.get_enclosed(0, &end_ind, '{', '}');
 	CHECK(b_if_con.get_n_lines() == if_n);
 	CHECK(end_ind == 3);
-	for (size_t i = 0; i < if_n; ++i) CHECK(strcmp(if_contents[i], b_if_con.get_line(i)) == 0);
+	for (size_t i = 0; i < if_n; ++i) {
+	    strval = b_if_con.get_line(i);CHECK(strcmp(if_contents[i], strval) == 0);free(strval);
+	}
 	//check jumping
-	line_buffer_ind if_end_ind = b_fun_con.jmp_enclosed(0, '{', '}');
-	CHECK(if_end_ind.line == 3);
-	CHECK(if_end_ind.off == 0);
-	if_end_ind = b_fun_con.jmp_enclosed(0, '{', '}', 0, true);
-	CHECK(if_end_ind.line == 3);
-	CHECK(if_end_ind.off == 1);
+	line_buffer_ind blk_end_ind = lb.jmp_enclosed(0, '{', '}');
+	CHECK(blk_end_ind.line == 6);
+	CHECK(blk_end_ind.off == 0);
+	blk_end_ind = lb.jmp_enclosed(0, '{', '}', 0, true);
+	CHECK(blk_end_ind.line == 6);
+	CHECK(blk_end_ind.off == 1);
 	//try flattening
 	char* fun_flat = b_fun_con.flatten();
 	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
@@ -1085,27 +1169,35 @@ TEST_CASE("Test get_enclosed") {
 	const char* lines[] = { "def test_fun(a) {", "if a > 5 {", "return 1", "}", "return 0", "}" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	//check the lines (curly brace on same line)
-	line_buffer b_2(lines, n_lines);
+	line_buffer lb(lines, n_lines);
 	for (size_t i = 0; i < n_lines; ++i) {
-	    CHECK(strcmp(lines[i], b_2.get_line(i)) == 0);
+	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
-	line_buffer b_fun_con_2(b_2.get_enclosed(0, &end_ind, '{', '}'));
-	CHECK(b_fun_con_2.get_n_lines() == fun_n);
+	//test wrapper functions that use it_single
+	line_buffer b_fun_con = lb.get_enclosed(0, &end_ind, '{', '}');
+	CHECK(b_fun_con.get_n_lines() == fun_n);
 	CHECK(end_ind == 5);
 	for (size_t i = 0; i < fun_n; ++i) {
-	    CHECK(strcmp(fun_contents[i], b_fun_con_2.get_line(i)) == 0);
+	    strval = b_fun_con.get_line(i);CHECK(strcmp(fun_contents[i], strval) == 0);free(strval);
 	}
-	line_buffer b_if_con_2(b_fun_con_2.get_enclosed(0, &end_ind, '{', '}'));
+	line_buffer b_if_con_2 = b_fun_con.get_enclosed(0, &end_ind, '{', '}');
 	CHECK(b_if_con_2.get_n_lines() == if_n);
 	CHECK(end_ind == 3);
 	for (size_t i = 0; i < if_n; ++i) {
-	    CHECK(strcmp(if_contents[i], b_if_con_2.get_line(i)) == 0);
+	    strval = b_if_con_2.get_line(i);CHECK(strcmp(if_contents[i], strval) == 0);free(strval);
 	}
+	//check jumping
+	line_buffer_ind blk_end_ind = b_fun_con.jmp_enclosed(0, '{', '}');
+	CHECK(blk_end_ind.line == 3);
+	CHECK(blk_end_ind.off == 0);
+	blk_end_ind = b_fun_con.jmp_enclosed(0, '{', '}', 0, true);
+	CHECK(blk_end_ind.line == 3);
+	CHECK(blk_end_ind.off == 1);
 	//try flattening
-	char* fun_flat = b_fun_con_2.flatten();
+	char* fun_flat = b_fun_con.flatten();
 	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
 	free(fun_flat);
-	fun_flat = b_fun_con_2.flatten('|');
+	fun_flat = b_fun_con.flatten('|');
 	CHECK(strcmp(fun_flat, "if a > 5 {|return 1|}|return 0||") == 0);
 	free(fun_flat);
     }
@@ -1114,25 +1206,26 @@ TEST_CASE("Test get_enclosed") {
 	const char* lines[] = { "def test_fun(a) {if a > 5 {return 1}return 0}" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	//check the lines (curly brace on new line)
-	line_buffer b_1(lines, n_lines);
+	line_buffer lb(lines, n_lines);
 	for (size_t i = 0; i < n_lines; ++i) {
-	    CHECK(strcmp(lines[i], b_1.get_line(i)) == 0);
+	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
-	line_buffer b_fun_con(b_1.get_enclosed(0, &end_ind, '{', '}'));
+	//test wrapper functions that use it_single
+	line_buffer b_fun_con = lb.get_enclosed(0, &end_ind, '{', '}');
 	CHECK(b_fun_con.get_n_lines() == 1);
 	CHECK(end_ind == 0);
-	CHECK(strcmp("if a > 5 {return 1}return 0", b_fun_con.get_line(0)) == 0);
-	line_buffer b_if_con(b_fun_con.get_enclosed(0, &end_ind, '{', '}'));
+	strval = b_fun_con.get_line(0);CHECK(strcmp("if a > 5 {return 1}return 0", strval) == 0);free(strval);
+	line_buffer b_if_con = b_fun_con.get_enclosed(0, &end_ind, '{', '}');
 	CHECK(b_if_con.get_n_lines() == 1);
 	CHECK(end_ind == 0);
-	CHECK(strcmp("return 1", b_if_con.get_line(0)) == 0);
+	strval = b_if_con.get_line(0);CHECK(strcmp("return 1", strval) == 0);free(strval);
 	//check jumping
-	line_buffer_ind if_end_ind = b_fun_con.jmp_enclosed(0, '{', '}');
-	CHECK(if_end_ind.line == 0);
-	CHECK(if_end_ind.off == 44);
-	if_end_ind = b_fun_con.jmp_enclosed(0, '{', '}', 0, true);
-	CHECK(if_end_ind.line == 0);
-	CHECK(if_end_ind.off == 45);
+	line_buffer_ind blk_end_ind = b_fun_con.jmp_enclosed(0, '{', '}');
+	CHECK(blk_end_ind.line == 0);
+	CHECK(blk_end_ind.off == 18);
+	blk_end_ind = b_fun_con.jmp_enclosed(0, '{', '}', 0, true);
+	CHECK(blk_end_ind.line == 0);
+	CHECK(blk_end_ind.off == 19);
 	//try flattening
 	char* fun_flat = b_fun_con.flatten();
 	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
@@ -1940,6 +2033,7 @@ int main(int argc, char** argv) {
     // overrides
     context.setOption("no-breaks", true);             // don't break in the debugger when assertions fail
 
+    std::cout << "starting tests!" << std::endl;
     int res = context.run(); // run
 
     if(context.shouldExit()) // important - query flags (and --exit) rely on the user doing this

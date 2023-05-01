@@ -559,7 +559,7 @@ parse_ercode bound_geom::parse_monitors(composite_object* comp) {
     return E_SUCCESS;
 }
 
-double dummy_eps(const meep::vec& r) { return 1.0; }
+double dummy_eps(const meep::vec& r) { (void)r;return 1.0; }
 
 /**
  * This is a helper function for the bound_geom constructor. Meep doesn't implement copy or move constructors so we have to initialize the structure immediately so that the fields can be initialized in turn.

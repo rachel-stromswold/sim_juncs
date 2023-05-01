@@ -3,7 +3,8 @@ project('sim_geom', 'cpp',
 )
 
 #find dependencies
-sim_deps = [dependency('meep'), dependency('hdf5', language: 'cpp')]
+sim_deps = [dependency('hdf5', language: 'cpp'), dependency('meep')]
+#sim_deps = [dependency('hdf5'), dependency('openblas'), dependency('meep')]
 inc_dirs = [include_directories('/usr/include/doctest')]
 
 #set executable names
@@ -25,13 +26,13 @@ endif
 executable(app_name, app_srcs, dependencies: sim_deps, include_directories : inc_dirs, c_args: app_args)
 
 #copy the junction files
-src = join_paths(meson.source_root(), 'junctions', get_option('junction_type'), 'junc.geom')
+src = join_paths(meson.source_root(), 'junctions', get_option('JUNCTION_TYPE'), 'junc.geom')
 dst = join_paths(meson.build_root(), 'junc.geom')
-run_command('rm', dst, check: true)
+run_command('rm', dst, check: false)
 run_command('cp', '-s', src, dst, check: true)
-src = join_paths(meson.source_root(), 'junctions', get_option('junction_type'), 'params.conf')
+src = join_paths(meson.source_root(), 'junctions', get_option('JUNCTION_TYPE'), 'params.conf')
 dst = join_paths(meson.build_root(), 'params.conf')
-run_command('rm', dst, check: true)
+run_command('rm', dst, check: false)
 run_command('cp', '-s', src, dst, check: true)
 
 #only build tests if debug is set

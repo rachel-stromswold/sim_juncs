@@ -321,6 +321,15 @@ char* CGS_trim_whitespace(char* str, size_t* len) {
 
 /** ============================ line_buffer ============================ **/
 
+line_buffer::line_buffer() {
+    lines = NULL;
+    line_sizes = NULL;
+    n_lines = 0;
+#ifdef DEBUG_INFO
+    printf("Created default line_buffer %p, n_lines=%lu\n", this, n_lines);
+#endif
+}
+
 line_buffer::line_buffer(char* p_fname) {
     size_t buf_size = BUF_SIZE;
     lines = (char**)malloc(sizeof(char*)*buf_size);
@@ -354,6 +363,9 @@ line_buffer::line_buffer(char* p_fname) {
 	free(lines);
 	lines = NULL;
     }
+#ifdef DEBUG_INFO
+    printf("Created line_buffer from file %p, n_lines=%lu\n", this, n_lines);
+#endif
 }
 line_buffer::line_buffer(const char** p_lines, size_t pn_lines) {
     n_lines = pn_lines;
@@ -363,6 +375,9 @@ line_buffer::line_buffer(const char** p_lines, size_t pn_lines) {
 	line_sizes[i] = strlen(p_lines[i]);
 	lines[i] = strdup(p_lines[i]);
     }
+#ifdef DEBUG_INFO
+    printf("Created line_buffer from string array %p, n_lines=%lu\n", this, n_lines);
+#endif
 }
 /**
  * Create a line buffer from a single line separated by characters of the type sep such that sep are not contained inside any blocks specified by ignore_blocks. Seperation characters are not included.
@@ -403,8 +418,14 @@ line_buffer::line_buffer(const char* str, char sep, const char* ignore_blocks) {
 	    if (str[i] == 0) break;
 	}
     }
+#ifdef DEBUG_INFO
+    printf("Created line_buffer from string %p, n_lines=%lu\n", this, n_lines);
+#endif
 }
 line_buffer::~line_buffer() {
+#ifdef DEBUG_INFO
+    printf("Freeing line_buffer %p, n_lines=%lu\n", this, n_lines);
+#endif
     for (size_t i = 0; i < n_lines; ++i) free(lines[i]);
     free(line_sizes);
     free(lines);
@@ -417,6 +438,9 @@ line_buffer::line_buffer(const line_buffer& o) {
 	lines[i] = strdup(o.lines[i]);
 	line_sizes[i] = o.line_sizes[i];
     }
+#ifdef DEBUG_INFO
+    printf("Created line_buffer by copy constructor %p, n_lines=%lu\n", this, n_lines);
+#endif
 }
 line_buffer::line_buffer(line_buffer&& o) {
     n_lines = o.n_lines;
@@ -424,20 +448,69 @@ line_buffer::line_buffer(line_buffer&& o) {
     lines = o.lines;
     o.n_lines = 0;
     o.lines = NULL;
+#ifdef DEBUG_INFO
+    printf("Created line_buffer by move constructor %p, n_lines=%lu\n", this, n_lines);
+#endif
+}
+line_buffer& line_buffer::operator=(line_buffer& o) {
+    size_t tmp_n_lines = n_lines;
+    n_lines = o.n_lines;
+    o.n_lines = tmp_n_lines;
+    size_t* tmp_line_sizes = line_sizes;
+    line_sizes = o.line_sizes;
+    o.line_sizes = tmp_line_sizes;
+    char** tmp_lines = lines;
+    lines = o.lines;
+    o.lines = tmp_lines;
+#ifdef DEBUG_INFO
+    printf("Created line_buffer by const assignment %p, n_lines=%lu\n", this, n_lines);
+#endif
+    return *this;
+}
+
+/**
+ * Goes through a line buffer and splits into multiple lines at each instance of split_delim.
+ * i.e. if the buffer is in the state
+ * lines = {"foo; bar", "foobar;"}
+ * then split(';') will transform the state to
+ * lines = {"foo", " bar", "foobar;"}
+ */
+void line_buffer::split(char split_delim) {
+    for (size_t i = 0; i < n_lines; ++i) {
+	for (size_t j = 0; j < line_sizes[i]; ++j) {
+	    if (lines[i][j] == split_delim) {
+		++n_lines;
+		printf("new size = %lu\n", sizeof(char*)*n_lines);
+		lines = (char**)realloc(lines, sizeof(char*)*n_lines);
+		line_sizes = (size_t*)realloc(line_sizes, sizeof(size_t)*n_lines);
+		//move everything else forward
+		for (size_t k = n_lines-1; k > i+1; --k) {
+		    lines[k] = lines[k-1];
+		    line_sizes[k] = line_sizes[k-1];
+		}
+		//split this line
+		lines[i+1] = strndup(lines[i]+j+1, line_sizes[i]-j);
+		lines[i][j] = 0;
+		line_sizes[i+1] = line_sizes[i]-j-1;
+		line_sizes[i] = j;
+	    }
+	}
+    }
 }
 
 /**
  * helper function for get_enclosed and jmp_enclosed. This function reads the line at index k for the line contained between start_delim and end_delim. If only a start_delim is found or start_ind is not NULL, a pointer with a value set to the index of the start of the line is returned.
- * k: index of the line to read
+ * i: index of the line to read
  * start_delim: the starting delimiter
  * end_delim: the ending delimiter
+ * includ_delims: if true, then the delimiters are included in the string
  * start_ind: a pointer, the value of which is the index in the line k to start reading.
  * depth: keeps track of how many nested pairs of start and end delimeters we've encountered. We only want to exit calling if an end_delim was found. This variable is set to -1 if a zero depth close brace was found to signal that parsing should terminate.
  * end_line: If end delim is set, then the value in end_line is set to k.
- * j: stores the index where line reading stopped. Either because a NULL terminator was encountered or an end_delim was encountered
+ * jp: stores the index where line reading stopped. Either because a NULL terminator was encountered or an end_delim was encountered
  * returns: an index of the position of the index that reading started from.
  */
-char* line_buffer::it_single(size_t i, char start_delim, char end_delim, bool include_delims, long* start_ind, int* depth, long* end_line, size_t* jp) {
+/*char* line_buffer::it_single(size_t i, char start_delim, char end_delim, bool include_delims, long* start_ind, int* depth, long* end_line, size_t* jp) {
     //this way we ensure that start char is always zero after the first start_delim is read
     if (*start_ind >= 0) *start_ind = 0;
     size_t j = *jp;
@@ -463,6 +536,67 @@ char* line_buffer::it_single(size_t i, char start_delim, char end_delim, bool in
     *jp = j;
     if (*start_ind < 0) return NULL;
     return lines[i]+(*start_ind);
+}*/
+
+/**
+ * helper function for get_enclosed and jmp_enclosed. This function reads the line at index k for the line contained between start_delim and end_delim. If only a start_delim is found or start_ind is not NULL, a pointer with a value set to the index of the start of the line is returned.
+ * linesto: store the line read into this variable
+ * start_delim: the starting delimiter
+ * end_delim: the ending delimiter
+ * start: the position to start reading. This is updated as soon as the start delimiter is actually found
+ * end: the position where reading stopped. This will be at offset 0 on the line after start->line if an end delimiter was not found or the character where reading stopped because of an end delimiter.
+ * includ_delims: if true, then the delimiters are included in the string
+ * start_ind: a pointer, the value of which is the index in the line k to start reading.
+ * depth: keeps track of how many nested pairs of start and end delimeters we've encountered. We only want to exit calling if an end_delim was found. This variable is set to -1 if a zero depth close brace was found to signal that parsing should terminate.
+ * end_line: If end delim is set, then the value in end_line is set to k.
+ * jp: stores the index where line reading stopped. Either because a NULL terminator was encountered or an end_delim was encountered
+ * returns: an index of the position of the index that reading started from or -1 if not found
+ */
+int line_buffer::it_single(char** linesto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delims) const {
+    bool free_after = false;
+    if (start == NULL) {
+	start = (line_buffer_ind*)malloc(sizeof(line_buffer_ind));
+    }
+    //setup
+    int depth = 0;
+    if (pdepth) depth = *pdepth;
+    size_t j = start->off;
+    int ret = -1;
+    //iterate through characters in the line looking for an end_delim without a preceeding start_delim
+    size_t i = start->line;
+    end->line = i;
+    while (true) {
+	if (lines[i][j] == 0) {
+	    if(end) {
+		end->line = i+1;
+		end->off = j;
+	    }
+	    break;
+	} else if (lines[i][j] == start_delim) {
+	    if (depth == 0) {
+		start->line = i;
+		start->off = j;
+		ret = j;
+		if (!include_delims) ++(start->off);
+	    }
+	    ++depth;
+	} else if (lines[i][j] == end_delim) {
+	    --depth;
+	    if (depth <= 0) {
+		if (include_delims) ++j;
+		if (end) {
+		    end->off = j;
+		}
+		//--depth;//force escaping from the loop
+		break;
+	    }
+	}
+	++j;
+    }
+    if (pdepth) *pdepth = depth;
+    if (linesto) *linesto = lines[i]+(start->off);
+    if (free_after) free(start);
+    return ret;
 }
 
 /**
@@ -475,9 +609,9 @@ char* line_buffer::it_single(size_t i, char start_delim, char end_delim, bool in
  * include_delims: if true then the delimeters are included in the enclosed strings. defualts to false
  * returns: an array of lines that must be deallocated by a call to free(). The number of lines is stored in n_lines.
  */
-line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) {
-    //initialization
+line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) const {
     line_buffer ret;
+    //initialization
     if (end_line) *end_line = -1;
     if (n_lines == 0) {
 	ret.n_lines = 0;
@@ -493,36 +627,61 @@ line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char st
 
     //iterate through lines
     size_t k = 0;
-    long start_char = -1;
-    size_t j = line_offset;
-    for (size_t i = start_line; depth >= 0 && i < n_lines; ++i) {
+    size_t i = start_line;
+    bool started = false;
+    for (; depth >= 0 && i < n_lines; ++i) {
 	if (lines[i] == NULL) {
-	    ret.n_lines = i;
+	    ret.n_lines = i-start_line;
 	    break;
 	} else {
-	    char* this_line = it_single(i, start_delim, end_delim, include_delims, &start_char, &depth, end_line, &j);
+	    line_buffer_ind start(i, line_offset);
+	    line_buffer_ind end(i, 0);
+	    char* this_line;
+	    int start_ind = it_single(&this_line, start_delim, end_delim, &start, &end, &depth, include_delims);
+	    if (start_ind >= 0) started = true;
 	    //don't read empty lines
-	    if (start_char >= 0) {
-		ret.line_sizes[k] = j;
-		ret.lines[k++] = strndup(this_line, j-start_char);
+	    if (started) {
+		ret.line_sizes[k] = end.off-start.off;
+		ret.lines[k++] = strndup(this_line, end.off-start.off);
 	    }
-	    j = 0;
+	    //This means that an end delimeter was found. In this case, we need to break out of the loop.
+	    if (end.line == start.line) break;
+	    line_offset = 0;
 	}
     }
+    if (end_line) *end_line = i;
     ret.n_lines = k;
+#ifdef DEBUG_INFO
+    printf("Created line_buffer from file %p, n_lines=%lu\n", this, n_lines);
+#endif
     return ret;
 }
 
-line_buffer_ind line_buffer::jmp_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) {
+line_buffer_ind line_buffer::jmp_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) const {
     int depth = 0;
-    long endl = start_line;
-    size_t j = line_offset;
-    long start_char = -1;
     for (size_t i = start_line; depth >= 0 && i < n_lines; ++i) {
-	j = 0;
-	it_single(i, start_delim, end_delim, include_delims, &start_char, &depth, &endl, &j);
+	line_buffer_ind start(i, line_offset);
+	line_buffer_ind end(i, 0);
+	it_single(NULL, start_delim, end_delim, &start, &end, &depth, include_delims);
+	if (end.line == start.line) {
+	    return end;
+	}
+	line_offset = 0;
     }
-    line_buffer_ind ret(endl, j);
+    line_buffer_ind ret(n_lines, 0);
+    return ret;
+}
+
+/**
+ * Return a string with the line contained at index i. This string should be freed with a call to free().
+ */
+char* line_buffer::get_line(size_t i) const {
+    if (i >= n_lines)
+	return NULL;
+    size_t line_size = line_sizes[i]+1;
+    char* ret = (char*)malloc(sizeof(char)*line_size);
+    for (size_t j = 0; j < line_size; ++j) ret[j] = lines[i][j];
+    ret[line_size-1] = 0;
     return ret;
 }
 
@@ -530,7 +689,7 @@ line_buffer_ind line_buffer::jmp_enclosed(size_t start_line, char start_delim, c
  * Returns a version of the line buffer which is flattened so that everything fits onto one line.
  * sep_char: if this is not zero, then each newline in the buffer is replaced by a sep_char
  */
-char* line_buffer::flatten(char sep_char) {
+char* line_buffer::flatten(char sep_char) const {
     //figure out how much memory must be allocated
     size_t tot_size = 1;
     for (size_t i = 0; i < n_lines; ++i) { tot_size += line_sizes[i]; }
@@ -1736,21 +1895,113 @@ clean_paren:
     return sto;
 }
 
+/**helper function for read_from lines that reads a single line
+ */
+parse_ercode context::read_single_line(char* line, const line_buffer& b, size_t lineno, stack<block_type>& blk_stk, size_t buf_size, char* buf) {
+    //char* lval = NULL;
+    size_t rval_start = 0;
+    size_t k = 0;
+    bool started = false; 
+    size_t i = 0;
+    for (; line[i]; ++i) {
+	//handle comments
+	if (line[i] == '/') {
+	    if (line[i+1] == '/') {
+		break;
+	    } else if (line[i+1] == '*') {
+		rs.blk_stk.push(BLK_COMMENT);
+	    } else if (i > 0 && line[i-1] == '*') {
+		block_type tmp = BLK_UNDEF;
+		er = rs.blk_stk.pop(&tmp);
+		if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
+	    }
+	}
+	block_type cur_blkt = BLK_UNDEF;
+	if (rs.blk_stk.size() > 0) cur_blkt = rs.blk_stk.peek();
+	if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
+	    if (k >= rs.buf_size) {
+		rs.buf_size *= 2;
+		rs.buf = (char*)realloc(rs.buf, sizeof(char)*rs.buf_size);
+	    }
+	    //ignore preceeding whitespace
+	    if (line[i] != ' ' || line[i] != '\t' || line[i] != '\n') started = true;
+	    if (started) rs.buf[k++] = line[i];
+	    //check for assignment, otherwise handle blocks
+	    char match_tok = 0;
+	    char sep_tok = 0;
+	    if (line[i] == '=') {
+		if (rs.blk_stk.is_empty()) {
+		    rs.buf[k-1] = 0;
+		    //lval = CGS_trim_whitespace(buf, NULL);
+		    rval_start = k;
+		}
+	    } else if (line[i] == '(') {
+		match_tok = ')';
+	    } else if (line[i] == '[') {
+		match_tok = ']';
+	    } else if (line[i] == '{') {
+		//curly braces (specifying contexts) are a special case
+		long tmp = rs.lineno;
+		line_buffer lines_enc(b.get_enclosed(rs.lineno, &tmp, '{', '}', i, false));
+		if (tmp < 0) { free(rs.buf);return E_BAD_SYNTAX; }
+		rs.lineno = (size_t)tmp;
+		value tmp_val;
+		tmp_val.type = VAL_INST;
+		tmp_val.val.c = new context(this);
+		lines_enc.split(';');
+		tmp_val.val.c->read_from_lines(lines_enc);
+		emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
+		cleanup_val(&tmp_val);
+		break;
+	    }
+	    if (match_tok != 0 && i > rval_start) {
+		long tmp = rs.lineno;
+		line_buffer lines_enc(b.get_enclosed(rs.lineno, &tmp, line[i], match_tok, i, true));
+		if (tmp < 0) { free(rs.buf);return E_BAD_SYNTAX; }
+		rs.lineno = (size_t)tmp;
+		//we have to advance to the end of the function declaration
+		char* enc = lines_enc.flatten(sep_tok);
+		//concatenate the string using thingies
+		size_t dest_len = (k - rval_start) + strlen(enc) + 2;
+		rs.buf = (char*)realloc(rs.buf, sizeof(char)*(k+dest_len));
+		strcpy(rs.buf+k-1, enc);
+		free(enc);
+		//parse the value
+		value tmp_val = parse_value(rs.buf+rval_start, er);
+		if (er != E_SUCCESS) { free(rs.buf);return er; }
+		emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
+		cleanup_val(&tmp_val);
+		break;
+	    }
+	}
+    }
+    //only set the rval if we haven't done so already
+    if (line[i] == 0) {
+	rs.buf[k] = 0;
+	value tmp_val = parse_value(rs.buf+rval_start, er);
+	if (er != E_SUCCESS) { free(rs.buf);return er; }
+	emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
+	cleanup_val(&tmp_val);
+    }
+}
+
 /**
  * Generate a context from a list of lines. This context will include function declarations, named variables, and subcontexts (instances).
  * lines: the array of lines to read from
  * n_lines: the size of the array
  * returns: an errorcode if one was found or E_SUCCESS on success
  */
-parse_ercode context::read_from_lines(line_buffer b) {
+parse_ercode context::read_from_lines(const line_buffer& b) {
     parse_ercode er = E_SUCCESS;
-    stack<block_type> blk_stack;
 
-    size_t buf_size = BUF_SIZE;
-    char* buf = (char*)malloc(sizeof(char)*buf_size);
+    context::read_state rs(b);
+    /*rs.b = &b;
+    rs.buf_size = BUF_SIZE;
+    rs.buf = (char*)malloc(sizeof(char)*rs.buf_size);
+    rs.lineno = 0;*/
     //iterate over each line in the file
-    for (size_t lineno = 0; lineno < b.get_n_lines(); ++lineno) {
-	char* line = b.get_line(lineno);
+    for (; rs.lineno < b.get_n_lines(); ++rs.lineno) {
+	char* line = b.get_line(rs.lineno);
 	//check for class and function declarations
 	char* dectype_start = token_block(line, "def");
 	if (dectype_start) {
@@ -1761,13 +2012,12 @@ parse_ercode context::read_from_lines(line_buffer b) {
 	    if (er == E_SUCCESS) {
 		size_t i = 0;
 		for (; endptr[i] && (endptr[i] == ' ' || endptr[i] == '\t' || endptr[i] == '\n'); ++i) (void)0;
-		size_t n_enc = b.get_n_lines()-lineno;
-		long t_line = lineno;
-		line_buffer lines_enc(b.get_enclosed(lineno, &t_line, '{', '}', func_end));
-		if (t_line < 0) { free(buf);return E_BAD_SYNTAX; }
-		lineno = (size_t)t_line;
+		size_t n_enc = b.get_n_lines()-rs.lineno;
+		long t_line = rs.lineno;
+		if (t_line < 0) { free(rs.buf);return E_BAD_SYNTAX; }
+		rs.lineno = (size_t)t_line;
 		//now we actually create the function
-		user_func tmp(cur_func, lines_enc);
+		user_func tmp(cur_func, b.get_enclosed(rs.lineno, &t_line, '{', '}', func_end));
 		value v;
 		v.type = VAL_FUNC;
 		v.val.f = &tmp;
@@ -1787,29 +2037,29 @@ parse_ercode context::read_from_lines(line_buffer b) {
 		    if (line[i+1] == '/') {
 			break;
 		    } else if (line[i+1] == '*') {
-			blk_stack.push(BLK_COMMENT);
+			rs.blk_stk.push(BLK_COMMENT);
 		    } else if (i > 0 && line[i-1] == '*') {
 			block_type tmp = BLK_UNDEF;
-			er = blk_stack.pop(&tmp);
+			er = rs.blk_stk.pop(&tmp);
 			if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
 		    }
 		}
 		block_type cur_blkt = BLK_UNDEF;
-		if (blk_stack.size() > 0) cur_blkt = blk_stack.peek();
+		if (rs.blk_stk.size() > 0) cur_blkt = rs.blk_stk.peek();
 		if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
-		    if (k >= buf_size) {
-			buf_size *= 2;
-			buf = (char*)realloc(buf, sizeof(char)*buf_size);
+		    if (k >= rs.buf_size) {
+			rs.buf_size *= 2;
+			rs.buf = (char*)realloc(rs.buf, sizeof(char)*rs.buf_size);
 		    }
 		    //ignore preceeding whitespace
 		    if (line[i] != ' ' || line[i] != '\t' || line[i] != '\n') started = true;
-		    if (started) buf[k++] = line[i];
+		    if (started) rs.buf[k++] = line[i];
 		    //check for assignment, otherwise handle blocks
 		    char match_tok = 0;
 		    char sep_tok = 0;
 		    if (line[i] == '=') {
-			if (blk_stack.is_empty()) {
-			    buf[k-1] = 0;
+			if (rs.blk_stk.is_empty()) {
+			    rs.buf[k-1] = 0;
 			    //lval = CGS_trim_whitespace(buf, NULL);
 			    rval_start = k;
 			}
@@ -1818,37 +2068,36 @@ parse_ercode context::read_from_lines(line_buffer b) {
 		    } else if (line[i] == '[') {
 			match_tok = ']';
 		    } else if (line[i] == '{') {
-			/*match_tok = '}';
-			sep_tok = ';';*/
 			//curly braces (specifying contexts) are a special case
-			long tmp = lineno;
-			line_buffer lines_enc(b.get_enclosed(lineno, &tmp, line[i], match_tok, i, true));
-			if (tmp < 0) { free(buf);return E_BAD_SYNTAX; }
-			lineno = (size_t)tmp;
+			long tmp = rs.lineno;
+			line_buffer lines_enc(b.get_enclosed(rs.lineno, &tmp, '{', '}', i, false));
+			if (tmp < 0) { free(rs.buf);return E_BAD_SYNTAX; }
+			rs.lineno = (size_t)tmp;
 			value tmp_val;
 			tmp_val.type = VAL_INST;
 			tmp_val.val.c = new context(this);
+			lines_enc.split(';');
 			tmp_val.val.c->read_from_lines(lines_enc);
-			emplace(CGS_trim_whitespace(buf, NULL), tmp_val);
+			emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
 			cleanup_val(&tmp_val);
 			break;
 		    }
 		    if (match_tok != 0 && i > rval_start) {
-			long tmp = lineno;
-			line_buffer lines_enc(b.get_enclosed(lineno, &tmp, line[i], match_tok, i, true));
-			if (tmp < 0) { free(buf);return E_BAD_SYNTAX; }
-			lineno = (size_t)tmp;
+			long tmp = rs.lineno;
+			line_buffer lines_enc(b.get_enclosed(rs.lineno, &tmp, line[i], match_tok, i, true));
+			if (tmp < 0) { free(rs.buf);return E_BAD_SYNTAX; }
+			rs.lineno = (size_t)tmp;
 			//we have to advance to the end of the function declaration
 			char* enc = lines_enc.flatten(sep_tok);
 			//concatenate the string using thingies
 			size_t dest_len = (k - rval_start) + strlen(enc) + 2;
-			buf = (char*)realloc(buf, sizeof(char)*(k+dest_len));
-			strcpy(buf+k-1, enc);
+			rs.buf = (char*)realloc(rs.buf, sizeof(char)*(k+dest_len));
+			strcpy(rs.buf+k-1, enc);
 			free(enc);
 			//parse the value
-			value tmp_val = parse_value(buf+rval_start, er);
-			if (er != E_SUCCESS) { free(buf);return er; }
-			emplace(CGS_trim_whitespace(buf, NULL), tmp_val);
+			value tmp_val = parse_value(rs.buf+rval_start, er);
+			if (er != E_SUCCESS) { free(rs.buf);return er; }
+			emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
 			cleanup_val(&tmp_val);
 			break;
 		    }
@@ -1856,15 +2105,19 @@ parse_ercode context::read_from_lines(line_buffer b) {
 	    }
 	    //only set the rval if we haven't done so already
 	    if (line[i] == 0) {
-		buf[k] = 0;
-		value tmp_val = parse_value(buf+rval_start, er);
-		if (er != E_SUCCESS) { free(buf);return er; }
-		emplace(CGS_trim_whitespace(buf, NULL), tmp_val);
+		rs.buf[k] = 0;
+		value tmp_val = parse_value(rs.buf+rval_start, er);
+		if (er != E_SUCCESS) { free(rs.buf);return er; }
+		emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
 		cleanup_val(&tmp_val);
 	    }
-	}
+	}/* else {
+	    er = read_single_line(line, b, rs.lineno, rs.blk_stk, rs.buf_size, rs.buf);
+	    if (er != E_SUCCESS) { free(rs.buf);return er; }
+	}*/
+	free(line);
     }
-    free(buf);
+    free(rs.buf);
 
     return er;
 }
@@ -1950,6 +2203,7 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
 	    //TODO
 	    defualt: break;
 	}
+	free(line);
     }
     //return an undefined value by default
     value ret;ret.type = VAL_UNDEF;ret.val.x = 0;return ret;*/
