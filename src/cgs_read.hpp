@@ -63,6 +63,7 @@ public:
 struct line_buffer_ind {
     long line;
     long off;
+    line_buffer_ind() { line = 0;off = 0; }
     line_buffer_ind(long pl, long po) { line = pl;off = po; }
 };
 
@@ -73,11 +74,11 @@ private:
     size_t n_lines;
     //helper function for jmp_enclosed and get_enclosed. If the line at index 
 #ifndef DEBUG_INFO
-    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delims) const;
+    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delimse, bool include_start) const;
 public:
 #else
 public:
-    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delims) const;
+    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delimse, bool include_start) const;
 #endif
     line_buffer();
     line_buffer(char* p_fname);
@@ -89,11 +90,17 @@ public:
     line_buffer(line_buffer&& o);
     ~line_buffer();
     void split(char split_delim);
-    line_buffer_ind jmp_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset=0, bool include_delims=false) const;
-    line_buffer get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset=0, bool include_delims=false) const;
-    char* get_line(size_t i) const;
+    line_buffer_ind jmp_enclosed(line_buffer_ind start, char start_delim, char end_delim, bool include_delims=false) const;
+    line_buffer get_enclosed(line_buffer_ind start, line_buffer_ind* end, char start_delim, char end_delim, bool include_delims=false, bool include_start=false) const;
+    char* get_line(line_buffer_ind p) const;
+    char* get_line(size_t i) const { line_buffer_ind p(i,0);return get_line(p); }
+    size_t get_line_size(size_t i) const { if (i >= n_lines) { return 0; }return line_sizes[i]; }
     size_t get_n_lines() const { return n_lines; }
     char* flatten(char sep_char = 0) const;
+    //increment or decrement the line_buffer_ind p and return whether the operation was successful
+    bool inc(line_buffer_ind& p) const;
+    bool dec(line_buffer_ind& p) const;
+    char get(line_buffer_ind p) const;
 };
 
 /** ============================ stack ============================ **/
@@ -352,20 +359,20 @@ class context : public stack<name_val_pair> {
 private:
     struct read_state {
 	const line_buffer& b;
-	size_t lineno;
+	line_buffer_ind pos;
 	stack<block_type> blk_stk;
 	size_t buf_size;
 	char* buf;
-	read_state(const line_buffer& pb) : b(pb) {
+	read_state(const line_buffer& pb) : b(pb), pos(0,0) {
 	    buf_size = BUF_SIZE;
 	    buf = (char*)calloc(buf_size, sizeof(char));
-	    lineno = 0;
 	}
+	~read_state() { buf_size=0;free(buf); }
     };
     context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
     //parse_ercode read_single_line(char* line, read_state& b);
-    parse_ercode read_single_line(context::read_state& rs);
+    parse_ercode read_single_line(char* line, context::read_state& rs);
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
@@ -375,6 +382,7 @@ public:
     value lookup(const char* name) const;
     parse_ercode pop_n(size_t n);
     value parse_value(char* tok, parse_ercode& er);
+    value parse_value(const line_buffer& b, line_buffer_ind pos, parse_ercode& er);
     cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
     void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }

@@ -522,46 +522,6 @@ void line_buffer::split(char split_delim) {
 
 /**
  * helper function for get_enclosed and jmp_enclosed. This function reads the line at index k for the line contained between start_delim and end_delim. If only a start_delim is found or start_ind is not NULL, a pointer with a value set to the index of the start of the line is returned.
- * i: index of the line to read
- * start_delim: the starting delimiter
- * end_delim: the ending delimiter
- * includ_delims: if true, then the delimiters are included in the string
- * start_ind: a pointer, the value of which is the index in the line k to start reading.
- * depth: keeps track of how many nested pairs of start and end delimeters we've encountered. We only want to exit calling if an end_delim was found. This variable is set to -1 if a zero depth close brace was found to signal that parsing should terminate.
- * end_line: If end delim is set, then the value in end_line is set to k.
- * jp: stores the index where line reading stopped. Either because a NULL terminator was encountered or an end_delim was encountered
- * returns: an index of the position of the index that reading started from.
- */
-/*char* line_buffer::it_single(size_t i, char start_delim, char end_delim, bool include_delims, long* start_ind, int* depth, long* end_line, size_t* jp) {
-    //this way we ensure that start char is always zero after the first start_delim is read
-    if (*start_ind >= 0) *start_ind = 0;
-    size_t j = *jp;
-    //iterate through characters in the line looking for an end_delim without a preceeding start_delim
-    for (; lines[i][j]; ++j) {
-	if (lines[i][j] == start_delim) {
-	    if (*depth == 0) {
-		*start_ind = j;
-		if (!include_delims) ++(*start_ind);
-	    }
-	    ++(*depth);
-	} else if (lines[i][j] == end_delim) {
-	    --(*depth);
-	    if (*depth <= 0) {
-		if (include_delims) ++j;
-		if (end_line) *end_line = i;
-		*depth = -1;//force escaping from the loop
-		break;
-	    }
-	}
-    }
-
-    *jp = j;
-    if (*start_ind < 0) return NULL;
-    return lines[i]+(*start_ind);
-}*/
-
-/**
- * helper function for get_enclosed and jmp_enclosed. This function reads the line at index k for the line contained between start_delim and end_delim. If only a start_delim is found or start_ind is not NULL, a pointer with a value set to the index of the start of the line is returned.
  * linesto: store the line read into this variable
  * start_delim: the starting delimiter
  * end_delim: the ending delimiter
@@ -574,15 +534,18 @@ void line_buffer::split(char split_delim) {
  * jp: stores the index where line reading stopped. Either because a NULL terminator was encountered or an end_delim was encountered
  * returns: an index of the position of the index that reading started from or -1 if not found
  */
-int line_buffer::it_single(char** linesto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delims) const {
+int line_buffer::it_single(char** linesto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delims, bool include_start) const {
     bool free_after = false;
     if (start == NULL) {
 	start = (line_buffer_ind*)malloc(sizeof(line_buffer_ind));
+	start->line = 0;
+	start->off = 0;
     }
     //setup
     int depth = 0;
     if (pdepth) depth = *pdepth;
     size_t j = start->off;
+    size_t init_off = start->off;
     int ret = -1;
     //iterate through characters in the line looking for an end_delim without a preceeding start_delim
     size_t i = start->line;
@@ -595,13 +558,32 @@ int line_buffer::it_single(char** linesto, char start_delim, char end_delim, lin
 	    }
 	    break;
 	} else if (lines[i][j] == start_delim) {
-	    if (depth == 0) {
-		start->line = i;
-		start->off = j;
-		ret = j;
-		if (!include_delims) ++(start->off);
+	    //this is a special case, depths may only be toggled
+	    if (end_delim == start_delim) {
+		if (j == 0 || lines[i][j-1] != '\\') {
+		    depth = 1 - depth;
+		    if (depth == 1) {
+			//start block
+			start->line = i;
+			start->off = j;
+			ret = j;
+			if (!include_delims) ++(start->off);
+		    } else {
+			//end block
+			if (include_delims) ++j;
+			if (end) end->off = j;
+			break;
+		    }
+		}
+	    } else {
+		if (depth == 0) {
+		    start->line = i;
+		    start->off = j;
+		    ret = j;
+		    if (!include_delims) ++(start->off);
+		}
+		++depth;
 	    }
-	    ++depth;
 	} else if (lines[i][j] == end_delim) {
 	    --depth;
 	    if (depth <= 0) {
@@ -616,7 +598,14 @@ int line_buffer::it_single(char** linesto, char start_delim, char end_delim, lin
 	++j;
     }
     if (pdepth) *pdepth = depth;
-    if (linesto) *linesto = lines[i]+(start->off);
+    if (linesto) {
+	if (include_start)
+	    *linesto = lines[i]+init_off;
+	else
+	    *linesto = lines[i]+(start->off);
+    }
+    if (include_start)
+	start->off = init_off;
     if (free_after) free(start);
     return ret;
 }
@@ -624,23 +613,29 @@ int line_buffer::it_single(char** linesto, char start_delim, char end_delim, lin
 /**
  * Find the line buffer starting on line start_line between the first instance of start_delim and the last instance of end_delim respecting nesting (i.e. if lines={"a {", "b {", "}", "} c"} then {"b {", "}"} is returned. Note that the result must be deallocated with a call to free().
  * start_line: the line to start reading from
- * end_line: if this value is not NULL, then the index of the line on which end_delim was found is stored here
+ * end_line: if this value is not NULL, then the index of the line on which end_delim was found is stored here. If the end delimeter is not found, then the line is set to n_lines and the offset is set to zero
  * start_delim: the character to be used as the starting delimiter. This needs to be supplied so that we find a matching end_delim at the root level
  * end_delim: the character to be searched for
  * line_offset: the character on line start_line to start reading from, this defaults to zero. Note that this only applies to the start_line, and not any subsequent lines in the buffer.
- * include_delims: if true then the delimeters are included in the enclosed strings. defualts to false
+ * include_delims: if true, then the delimeters are included in the enclosed strings. defualts to false
+ * include_start: if true, then the part preceeding the first instance of start_delim will be included. This value is always false if include_delims is false. If include_delims is true, then this defaults to true.
  * returns: an array of lines that must be deallocated by a call to free(). The number of lines is stored in n_lines.
  */
-line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) const {
+line_buffer line_buffer::get_enclosed(line_buffer_ind start, line_buffer_ind* pend, char start_delim, char end_delim, bool include_delims, bool include_start) const {
     line_buffer ret;
     //initialization
-    if (end_line) *end_line = -1;
+    if (pend) {
+	pend->line = n_lines;
+	pend->off = 0;
+    }
     if (n_lines == 0) {
 	ret.n_lines = 0;
 	ret.lines = NULL;
 	ret.line_sizes = NULL;
 	return ret;
     }
+    //set include_start to false if include_delims is false
+    include_start &= include_delims;
     ret.lines = (char**)malloc(sizeof(char*)*n_lines);
     ret.line_sizes = (size_t*)malloc(sizeof(size_t)*n_lines);
 
@@ -649,17 +644,19 @@ line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char st
 
     //iterate through lines
     size_t k = 0;
-    size_t i = start_line;
+    size_t start_line = start.line;
+    line_buffer_ind end;
+    size_t i = start.line;
     bool started = false;
     for (; depth >= 0 && i < n_lines; ++i) {
 	if (lines[i] == NULL) {
 	    ret.n_lines = i-start_line;
 	    break;
 	} else {
-	    line_buffer_ind start(i, line_offset);
-	    line_buffer_ind end(i, 0);
+	    end.line = i;
+	    end.off = 0;
 	    char* this_line;
-	    int start_ind = it_single(&this_line, start_delim, end_delim, &start, &end, &depth, include_delims);
+	    int start_ind = it_single(&this_line, start_delim, end_delim, &start, &end, &depth, include_delims, include_start);
 	    if (start_ind >= 0) started = true;
 	    //don't read empty lines
 	    if (started) {
@@ -668,10 +665,11 @@ line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char st
 	    }
 	    //This means that an end delimeter was found. In this case, we need to break out of the loop.
 	    if (end.line == start.line) break;
-	    line_offset = 0;
+	    start.off = 0;
+	    ++start.line;
 	}
     }
-    if (end_line) *end_line = i;
+    if (pend) *pend = end;
     ret.n_lines = k;
 #ifdef DEBUG_INFO
     printf("Created line_buffer from file %p, n_lines=%lu\n", this, n_lines);
@@ -679,16 +677,16 @@ line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char st
     return ret;
 }
 
-line_buffer_ind line_buffer::jmp_enclosed(size_t start_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) const {
+line_buffer_ind line_buffer::jmp_enclosed(line_buffer_ind start, char start_delim, char end_delim, bool include_delims) const {
     int depth = 0;
-    for (size_t i = start_line; depth >= 0 && i < n_lines; ++i) {
-	line_buffer_ind start(i, line_offset);
+    for (size_t i = start.line; depth >= 0 && i < n_lines; ++i) {
 	line_buffer_ind end(i, 0);
-	it_single(NULL, start_delim, end_delim, &start, &end, &depth, include_delims);
+	it_single(NULL, start_delim, end_delim, &start, &end, &depth, include_delims, false);
 	if (end.line == start.line) {
 	    return end;
 	}
-	line_offset = 0;
+	start.off = 0;
+	++start.line;
     }
     line_buffer_ind ret(n_lines, 0);
     return ret;
@@ -697,13 +695,13 @@ line_buffer_ind line_buffer::jmp_enclosed(size_t start_line, char start_delim, c
 /**
  * Return a string with the line contained at index i. This string should be freed with a call to free().
  */
-char* line_buffer::get_line(size_t i) const {
-    if (i >= n_lines)
+char* line_buffer::get_line(line_buffer_ind p) const {
+    if (p.line >= n_lines)
 	return NULL;
-    size_t line_size = line_sizes[i]+1;
-    char* ret = (char*)malloc(sizeof(char)*line_size);
-    for (size_t j = 0; j < line_size; ++j) ret[j] = lines[i][j];
-    ret[line_size-1] = 0;
+    size_t line_size = line_sizes[p.line]+1;
+    char* ret = (char*)malloc(sizeof(char)*(line_size-p.off));
+    for (size_t j = p.off; j < line_size; ++j) ret[j-p.off] = lines[p.line][j];
+    ret[line_size-p.off-1] = 0;
     return ret;
 }
 
@@ -727,6 +725,38 @@ char* line_buffer::flatten(char sep_char) const {
     }
     ret[k] = 0;
     return ret;
+}
+
+bool line_buffer::inc(line_buffer_ind& p) const {
+    if (p.line >= n_lines) return false;
+    if (p.off >= line_sizes[p.line]) {
+	if (p.line == n_lines-1) return false;
+	p.off = 0;
+	p.line += 1;
+    } else {
+	p.off += 1;
+    }
+    return true;
+}
+
+bool line_buffer::dec(line_buffer_ind& p) const {
+    if (p.line > n_lines) return false;
+    if (p.off == 0) {
+	if (p.line == 0) return false;
+	p.line -= 1;
+	p.off = line_sizes[p.line];
+    } else {
+	p.off -= 1;
+    }
+    return true;
+}
+
+/**
+ * returns the character at position pos
+ */
+char line_buffer::get(line_buffer_ind pos) const {
+    if (pos.line >= n_lines || pos.off >= line_sizes[pos.line]) return 0;
+    return lines[pos.line][pos.off];
 }
 
 /** ======================================================== builtin functions ======================================================== **/
@@ -1917,26 +1947,55 @@ clean_paren:
     return sto;
 }
 
+value context::parse_value(const line_buffer& b, line_buffer_ind p, parse_ercode& er) {
+    value ret;ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;
+    //test incrementing, if that doesnt work return undefined
+    if (!b.inc(p)) return ret;
+    b.dec(p);
+    //local variables
+    line_buffer lines_enc;
+    char* line;
+    //iterate until we find a scope character delimiter
+    line_buffer_ind init = p;
+    size_t len = b.get_line_size(p.line);
+    bool found = false;
+    for (;p.off < len; ++p.off) {
+	char match_tok = 0;
+	switch(b.get(p)) {
+	    case '(': match_tok = ')';break;
+	    case '[': match_tok = ']';break;
+	    case '{': match_tok = '}';break;
+	    case '\"': match_tok = '\"';break;
+	    case '\'': match_tok = '\'';break;
+	    default: break;
+	}
+	if (match_tok) {
+	    line = b.get_enclosed(init, NULL, b.get(p), match_tok, true, true).flatten(' ');
+	    found = true;
+	    break;
+	}
+    }
+    if (!found) line = b.get_line(init);
+    ret = parse_value(line, er);
+    free(line);
+    return ret;
+}
+
 /**helper function for read_from lines that reads a single line
  */
-parse_ercode context::read_single_line(context::read_state& rs) {
+parse_ercode context::read_single_line(char* line, context::read_state& rs) {
     parse_ercode er = E_SUCCESS;
-    char* line = rs.b.get_line(rs.lineno);
     //tracking variables
-    line_buffer lines_enc;
-    size_t rval_start = 0;
     size_t k = 0;
-    bool started = false; 
-    bool found_eq = false;
-    size_t i = 0;
-    for (; line[i]; ++i) {
+    bool started = false;
+    for (rs.pos.off = 0; line[rs.pos.off]; ++rs.pos.off) {
 	//handle comments
-	if (line[i] == '/') {
-	    if (line[i+1] == '/') {
+	if (line[rs.pos.off] == '/') {
+	    if (line[rs.pos.off+1] == '/') {
 		break;
-	    } else if (line[i+1] == '*') {
+	    } else if (line[rs.pos.off+1] == '*') {
 		rs.blk_stk.push(BLK_COMMENT);
-	    } else if (i > 0 && line[i-1] == '*') {
+	    } else if (rs.pos.off > 0 && line[rs.pos.off-1] == '*') {
 		block_type tmp = BLK_UNDEF;
 		er = rs.blk_stk.pop(&tmp);
 		if (er != E_SUCCESS) { return er; }
@@ -1951,28 +2010,87 @@ parse_ercode context::read_single_line(context::read_state& rs) {
 		rs.buf = (char*)realloc(rs.buf, sizeof(char)*rs.buf_size);
 	    }
 	    //ignore preceeding whitespace
-	    if (line[i] != ' ' || line[i] != '\t' || line[i] != '\n') started = true;
-	    if (started) rs.buf[k++] = line[i];
+	    if (line[rs.pos.off] != ' ' || line[rs.pos.off] != '\t' || line[rs.pos.off] != '\n') started = true;
+	    if (started) rs.buf[k++] = line[rs.pos.off];
 	    //check for assignment, otherwise handle blocks
 	    char match_tok = 0;
 	    char sep_tok = 0;
-	    if (line[i] == '=') {
+	    if (line[rs.pos.off] == '=') {
+		rs.buf[k-1] = 0;
+		//make sure we aren't at the end of the file
+		if (!rs.b.inc(rs.pos)) return E_BAD_SYNTAX;
+		//read the value, check for errors and put it on the stack
+		value tmp_val = parse_value(rs.b, rs.pos, er);
+		if (er != E_SUCCESS) return er;
+		emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
+		cleanup_val(&tmp_val);
+		break;
+	    }
+	}
+    }
+    //only set the rval if we haven't done so already
+    if (started && line[rs.pos.off] == 0) {
+	rs.buf[k] = 0;
+	line_buffer_ind start_ind(rs.pos.line, 0);
+	value tmp_val = parse_value(rs.b, start_ind, er);
+	if (er != E_SUCCESS) return er;
+	emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
+	cleanup_val(&tmp_val);
+    }
+    return E_SUCCESS;
+}
+/*parse_ercode context::read_single_line(char* line, context::read_state& rs) {
+    parse_ercode er = E_SUCCESS;
+    //tracking variables
+    line_buffer lines_enc;
+    size_t rval_start = 0;
+    size_t k = 0;
+    bool started = false; 
+    bool found_eq = false;
+    for (rs.pos.off = 0; line[rs.pos.off]; ++rs.pos.off) {
+	//handle comments
+	if (line[rs.pos.off] == '/') {
+	    if (line[rs.pos.off+1] == '/') {
+		break;
+	    } else if (line[rs.pos.off+1] == '*') {
+		rs.blk_stk.push(BLK_COMMENT);
+	    } else if (rs.pos.off > 0 && line[rs.pos.off-1] == '*') {
+		block_type tmp = BLK_UNDEF;
+		er = rs.blk_stk.pop(&tmp);
+		if (er != E_SUCCESS) { return er; }
+		if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
+	    }
+	}
+	block_type cur_blkt = BLK_UNDEF;
+	if (rs.blk_stk.size() > 0) cur_blkt = rs.blk_stk.peek();
+	if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
+	    if (k >= rs.buf_size) {
+		rs.buf_size *= 2;
+		rs.buf = (char*)realloc(rs.buf, sizeof(char)*rs.buf_size);
+	    }
+	    //ignore preceeding whitespace
+	    if (line[rs.pos.off] != ' ' || line[rs.pos.off] != '\t' || line[rs.pos.off] != '\n') started = true;
+	    if (started) rs.buf[k++] = line[rs.pos.off];
+	    //check for assignment, otherwise handle blocks
+	    char match_tok = 0;
+	    char sep_tok = 0;
+	    if (line[rs.pos.off] == '=') {
 		if (rs.blk_stk.is_empty()) {
 		    rs.buf[k-1] = 0;
 		    //lval = CGS_trim_whitespace(buf, NULL);
 		    rval_start = k;
 		    found_eq = true;
 		}
-	    } else if (line[i] == '(') {
+	    } else if (line[rs.pos.off] == '(') {
 		match_tok = ')';
-	    } else if (line[i] == '[') {
+	    } else if (line[rs.pos.off] == '[') {
 		match_tok = ']';
-	    } else if (line[i] == '{') {
+	    } else if (line[rs.pos.off] == '{') {
 		//curly braces (specifying contexts) are a special case
-		long tmp = rs.lineno;
-		lines_enc = rs.b.get_enclosed(rs.lineno, &tmp, '{', '}', i, false);
-		if (tmp < 0) return E_BAD_SYNTAX;
-		rs.lineno = (size_t)tmp;
+		line_buffer_ind end = rs.pos;
+		lines_enc = rs.b.get_enclosed(rs.pos, &end, '{', '}', false);
+		if (end.line == rs.b.get_n_lines()) return E_BAD_SYNTAX;
+		rs.pos = end;
 		value tmp_val;
 		tmp_val.type = VAL_INST;
 		tmp_val.val.c = new context(this);
@@ -1982,11 +2100,11 @@ parse_ercode context::read_single_line(context::read_state& rs) {
 		cleanup_val(&tmp_val);
 		break;
 	    }
-	    if (match_tok != 0 && i > rval_start) {
-		long tmp = rs.lineno;
-		lines_enc = rs.b.get_enclosed(rs.lineno, &tmp, line[i], match_tok, i, true);
-		if (tmp < 0) return E_BAD_SYNTAX;
-		rs.lineno = (size_t)tmp;
+	    *//*if (match_tok != 0 && rs.pos.off > rval_start) {
+		line_buffer_ind end = rs.pos;
+		lines_enc = rs.b.get_enclosed(rs.pos, &end, line[rs.pos.off], match_tok, true);
+		if (end.line == rs.b.get_n_lines()) return E_BAD_SYNTAX;
+		rs.pos = end;
 		//we have to advance to the end of the function declaration
 		char* enc = lines_enc.flatten(sep_tok);
 		//concatenate the string using thingies
@@ -2000,20 +2118,19 @@ parse_ercode context::read_single_line(context::read_state& rs) {
 		emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
 		cleanup_val(&tmp_val);
 		break;
-	    }
+	    }*//*
 	}
     }
     //only set the rval if we haven't done so already
-    if (line[i] == 0) {
+    if (line[rs.pos.off] == 0) {
 	rs.buf[k] = 0;
 	value tmp_val = parse_value(rs.buf+rval_start, er);
 	if (er != E_SUCCESS) return er;
 	emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
 	cleanup_val(&tmp_val);
     }
-    free(line);
     return E_SUCCESS;
-}
+}*/
 
 /**
  * Generate a context from a list of lines. This context will include function declarations, named variables, and subcontexts (instances).
@@ -2025,13 +2142,9 @@ parse_ercode context::read_from_lines(const line_buffer& b) {
     parse_ercode er = E_SUCCESS;
 
     context::read_state rs(b);
-    /*rs.b = &b;
-    rs.buf_size = BUF_SIZE;
-    rs.buf = (char*)malloc(sizeof(char)*rs.buf_size);
-    rs.lineno = 0;*/
     //iterate over each line in the file
-    for (; rs.lineno < b.get_n_lines(); ++rs.lineno) {
-	char* line = b.get_line(rs.lineno);
+    for (; rs.pos.line < b.get_n_lines(); ++rs.pos.line) {
+	char* line = b.get_line(rs.pos.line);
 	//check for class and function declarations
 	char* dectype_start = token_block(line, "def");
 	if (dectype_start) {
@@ -2042,26 +2155,24 @@ parse_ercode context::read_from_lines(const line_buffer& b) {
 	    if (er == E_SUCCESS) {
 		size_t i = 0;
 		for (; endptr[i] && (endptr[i] == ' ' || endptr[i] == '\t' || endptr[i] == '\n'); ++i) (void)0;
-		size_t n_enc = b.get_n_lines()-rs.lineno;
-		long t_line = rs.lineno;
-		if (t_line < 0) { free(rs.buf);return E_BAD_SYNTAX; }
-		rs.lineno = (size_t)t_line;
 		//now we actually create the function
-		user_func tmp(cur_func, b.get_enclosed(rs.lineno, &t_line, '{', '}', func_end));
+		rs.pos.off = 0;
+		line_buffer_ind end;
+		user_func tmp(cur_func, b.get_enclosed(rs.pos, &end, '{', '}', func_end));
+		if (end.line == b.get_n_lines()) { free(line);return E_BAD_SYNTAX; }
 		value v;
 		v.type = VAL_FUNC;
 		v.val.f = &tmp;
-		v.n_els = n_enc;
+		v.n_els = b.get_n_lines()-rs.pos.line;
 		emplace(cur_func.name, v);
 		//we have to advance to the line after end of the function declaration
 	    }
 	} else {
-	    er = read_single_line(rs);
-	    if (er != E_SUCCESS) { free(rs.buf);return er; }
+	    er = read_single_line(line, rs);
+	    if (er != E_SUCCESS) { free(line);return er; }
 	}
 	free(line);
     }
-    free(rs.buf);
 
     return er;
 }

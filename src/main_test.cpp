@@ -1067,7 +1067,7 @@ TEST_CASE("test line_buffer it_single") {
     for (size_t i = 0; i < n_lines; ++i) {
 	line_buffer_ind start(i, 0);
 	line_buffer_ind end(i, 0);
-	int it_start = lb.it_single(&it_single_str, '{', '}', &start, &end, &depth, true);
+	int it_start = lb.it_single(&it_single_str, '{', '}', &start, &end, &depth, true, false);
 	if (i == 1)
 	    CHECK(it_start == 0);
 	else
@@ -1090,7 +1090,7 @@ TEST_CASE("test line_buffer it_single") {
     for (size_t i = 0; i < n_lines; ++i) {
 	line_buffer_ind start(i, 0);
 	line_buffer_ind end(i, 0);
-	int it_start = lb.it_single(&it_single_str, '{', '}', &start, &end, &depth, false);
+	int it_start = lb.it_single(&it_single_str, '{', '}', &start, &end, &depth, false, false);
 	if (i == 1)
 	    CHECK(it_start == 0);
 	else
@@ -1125,7 +1125,7 @@ TEST_CASE("Test line_buffer get_enclosed") {
     size_t fun_n = sizeof(fun_contents)/sizeof(char*);
     size_t if_n = sizeof(if_contents)/sizeof(char*);
 
-    long end_ind;
+    line_buffer_ind end_ind;
     char* strval = NULL;
 
     SUBCASE("open brace on a different line") {
@@ -1137,23 +1137,25 @@ TEST_CASE("Test line_buffer get_enclosed") {
 	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
 	//test wrapper functions that use it_single
-	line_buffer b_fun_con = lb.get_enclosed(0, &end_ind, '{', '}');
+	line_buffer_ind bstart;
+	line_buffer b_fun_con = lb.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_fun_con.get_n_lines() == fun_n);
-	CHECK(end_ind == 6);
+	CHECK(end_ind.line == 6);
 	for (size_t i = 0; i < fun_n; ++i) {
 	    strval = b_fun_con.get_line(i);CHECK(strcmp(fun_contents[i], strval) == 0);free(strval);
 	}
-	line_buffer b_if_con = b_fun_con.get_enclosed(0, &end_ind, '{', '}');
+	line_buffer b_if_con = b_fun_con.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_if_con.get_n_lines() == if_n);
-	CHECK(end_ind == 3);
+	CHECK(end_ind.line == 3);
 	for (size_t i = 0; i < if_n; ++i) {
 	    strval = b_if_con.get_line(i);CHECK(strcmp(if_contents[i], strval) == 0);free(strval);
 	}
 	//check jumping
-	line_buffer_ind blk_end_ind = lb.jmp_enclosed(0, '{', '}');
+	line_buffer_ind blk_start(0,0);
+	line_buffer_ind blk_end_ind = lb.jmp_enclosed(blk_start, '{', '}');
 	CHECK(blk_end_ind.line == 6);
 	CHECK(blk_end_ind.off == 0);
-	blk_end_ind = lb.jmp_enclosed(0, '{', '}', 0, true);
+	blk_end_ind = lb.jmp_enclosed(blk_start, '{', '}', true);
 	CHECK(blk_end_ind.line == 6);
 	CHECK(blk_end_ind.off == 1);
 	//try flattening
@@ -1174,23 +1176,25 @@ TEST_CASE("Test line_buffer get_enclosed") {
 	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
 	//test wrapper functions that use it_single
-	line_buffer b_fun_con = lb.get_enclosed(0, &end_ind, '{', '}');
+	line_buffer_ind bstart;
+	line_buffer b_fun_con = lb.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_fun_con.get_n_lines() == fun_n);
-	CHECK(end_ind == 5);
+	CHECK(end_ind.line == 5);
 	for (size_t i = 0; i < fun_n; ++i) {
 	    strval = b_fun_con.get_line(i);CHECK(strcmp(fun_contents[i], strval) == 0);free(strval);
 	}
-	line_buffer b_if_con_2 = b_fun_con.get_enclosed(0, &end_ind, '{', '}');
+	line_buffer b_if_con_2 = b_fun_con.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_if_con_2.get_n_lines() == if_n);
-	CHECK(end_ind == 3);
+	CHECK(end_ind.line == 3);
 	for (size_t i = 0; i < if_n; ++i) {
 	    strval = b_if_con_2.get_line(i);CHECK(strcmp(if_contents[i], strval) == 0);free(strval);
 	}
 	//check jumping
-	line_buffer_ind blk_end_ind = b_fun_con.jmp_enclosed(0, '{', '}');
+	line_buffer_ind blk_start(0,0);
+	line_buffer_ind blk_end_ind = b_fun_con.jmp_enclosed(blk_start, '{', '}');
 	CHECK(blk_end_ind.line == 3);
 	CHECK(blk_end_ind.off == 0);
-	blk_end_ind = b_fun_con.jmp_enclosed(0, '{', '}', 0, true);
+	blk_end_ind = b_fun_con.jmp_enclosed(blk_start, '{', '}', true);
 	CHECK(blk_end_ind.line == 3);
 	CHECK(blk_end_ind.off == 1);
 	//try flattening
@@ -1211,19 +1215,21 @@ TEST_CASE("Test line_buffer get_enclosed") {
 	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
 	//test wrapper functions that use it_single
-	line_buffer b_fun_con = lb.get_enclosed(0, &end_ind, '{', '}');
+	line_buffer_ind bstart;
+	line_buffer b_fun_con = lb.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_fun_con.get_n_lines() == 1);
-	CHECK(end_ind == 0);
+	CHECK(end_ind.line == 0);
 	strval = b_fun_con.get_line(0);CHECK(strcmp("if a > 5 {return 1}return 0", strval) == 0);free(strval);
-	line_buffer b_if_con = b_fun_con.get_enclosed(0, &end_ind, '{', '}');
+	line_buffer b_if_con = b_fun_con.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_if_con.get_n_lines() == 1);
-	CHECK(end_ind == 0);
+	CHECK(end_ind.line == 0);
 	strval = b_if_con.get_line(0);CHECK(strcmp("return 1", strval) == 0);free(strval);
 	//check jumping
-	line_buffer_ind blk_end_ind = b_fun_con.jmp_enclosed(0, '{', '}');
+	line_buffer_ind blk_start;
+	line_buffer_ind blk_end_ind = b_fun_con.jmp_enclosed(blk_start, '{', '}');
 	CHECK(blk_end_ind.line == 0);
 	CHECK(blk_end_ind.off == 18);
-	blk_end_ind = b_fun_con.jmp_enclosed(0, '{', '}', 0, true);
+	blk_end_ind = b_fun_con.jmp_enclosed(blk_start, '{', '}', true);
 	CHECK(blk_end_ind.line == 0);
 	CHECK(blk_end_ind.off == 19);
 	//try flattening
@@ -1306,13 +1312,13 @@ TEST_CASE("Test context parsing") {
     SUBCASE ("user defined functions") {
 	const char* fun_name = "test_fun";
 	char* tmp_name = strdup(fun_name);
-	cgs_func call_sig;
+	/*cgs_func call_sig;
 	call_sig.n_args = 1;
 	call_sig.args[0].type = VAL_UNDEF;
 	call_sig.args[0].val.x = 0;
 	call_sig.args[0].n_els = 0;
 	call_sig.arg_names[0] = NULL;
-	call_sig.name = tmp_name;
+	call_sig.name = tmp_name;*/
 
 	const char* lines[] = { "a = test_fun(1)", "b=test_fun(10)" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
@@ -1345,7 +1351,7 @@ TEST_CASE("Test context parsing") {
 }
 
 TEST_CASE("Test context file parsing") {
-    line_buffer lb("tests/alpha.geom");
+    line_buffer lb("tests/context_test.geom");
     CHECK(lb.get_n_lines() == 12);
     context c;
     parse_ercode er = c.read_from_lines(lb);
