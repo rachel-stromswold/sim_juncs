@@ -123,16 +123,16 @@ char* token_block(char* str, const char* comp) {
  * n: a pointer to a size_t with the number of characters in the buffer pointed to by bufptr. The call will return do nothing and return -1 if n is null but *bufptr is not.
  * fp: file pointer to read from
  * linecount: a pointer to an integer specifying the number of new line characters read.
- * Returns: -2 if an error occured, -1 if the end of the file was reached, or the number of characters read (including null termination) if successful
+ * Returns: the number of characters read (including null termination). On reaching the end of the file, 0 is returned.
  */
-int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
+size_t read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
     //dereference pointers and interpret them correctly
     size_t n_lines = 0;
     if (lineno) n_lines = *lineno;
     size_t size = *n;
     char* buf = *bufptr;
     if (buf) {
-	if (size == 0) return -2;
+	if (size == 0) return 0;
     } else {
 	size = LINE_SIZE;
 	buf = (char*)malloc(sizeof(char)*size);
@@ -150,7 +150,7 @@ int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
 	    *n = size;
 	    *bufptr = buf;
 	    if (lineno) *lineno = n_lines;
-	    return -1;
+	    return 0;
 	} else if (res == ';') {
 	    buf[i] = 0;
 	    //only count one line end
@@ -355,7 +355,7 @@ line_buffer::line_buffer(char* p_fname) {
 	    line_len = read_cgs_line(&this_buf, &line_len, fp, &lineno);
 	    lines[n_lines] = this_buf;
 	    line_sizes[n_lines++] = line_len;
-	} while (line_len >= 0);
+	} while (line_len > 0);
 	lines = (char**)realloc(lines, sizeof(char*)*n_lines);
 	line_sizes = (size_t*)realloc(line_sizes, sizeof(size_t)*n_lines);
     } else {
@@ -426,9 +426,18 @@ line_buffer::~line_buffer() {
 #ifdef DEBUG_INFO
     printf("Freeing line_buffer %p, n_lines=%lu\n", this, n_lines);
 #endif
-    for (size_t i = 0; i < n_lines; ++i) free(lines[i]);
-    free(line_sizes);
-    free(lines);
+    if (lines) {
+	for (size_t i = 0; i < n_lines; ++i) {
+	    free(lines[i]);
+	}
+	free(lines);
+    }
+    if (line_sizes) {
+	free(line_sizes);
+    }
+    n_lines = 0;
+    lines = NULL;
+    line_sizes = NULL;
 }
 line_buffer::line_buffer(const line_buffer& o) {
     n_lines = o.n_lines;
@@ -462,6 +471,19 @@ line_buffer& line_buffer::operator=(line_buffer& o) {
     char** tmp_lines = lines;
     lines = o.lines;
     o.lines = tmp_lines;
+#ifdef DEBUG_INFO
+    printf("Created line_buffer by const assignment %p, n_lines=%lu\n", this, n_lines);
+#endif
+    return *this;
+}
+
+line_buffer& line_buffer::operator=(line_buffer&& o) {
+    n_lines = o.n_lines;
+    lines = o.lines;
+    line_sizes = o.line_sizes;
+    o.n_lines = 0;
+    o.line_sizes = NULL;
+    o.lines = NULL;
 #ifdef DEBUG_INFO
     printf("Created line_buffer by const assignment %p, n_lines=%lu\n", this, n_lines);
 #endif
@@ -1897,11 +1919,15 @@ clean_paren:
 
 /**helper function for read_from lines that reads a single line
  */
-parse_ercode context::read_single_line(char* line, const line_buffer& b, size_t lineno, stack<block_type>& blk_stk, size_t buf_size, char* buf) {
-    //char* lval = NULL;
+parse_ercode context::read_single_line(context::read_state& rs) {
+    parse_ercode er = E_SUCCESS;
+    char* line = rs.b.get_line(rs.lineno);
+    //tracking variables
+    line_buffer lines_enc;
     size_t rval_start = 0;
     size_t k = 0;
     bool started = false; 
+    bool found_eq = false;
     size_t i = 0;
     for (; line[i]; ++i) {
 	//handle comments
@@ -1913,6 +1939,7 @@ parse_ercode context::read_single_line(char* line, const line_buffer& b, size_t 
 	    } else if (i > 0 && line[i-1] == '*') {
 		block_type tmp = BLK_UNDEF;
 		er = rs.blk_stk.pop(&tmp);
+		if (er != E_SUCCESS) { return er; }
 		if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
 	    }
 	}
@@ -1934,6 +1961,7 @@ parse_ercode context::read_single_line(char* line, const line_buffer& b, size_t 
 		    rs.buf[k-1] = 0;
 		    //lval = CGS_trim_whitespace(buf, NULL);
 		    rval_start = k;
+		    found_eq = true;
 		}
 	    } else if (line[i] == '(') {
 		match_tok = ')';
@@ -1942,8 +1970,8 @@ parse_ercode context::read_single_line(char* line, const line_buffer& b, size_t 
 	    } else if (line[i] == '{') {
 		//curly braces (specifying contexts) are a special case
 		long tmp = rs.lineno;
-		line_buffer lines_enc(b.get_enclosed(rs.lineno, &tmp, '{', '}', i, false));
-		if (tmp < 0) { free(rs.buf);return E_BAD_SYNTAX; }
+		lines_enc = rs.b.get_enclosed(rs.lineno, &tmp, '{', '}', i, false);
+		if (tmp < 0) return E_BAD_SYNTAX;
 		rs.lineno = (size_t)tmp;
 		value tmp_val;
 		tmp_val.type = VAL_INST;
@@ -1956,8 +1984,8 @@ parse_ercode context::read_single_line(char* line, const line_buffer& b, size_t 
 	    }
 	    if (match_tok != 0 && i > rval_start) {
 		long tmp = rs.lineno;
-		line_buffer lines_enc(b.get_enclosed(rs.lineno, &tmp, line[i], match_tok, i, true));
-		if (tmp < 0) { free(rs.buf);return E_BAD_SYNTAX; }
+		lines_enc = rs.b.get_enclosed(rs.lineno, &tmp, line[i], match_tok, i, true);
+		if (tmp < 0) return E_BAD_SYNTAX;
 		rs.lineno = (size_t)tmp;
 		//we have to advance to the end of the function declaration
 		char* enc = lines_enc.flatten(sep_tok);
@@ -1968,7 +1996,7 @@ parse_ercode context::read_single_line(char* line, const line_buffer& b, size_t 
 		free(enc);
 		//parse the value
 		value tmp_val = parse_value(rs.buf+rval_start, er);
-		if (er != E_SUCCESS) { free(rs.buf);return er; }
+		if (er != E_SUCCESS) return er;
 		emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
 		cleanup_val(&tmp_val);
 		break;
@@ -1979,10 +2007,12 @@ parse_ercode context::read_single_line(char* line, const line_buffer& b, size_t 
     if (line[i] == 0) {
 	rs.buf[k] = 0;
 	value tmp_val = parse_value(rs.buf+rval_start, er);
-	if (er != E_SUCCESS) { free(rs.buf);return er; }
+	if (er != E_SUCCESS) return er;
 	emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
 	cleanup_val(&tmp_val);
     }
+    free(line);
+    return E_SUCCESS;
 }
 
 /**
@@ -2026,95 +2056,9 @@ parse_ercode context::read_from_lines(const line_buffer& b) {
 		//we have to advance to the line after end of the function declaration
 	    }
 	} else {
-	    //char* lval = NULL;
-	    size_t rval_start = 0;
-	    size_t k = 0;
-	    bool started = false; 
-	    size_t i = 0;
-	    for (; line[i]; ++i) {
-		//handle comments
-		if (line[i] == '/') {
-		    if (line[i+1] == '/') {
-			break;
-		    } else if (line[i+1] == '*') {
-			rs.blk_stk.push(BLK_COMMENT);
-		    } else if (i > 0 && line[i-1] == '*') {
-			block_type tmp = BLK_UNDEF;
-			er = rs.blk_stk.pop(&tmp);
-			if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
-		    }
-		}
-		block_type cur_blkt = BLK_UNDEF;
-		if (rs.blk_stk.size() > 0) cur_blkt = rs.blk_stk.peek();
-		if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
-		    if (k >= rs.buf_size) {
-			rs.buf_size *= 2;
-			rs.buf = (char*)realloc(rs.buf, sizeof(char)*rs.buf_size);
-		    }
-		    //ignore preceeding whitespace
-		    if (line[i] != ' ' || line[i] != '\t' || line[i] != '\n') started = true;
-		    if (started) rs.buf[k++] = line[i];
-		    //check for assignment, otherwise handle blocks
-		    char match_tok = 0;
-		    char sep_tok = 0;
-		    if (line[i] == '=') {
-			if (rs.blk_stk.is_empty()) {
-			    rs.buf[k-1] = 0;
-			    //lval = CGS_trim_whitespace(buf, NULL);
-			    rval_start = k;
-			}
-		    } else if (line[i] == '(') {
-			match_tok = ')';
-		    } else if (line[i] == '[') {
-			match_tok = ']';
-		    } else if (line[i] == '{') {
-			//curly braces (specifying contexts) are a special case
-			long tmp = rs.lineno;
-			line_buffer lines_enc(b.get_enclosed(rs.lineno, &tmp, '{', '}', i, false));
-			if (tmp < 0) { free(rs.buf);return E_BAD_SYNTAX; }
-			rs.lineno = (size_t)tmp;
-			value tmp_val;
-			tmp_val.type = VAL_INST;
-			tmp_val.val.c = new context(this);
-			lines_enc.split(';');
-			tmp_val.val.c->read_from_lines(lines_enc);
-			emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
-			cleanup_val(&tmp_val);
-			break;
-		    }
-		    if (match_tok != 0 && i > rval_start) {
-			long tmp = rs.lineno;
-			line_buffer lines_enc(b.get_enclosed(rs.lineno, &tmp, line[i], match_tok, i, true));
-			if (tmp < 0) { free(rs.buf);return E_BAD_SYNTAX; }
-			rs.lineno = (size_t)tmp;
-			//we have to advance to the end of the function declaration
-			char* enc = lines_enc.flatten(sep_tok);
-			//concatenate the string using thingies
-			size_t dest_len = (k - rval_start) + strlen(enc) + 2;
-			rs.buf = (char*)realloc(rs.buf, sizeof(char)*(k+dest_len));
-			strcpy(rs.buf+k-1, enc);
-			free(enc);
-			//parse the value
-			value tmp_val = parse_value(rs.buf+rval_start, er);
-			if (er != E_SUCCESS) { free(rs.buf);return er; }
-			emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
-			cleanup_val(&tmp_val);
-			break;
-		    }
-		}
-	    }
-	    //only set the rval if we haven't done so already
-	    if (line[i] == 0) {
-		rs.buf[k] = 0;
-		value tmp_val = parse_value(rs.buf+rval_start, er);
-		if (er != E_SUCCESS) { free(rs.buf);return er; }
-		emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
-		cleanup_val(&tmp_val);
-	    }
-	}/* else {
-	    er = read_single_line(line, b, rs.lineno, rs.blk_stk, rs.buf_size, rs.buf);
+	    er = read_single_line(rs);
 	    if (er != E_SUCCESS) { free(rs.buf);return er; }
-	}*/
+	}
 	free(line);
     }
     free(rs.buf);

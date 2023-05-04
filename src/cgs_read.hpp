@@ -40,7 +40,7 @@ bool is_token(const char* str, size_t i, size_t len);
 char* find_token_before(char* str, size_t i);
 char* strchr_block(char* str, char c);
 char* token_block(char* str, const char* comp);
-int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno);
+size_t read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno);
 char* CGS_trim_whitespace(char* str, size_t* len);
 
 /** ============================ line_buffer ============================ **/
@@ -258,16 +258,7 @@ public:
 };
 
 class CompositeObject;
-/**
- * This acts similar to getline, but stops at a semicolon, newline (unless preceeded by a \), {, or }.
- * bufptr: a pointer to which the buffer is saved. If bufptr is NULL than a new buffer is allocated through malloc()
- * n: a pointer to a size_t with the number of characters in the buffer pointed to by bufptr. The call will return do nothing if n is null but *bufptr is not.
- * fp: file pointer to read from
- * linecount: a pointer to an integer specifying the number of new line characters read.
- * Returns: 0 if the end of the file was reached, 1 otherwise
- */
-int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* line);
-//
+
 class value;
 class context;
 class user_func;
@@ -374,7 +365,7 @@ private:
     context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
     //parse_ercode read_single_line(char* line, read_state& b);
-    parse_ercode read_single_line(char* line, const line_buffer& b, size_t lineno, stack<block_type>& blk_stk, size_t buf_size, char* buf);
+    parse_ercode read_single_line(context::read_state& rs);
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }

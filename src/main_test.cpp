@@ -1039,7 +1039,23 @@ TEST_CASE("Test operations") {
     }
 }
 
-TEST_CASE("test it_single") {
+TEST_CASE("Test line_buffer splitting") {
+    const char* lines[] = { "apple; banana;c", ";orange" };
+    size_t n_lines = sizeof(lines)/sizeof(char*);
+    line_buffer lb(lines, n_lines);
+    CHECK(lb.get_n_lines() == 2);
+    char* strval = lb.get_line(0);CHECK(strcmp(lines[0], strval) == 0);free(strval);
+    strval = lb.get_line(1);CHECK(strcmp(lines[1], strval) == 0);free(strval);
+    lb.split(';');
+    CHECK(lb.get_n_lines() == 5);
+    strval = lb.get_line(0);CHECK(strcmp("apple", strval) == 0);free(strval);
+    strval = lb.get_line(1);CHECK(strcmp(" banana", strval) == 0);free(strval);
+    strval = lb.get_line(2);CHECK(strcmp("c", strval) == 0);free(strval);
+    strval = lb.get_line(3);CHECK(strcmp("", strval) == 0);free(strval);
+    strval = lb.get_line(4);CHECK(strcmp("orange", strval) == 0);free(strval);
+}
+
+TEST_CASE("test line_buffer it_single") {
     const char* lines[] = { "def test_fun(a)", "{", "if a > 5 {", "return 1", "}", "return 0", "}" };
     size_t n_lines = sizeof(lines)/sizeof(char*);
     //check the lines (curly brace on new line)
@@ -1103,23 +1119,7 @@ TEST_CASE("test it_single") {
     }
 }
 
-TEST_CASE("Test splitting") {
-    const char* lines[] = { "apple; banana;c", ";orange" };
-    size_t n_lines = sizeof(lines)/sizeof(char*);
-    line_buffer lb(lines, n_lines);
-    CHECK(lb.get_n_lines() == 2);
-    char* strval = lb.get_line(0);CHECK(strcmp(lines[0], strval) == 0);free(strval);
-    strval = lb.get_line(1);CHECK(strcmp(lines[1], strval) == 0);free(strval);
-    lb.split(';');
-    CHECK(lb.get_n_lines() == 5);
-    strval = lb.get_line(0);CHECK(strcmp("apple", strval) == 0);free(strval);
-    strval = lb.get_line(1);CHECK(strcmp(" banana", strval) == 0);free(strval);
-    strval = lb.get_line(2);CHECK(strcmp("c", strval) == 0);free(strval);
-    strval = lb.get_line(3);CHECK(strcmp("", strval) == 0);free(strval);
-    strval = lb.get_line(4);CHECK(strcmp("orange", strval) == 0);free(strval);
-}
-
-TEST_CASE("Test get_enclosed") {
+TEST_CASE("Test line_buffer get_enclosed") {
     const char* fun_contents[] = {"", "if a > 5 {", "return 1", "}", "return 0", ""};
     const char* if_contents[] = {"", "return 1", ""};
     size_t fun_n = sizeof(fun_contents)/sizeof(char*);
@@ -1342,6 +1342,15 @@ TEST_CASE("Test context parsing") {
 	}
 	free(tmp_name);
     }
+}
+
+TEST_CASE("Test context file parsing") {
+    line_buffer lb("tests/alpha.geom");
+    CHECK(lb.get_n_lines() == 12);
+    context c;
+    parse_ercode er = c.read_from_lines(lb);
+    CHECK(er == E_SUCCESS);
+    CHECK(c.size() == 4);
 }
 
 TEST_CASE("Test volumes") {

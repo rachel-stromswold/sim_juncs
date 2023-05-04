@@ -500,7 +500,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 	char last_char = 0;
 	//iterate over each line in the file
 	//while (fgets(buf, BUF_SIZE, fp)) {//}
-	while (line_len >= 0) {
+	while (line_len > 0) {
 	    //char* red_str = CGS_trim_whitespace(buf, &line_len);
 	    for (int i = 0; i < line_len && buf[i]; ++i) {
 		//check the most recent block pushed onto the stack
