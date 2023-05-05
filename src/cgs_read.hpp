@@ -33,6 +33,15 @@ typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_
 typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST} valtype;
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
 
+inline void* xrealloc(void* p, size_t nsize) {
+    void* tmp = realloc(p, nsize);
+    if (!tmp) {
+	fprintf(stderr, "Insufficient memory to allocate block of size %lu!\n", nsize);
+	exit(EXIT_FAILURE);
+    }
+    return tmp;
+}
+
 /** ======================================================== utility functions ======================================================== **/
 
 bool is_char_sep(char c);
@@ -81,7 +90,7 @@ public:
     int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delimse, bool include_start) const;
 #endif
     line_buffer();
-    line_buffer(char* p_fname);
+    line_buffer(const char* p_fname);
     line_buffer(const char** p_lines, size_t pn_lines);
     line_buffer(const char* line, char sep, const char* ignore_blocks = "\"\"()[]{}");
     line_buffer(const line_buffer& o);
@@ -343,6 +352,7 @@ public:
     name_val_pair& operator=(name_val_pair& o);
     name_val_pair& operator=(const name_val_pair& o);
     bool name_matches(const char* str) const;
+    const char* get_name() { return name; }
     value& get_val();
 };
 struct type_ind_pair {
@@ -382,7 +392,7 @@ public:
     value lookup(const char* name) const;
     parse_ercode pop_n(size_t n);
     value parse_value(char* tok, parse_ercode& er);
-    value parse_value(const line_buffer& b, line_buffer_ind pos, parse_ercode& er);
+    value parse_value(const line_buffer& b, line_buffer_ind& pos, parse_ercode& er);
     cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
     void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }

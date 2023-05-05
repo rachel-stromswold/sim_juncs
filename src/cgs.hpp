@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cstdint>
 #include <math.h>
+#include <limits>
 
 #define DEF_TEST_N	50000
 #define WALK_STEP_STC	0.05
@@ -31,6 +32,8 @@
 typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE, CGS_CMB_NOOP } combine_type;
 //note that ROOTS are a special type of COMPOSITES
 typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_PLANE, CGS_CYLINDER } object_type;
+
+void setup_geometry_context(context& con);
 
 /*
  * A virtual class which describes a simple shape (such as cubes, cylinders spheres etc)
