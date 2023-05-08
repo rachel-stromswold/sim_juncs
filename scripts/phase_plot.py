@@ -7,6 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from scipy.stats import linregress
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 plt.rc('font', size=14)
 plt.rc('xtick', labelsize=12)
@@ -31,6 +32,8 @@ parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian 
 parser.add_argument('--fname', type=str, help='h5 file to read', default='field_samples.h5')
 parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
 parser.add_argument('--recompute', action='store_true', help='If set, then phase estimation is recomputed. Otherwise, information is read from files saved in <prefix>', default=False)
+parser.add_argument('--plot-cbar', action='store_true', help='If set, then plot the color bar for images', default=False)
+parser.add_argument('--plot-y-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
 parser.add_argument('--do-time-fits', action='store_true', help='If set, then an additional post processing step is performed. This post processing applies phase fitting in the time domain after extracting parameters from the frequency domain. This can produce smoother looking figures, but tends to break in extremal cases.', default=False)
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
@@ -311,17 +314,35 @@ def make_fits(pf, n_groups=-1, recompute=False):
     fig_omg.savefig(args.prefix+"/sigs.pdf")
     fig_fits.savefig(args.prefix+"/fits.pdf")
 
-def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis'):
-    ax[0].set_title(title)
-    ax[0].get_xaxis().set_visible(False)
-    ax[0].get_yaxis().set_visible(False)
+def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis', vlines=[], xlabels=[[],[]], ylabels=[[],[]]):
+    '''if args.plot_cbar:
+        ax0 = ax[0]
+        ax1 = ax[1]
+    else:
+        ax0 = ax
+        ax1 = None'''
+    ax.set_title(title)
+    if len(xlabels[0]) == 0:
+        ax.get_xaxis().set_visible(False)
+    else:
+        ax.set_xticks(xlabels[0], labels=xlabels[1])
+    if len(ylabels[0]) == 0:
+        ax.get_yaxis().set_visible(False)
+    else:
+        ax.set_yticks(ylabels[0], labels=ylabels[1])
+    for xx in vlines:
+        ax.axvline(x=xx, color='gray')
     #do plots
     if rng is None:
-        im = ax[0].imshow(imdat, cmap=cmap)
+        im = ax.imshow(imdat, cmap=cmap)
     else:
-        im = ax[0].imshow(imdat, vmin=rng[0], vmax=rng[1], cmap=cmap)
-    cbar = fg.colorbar(im, cax=ax[1])
-    cbar.ax.set_ylabel(label)
+        im = ax.imshow(imdat, vmin=rng[0], vmax=rng[1], cmap=cmap)
+    if args.plot_cbar:
+        #cbar = fg.colorbar(im, cax=ax1, fraction=0.046*im_ratio, pad=0.04)
+        #cbar.ax.set_ylabel(label)
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="2%", pad=0.05)
+        plt.colorbar(im, cax=cax)
     fg.tight_layout()
 
 def plot_average_phase(pf, n_groups=-1):
@@ -354,31 +375,54 @@ def plot_average_phase(pf, n_groups=-1):
     x_max = cl_xs[0][-1]
     z_min = pf.get_clust_location(pf.clust_names[0])
     z_max = pf.get_clust_location(pf.clust_names[-1])
+    dx = cl_xs[0][1] - cl_xs[0][0]
+    xl = np.floor( (x_max - args.gap_width - x_min)/(2*dx) )+0.5
+    xm = np.floor( (x_max - x_min)/(2*dx) )+0.5
+    xr = np.floor( (x_max + args.gap_width - x_min)/(2*dx) )+0.5
+    zt = 0
+    zb = (pf.get_clust_location(pf.clust_names[-1]) - pf.get_clust_location(pf.clust_names[0]))
 
     #phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.28,0.32,0.17)]
     phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
     cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
 
+    #set plot parameters which are reused
+    title = "$L={}$ $\mu$m $\lambda={}$ $\mu$m".format(args.gap_thick, wg.vac_wavelen)
+    n_cbar = 1
+    wrs = [1]
+    vlines = [xl, xr]
+    xlabels = [[xl, xr, len(cl_xs[0])-1], ["{}".format(-args.gap_width*500), "{}".format(args.gap_width*500), "(nm)"]]
+    ylabels = [[], []]
+    if args.plot_cbar:
+        n_cbar = 2
+        wrs = [32,1]
+    if args.plot_y_labels:
+        ylabels = [[1, len(cl_xs)-1], ["0 nm", "{} nm".format(args.gap_thick*500)]]
+
     #save heatmaps of amplitudes and phases
     for i in range(n_groups):
-        heat_fig, heat_ax = plt.subplots(2,2, gridspec_kw={'width_ratios':[24,1]})
-        make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], r"Amplitudes L={} $\mu$m $\lambda$={} $\mu$m".format(args.gap_thick, wg.vac_wavelen), "amplitude (arb. units)", rng=AMP_RANGE, cmap='Reds')
+        #heat_fig, heat_ax = plt.subplots(2,n_cbar, gridspec_kw={'width_ratios':wrs, 'wspace':0.1, 'hspace':0.1})
+        heat_fig, heat_ax = plt.subplots(2, gridspec_kw={'hspace':0.1})
+        make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], "", "amplitude\n(arb. units)", rng=AMP_RANGE, cmap='Reds', vlines=vlines, ylabels=ylabels)
+        make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap, vlines=vlines, xlabels=xlabels, ylabels=ylabels)
         #make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
-        make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap)
-        heat_fig.savefig(args.prefix+"/heatmap_grp{}.pdf".format(i))
+
+        heat_fig.savefig(args.prefix+"/heatmap_grp{}.pdf".format(i), bbox_inches='tight')
         plt.close(heat_fig)
         #plot skews
-        heat_fig, heat_ax = plt.subplots(1,2, gridspec_kw={'width_ratios':[24,1]})
-        make_heatmap(heat_fig, heat_ax, cl_skew[i*grp_len:(i+1)*grp_len], "Skews", "skewness", cmap='Reds')
-        heat_fig.savefig(args.prefix+"/heatmap_skew_grp{}.pdf".format(i))
-        plt.close(heat_fig)
+        nfig = plt.figure()
+        nax = plt.gca()
+        make_heatmap(nfig, nax, cl_skew[i*grp_len:(i+1)*grp_len], "", "skewness", cmap='Reds', vlines=vlines, xlabels=xlabels, ylabels=ylabels)
+        nfig.savefig(args.prefix+"/heatmap_skew_grp{}.pdf".format(i), bbox_inches='tight')
+        plt.close(nfig)
         #plot errors
-        heat_fig, heat_ax = plt.subplots(1,2, gridspec_kw={'width_ratios':[24,1]})
-        make_heatmap(heat_fig, heat_ax, cl_err[i*grp_len:(i+1)*grp_len], "Square errors", "fit error (arb. units)")
+        heat_fig = plt.figure()
+        heat_ax = plt.gca()
+        make_heatmap(heat_fig, heat_ax, cl_err[i*grp_len:(i+1)*grp_len], "", "fit error (arb. units)", vlines=vlines, xlabels=xlabels, ylabels=ylabels)
         heat_fig.savefig(args.prefix+"/heatmap_err_grp{}.pdf".format(i))
         plt.close(heat_fig)
         #plot reflected phases
-        heat_fig, heat_ax = plt.subplots(2,2, gridspec_kw={'width_ratios':[24,1]})
+        heat_fig, heat_ax = plt.subplots(2)
         make_heatmap(heat_fig, heat_ax[0], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
         make_heatmap(heat_fig, heat_ax[1], cl_ampr[i*grp_len:(i+1)*grp_len], "Reflected amplitudes", r"$\phi/2\pi$", rng=AMP_RANGE, cmap='Reds')
         heat_fig.savefig(args.prefix+"/heatmap_phs_grp{}.pdf".format(i))
