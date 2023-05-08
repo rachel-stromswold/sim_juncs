@@ -35,9 +35,9 @@ value cgs_gen_gaussian_source(context& c, cgs_func f, parse_ercode& er) {
     ret.val.c->emplace( "component", make_val_num((double)read_component_string(f.args[0].val.s)) );
     ret.val.c->emplace("wavelength", f.args[1]);
     ret.val.c->emplace("amplitude", f.args[2]);
-    ret.val.c->emplace("t_0", f.args[2]);
-    ret.val.c->emplace("width", f.args[3]);
-    ret.val.c->emplace("phase", f.args[4]);
+    ret.val.c->emplace("t_0", f.args[3]);
+    ret.val.c->emplace("width", f.args[4]);
+    ret.val.c->emplace("phase", f.args[5]);
     //read additional parameters
     ret.val.c->emplace("cutoff", make_val_num(5));
     ret.val.c->emplace("start_time", make_val_num(5));
@@ -49,6 +49,8 @@ value cgs_gen_gaussian_source(context& c, cgs_func f, parse_ercode& er) {
 	    else if (strcmp(f.arg_names[i], "end_time") == 0) ret.val.c->emplace("end_time", f.args[i]);
 	}
     }
+    //the last argument is always the region
+    ret.val.c->emplace("region", f.args[f.n_args-1]);
     return ret;
 }
 value cgs_gen_continuous_source(context& c, cgs_func f, parse_ercode& er) {
@@ -76,6 +78,8 @@ value cgs_gen_continuous_source(context& c, cgs_func f, parse_ercode& er) {
 	    else if (strcmp(f.arg_names[i], "end_time") == 0) ret.val.c->emplace("end_time", f.args[i]);
 	}
     }
+    //the last argument is always the region
+    ret.val.c->emplace("region", f.args[f.n_args-1]);
     return ret;
 }
 value cgs_gen_box(context& c, cgs_func f, parse_ercode& er) {

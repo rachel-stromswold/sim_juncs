@@ -386,6 +386,8 @@ private:
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
+    //context(const context& o);
+    //context(context&& o);
     ~context() {}
     //parse_ercode push(_uint side, CompositeObject* obj);
     void emplace(const char* p_name, value p_val) { name_val_pair inst(p_name, p_val);push(inst); }
@@ -398,8 +400,8 @@ public:
     void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }
     parse_ercode set_value(const char* name, value new_val);
     parse_ercode read_from_lines(const line_buffer& b);
-
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
+    value peek_val(size_t i=0);
 };
 
 /**

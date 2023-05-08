@@ -1329,6 +1329,21 @@ value& name_val_pair::get_val() {
 
 /** ======================================================== cgs_func ======================================================== **/
 
+/*context::context(const context& o) {
+    parent = o.parent;
+    stack_ptr = o.stack_ptr;
+    for (size_t i = 0; i < stack_ptr; ++i) {
+	buf[i] = o.buf[i];
+    }
+}
+context::context(context&& o) {
+    parent = o.parent;
+    stack_ptr = o.stack_ptr;
+    for (size_t i = 0; i < stack_ptr; ++i) {
+	buf[i] = o.buf[i];
+    }
+}*/
+
 /**
  * Given the string starting at token, and the index of an open paren parse the result into a cgs_func struct.
  * token: a c-string which is modified in place that contains the function
@@ -1433,6 +1448,13 @@ value context::lookup(const char* str) const {
 	return parent->lookup(str);
     }
     //return a default undefined value if nothing was found
+    return ret;
+}
+
+value context::peek_val(size_t i) {
+    if (i < stack_ptr)
+	return buf[stack_ptr - i].get_val();
+    value ret;ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;
     return ret;
 }
 
@@ -2025,25 +2047,19 @@ parse_ercode context::read_single_line(char* line, context::read_state& rs) {
 	    //check for assignment, otherwise handle blocks
 	    char match_tok = 0;
 	    char sep_tok = 0;
-	    if (line[rs.pos.off] == '=') {
+	    if (line[rs.pos.off] == '('/*)*/ || line[rs.pos.off] == '['/*]*/ || line[rs.pos.off] == '{'/*}*/) {
+		break;
+	    } else if (line[rs.pos.off] == '=') {
 		rs.buf[k-1] = 0;
 		lval = CGS_trim_whitespace(rs.buf, NULL);
 		start_pos.off = k;
 		//make sure we aren't at the end of the file
-		/*if (!rs.b.inc(rs.pos)) return E_BAD_SYNTAX;
-		//read the value, check for errors and put it on the stack
-		value tmp_val = parse_value(rs.b, rs.pos, er);
-		if (er != E_SUCCESS) return er;
-		emplace(CGS_trim_whitespace(rs.buf, NULL), tmp_val);
-		cleanup_val(&tmp_val);*/
 		break;
 	    }
 	}
     }
     //only set the rval if we haven't done so already
     if (started) {
-	/*line_buffer_ind start_ind(rs.pos.line, 0);
-	value tmp_val = parse_value(rs.b, start_ind, er);*/
 	value tmp_val = parse_value(rs.b, start_pos, er);
 	rs.pos = start_pos;
 	if (er != E_SUCCESS) return er;
