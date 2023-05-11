@@ -473,4 +473,9 @@ else:
     res = psig.opt_envelope_asym()
     psig.make_raw_plt(raw_ax)
     raw_fig.savefig("{}/fit_{}_{}_raw_opt.svg".format(args.prefix, clust, j))
+    #compare methods using electric fields directly and vector potentials
+    fig, axs = plt.subplots(2)
+    psig.compare_envelopes(axs[0])
+    psig.compare_signals(axs[1])
+    fig.savefig("{}/fit_{}_{}_comparisons.svg".format(args.prefix, clust, j))
     print("\tskew:", skew)
