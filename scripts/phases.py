@@ -167,20 +167,31 @@ class signal:
         freq_range = self._get_freq_fwhm()
         f_min = freq_range[0]
         f_max = freq_range[1]
-        #using this frequency range, perform a linear regression to estimate phi and t0
-        angles = fix_angle_seq(np.angle(self.vf[f_min:f_max]))
-        res = linregress(self.freqs[f_min:f_max], angles)
-        self._t0_corr = -res.slope/(2*np.pi)
-        self._phi_corr = fix_angle(-res.intercept)
-        #if there were a lot of oscillations within the fwhm, that is a sign that the signal may need to be shifted
-        if np.abs(self._t0_corr) > 2/(f_max-f_min) and n_evals < MAX_PARAM_EVALS:
-            if verbose > 0:
-                print("\trecentering pulse!")
-            self.t0_ind += int(self._t0_corr/self.dt)
-            tmp_vf = 2*fft.rfft( np.roll(self.v_pts, -self.t0_ind) )
-            self._apply_lowpass(tmp_vf, self._last_cent_f, self._low_stren)
-            #self.t0_ind -= int(self._t0_corr/self.dt)
-            self._param_est(n_evals=n_evals+1)
+        if self.f0_ind > 0:
+            if f_min == f_max:
+                f_min -= 1
+                f_max += 1
+                if verbose > 1:
+                    print("\twarning: expanded empty frequency range")
+            #using this frequency range, perform a linear regression to estimate phi and t0
+            angles = fix_angle_seq(np.angle(self.vf[f_min:f_max]))
+            res = linregress(self.freqs[f_min:f_max], angles)
+            self._t0_corr = -res.slope/(2*np.pi)
+            self._phi_corr = fix_angle(-res.intercept)
+            #if there were a lot of oscillations within the fwhm, that is a sign that the signal may need to be shifted
+            if np.abs(self._t0_corr) > 2/(f_max-f_min) and n_evals < MAX_PARAM_EVALS:
+                if verbose > 0:
+                    print("\trecentering pulse!")
+                self.t0_ind += int(self._t0_corr/self.dt)
+                tmp_vf = 2*fft.rfft( np.roll(self.v_pts, -self.t0_ind) )
+                self._apply_lowpass(tmp_vf, self._last_cent_f, self._low_stren)
+                #self.t0_ind -= int(self._t0_corr/self.dt)
+                self._param_est(n_evals=n_evals+1)
+        else:
+            self._t0_corr = 0
+            self._phi_corr = 0
+            if verbose > 1:
+                print("\twarning: invalid frequency peak, set to phase=0")
 
     def _apply_lowpass(self, vf0, cent_freq, strength):
         self.vf = vf0*np.sinc((self.freqs-cent_freq)*strength)

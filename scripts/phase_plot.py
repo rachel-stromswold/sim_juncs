@@ -19,6 +19,7 @@ AMP_RANGE = (0, 1.5)
 OMG_RANGE = (0, 4.0)
 SIG_RANGE = (0, 10.0)
 PHI_RANGE = (-1.0, 1.0)
+SKW_RANGE = (-10.0, 50.0)
 N_FREQ_COMPS=100
 EPS_0 = 200.6
 #EPS_0 = 2.5
@@ -338,11 +339,10 @@ def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis', vlines=[
     else:
         im = ax.imshow(imdat, vmin=rng[0], vmax=rng[1], cmap=cmap)
     if args.plot_cbar:
-        #cbar = fg.colorbar(im, cax=ax1, fraction=0.046*im_ratio, pad=0.04)
-        #cbar.ax.set_ylabel(label)
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="2%", pad=0.05)
         plt.colorbar(im, cax=cax)
+        cax.set_ylabel(label)
     fg.tight_layout()
 
 def plot_average_phase(pf, n_groups=-1):
@@ -412,7 +412,7 @@ def plot_average_phase(pf, n_groups=-1):
         #plot skews
         nfig = plt.figure()
         nax = plt.gca()
-        make_heatmap(nfig, nax, cl_skew[i*grp_len:(i+1)*grp_len], "", "skewness", cmap='Reds', vlines=vlines, xlabels=xlabels, ylabels=ylabels)
+        make_heatmap(nfig, nax, cl_skew[i*grp_len:(i+1)*grp_len], "", "skewness", cmap='Reds', rng=SKW_RANGE, vlines=vlines, xlabels=xlabels, ylabels=ylabels)
         nfig.savefig(args.prefix+"/heatmap_skew_grp{}.pdf".format(i), bbox_inches='tight')
         plt.close(nfig)
         #plot errors
