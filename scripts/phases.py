@@ -148,9 +148,9 @@ class signal:
             return 0
         return int( avg_t / tot_mag )
 
-    def _get_freq_fwhm(self):
+    def _get_freq_fwhm(self, threshold=0.5):
         #find the region in frequency that has magnitude greater than max_freq/2
-        cut_amp = self.mags[self.f0_ind]/2
+        cut_amp = self.mags[self.f0_ind]*threshold
         f_min = self.f0_ind
         f_max = self.f0_ind
         j_bound = min(self.f0_ind, len(self.mags)-self.f0_ind-1)
@@ -163,15 +163,22 @@ class signal:
                 f_max = self.f0_ind + j + 1
         return [f_min, f_max]
 
-    def _param_est(self, n_evals=0):
-        freq_range = self._get_freq_fwhm()
+    def _param_est(self, n_evals=0, threshold=0.1, mode="l"):
+        freq_range = self._get_freq_fwhm(threshold=threshold)
         f_min = freq_range[0]
         f_max = freq_range[1]
-        #using this frequency range, perform a linear regression to estimate phi and t0
         angles = fix_angle_seq(np.angle(self.vf[f_min:f_max]))
-        res = linregress(self.freqs[f_min:f_max], angles)
-        self._t0_corr = -res.slope/(2*np.pi)
-        self._phi_corr = fix_angle(res.intercept)
+        #using this frequency range, perform a linear or cubic fit to estimate phi and t0
+        if (mode == "cubic"):
+            popt, pcov = opt.curve_fit(lambda f,p0,p1,p3: -p3*f**3 - p1*f + p0, self.freqs[f_min:f_max], angles)
+            self._t0_corr = popt[1]/(2*np.pi)
+            self._phi_corr = fix_angle(popt[0])
+        else:
+            res = linregress(self.freqs[f_min:f_max], angles)
+            self._t0_corr = -res.slope/(2*np.pi)
+            self._phi_corr = fix_angle(res.intercept)
+        if verbose > 2:
+            print("\t{}: arg(a(t)) ~ {}f + {}".format(mode, -self._t0_corr, self._phi_corr))
         #if there were a lot of oscillations within the fwhm, that is a sign that the signal may need to be shifted
         if np.abs(self._t0_corr) > 2/(f_max-f_min) and n_evals < MAX_PARAM_EVALS:
             if verbose > 0:
@@ -179,8 +186,7 @@ class signal:
             self.t0_ind += int(self._t0_corr/self.dt)
             tmp_vf = 2*fft.rfft( np.roll(self.v_pts, -self.t0_ind) )
             self._apply_lowpass(tmp_vf, self._last_cent_f, self._low_stren)
-            #self.t0_ind -= int(self._t0_corr/self.dt)
-            self._param_est(n_evals=n_evals+1)
+            self._param_est(n_evals=n_evals+1, mode=mode, threshold=threshold)
 
     def _apply_lowpass(self, vf0, cent_freq, strength):
         self.vf = vf0*np.sinc((self.freqs-cent_freq)*strength)
@@ -454,6 +460,7 @@ class signal:
         axs.legend(loc='upper right')
 
     def compare_signals(self, axs):
+        print(self._phi_corr)
         env = self.get_envelope()
         env_vec = 2*self.get_envelope_vec_pot()
         max_t = self.t_pts[np.argmax(self.v_pts)]
