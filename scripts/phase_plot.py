@@ -316,12 +316,6 @@ def make_fits(pf, n_groups=-1, recompute=False):
     fig_fits.savefig(args.prefix+"/fits.pdf")
 
 def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis', vlines=[], xlabels=[[],[]], ylabels=[[],[]]):
-    '''if args.plot_cbar:
-        ax0 = ax[0]
-        ax1 = ax[1]
-    else:
-        ax0 = ax
-        ax1 = None'''
     ax.set_title(title)
     if len(xlabels[0]) == 0:
         ax.get_xaxis().set_visible(False)
@@ -477,4 +471,9 @@ else:
     res = psig.opt_envelope_asym()
     psig.make_raw_plt(raw_ax)
     raw_fig.savefig("{}/fit_{}_{}_raw_opt.svg".format(args.prefix, clust, j))
+    #compare methods using electric fields directly and vector potentials
+    fig, axs = plt.subplots(2)
+    psig.compare_envelopes(axs[0])
+    psig.compare_signals(axs[1])
+    fig.savefig("{}/fit_{}_{}_comparisons.svg".format(args.prefix, clust, j))
     print("\tskew:", skew)

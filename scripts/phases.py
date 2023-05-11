@@ -148,9 +148,9 @@ class signal:
             return 0
         return int( avg_t / tot_mag )
 
-    def _get_freq_fwhm(self):
+    def _get_freq_fwhm(self, threshold=0.5):
         #find the region in frequency that has magnitude greater than max_freq/2
-        cut_amp = self.mags[self.f0_ind]/2
+        cut_amp = self.mags[self.f0_ind]*threshold
         f_min = self.f0_ind
         f_max = self.f0_ind
         j_bound = min(self.f0_ind, len(self.mags)-self.f0_ind-1)
@@ -163,35 +163,30 @@ class signal:
                 f_max = self.f0_ind + j + 1
         return [f_min, f_max]
 
-    def _param_est(self, n_evals=0):
-        freq_range = self._get_freq_fwhm()
+    def _param_est(self, n_evals=0, threshold=0.1, mode="l"):
+        freq_range = self._get_freq_fwhm(threshold=threshold)
         f_min = freq_range[0]
         f_max = freq_range[1]
-        if self.f0_ind > 0:
-            if f_min == f_max:
-                f_min -= 1
-                f_max += 1
-                if verbose > 1:
-                    print("\twarning: expanded empty frequency range")
-            #using this frequency range, perform a linear regression to estimate phi and t0
-            angles = fix_angle_seq(np.angle(self.vf[f_min:f_max]))
+        angles = fix_angle_seq(np.angle(self.vf[f_min:f_max]))
+        #using this frequency range, perform a linear or cubic fit to estimate phi and t0
+        if (mode == "cubic"):
+            popt, pcov = opt.curve_fit(lambda f,p0,p1,p3: -p3*f**3 - p1*f + p0, self.freqs[f_min:f_max], angles)
+            self._t0_corr = popt[1]/(2*np.pi)
+            self._phi_corr = fix_angle(popt[0])
+        else:
             res = linregress(self.freqs[f_min:f_max], angles)
             self._t0_corr = -res.slope/(2*np.pi)
-            self._phi_corr = fix_angle(-res.intercept)
-            #if there were a lot of oscillations within the fwhm, that is a sign that the signal may need to be shifted
-            if np.abs(self._t0_corr) > 2/(f_max-f_min) and n_evals < MAX_PARAM_EVALS:
-                if verbose > 0:
-                    print("\trecentering pulse!")
-                self.t0_ind += int(self._t0_corr/self.dt)
-                tmp_vf = 2*fft.rfft( np.roll(self.v_pts, -self.t0_ind) )
-                self._apply_lowpass(tmp_vf, self._last_cent_f, self._low_stren)
-                #self.t0_ind -= int(self._t0_corr/self.dt)
-                self._param_est(n_evals=n_evals+1)
-        else:
-            self._t0_corr = 0
-            self._phi_corr = 0
-            if verbose > 1:
-                print("\twarning: invalid frequency peak, set to phase=0")
+            self._phi_corr = fix_angle(res.intercept)
+        if verbose > 2:
+            print("\t{}: arg(a(t)) ~ {}f + {}".format(mode, -self._t0_corr, self._phi_corr))
+        #if there were a lot of oscillations within the fwhm, that is a sign that the signal may need to be shifted
+        if np.abs(self._t0_corr) > 2/(f_max-f_min) and n_evals < MAX_PARAM_EVALS:
+            if verbose > 0:
+                print("\trecentering pulse!")
+            self.t0_ind += int(self._t0_corr/self.dt)
+            tmp_vf = 2*fft.rfft( np.roll(self.v_pts, -self.t0_ind) )
+            self._apply_lowpass(tmp_vf, self._last_cent_f, self._low_stren)
+            self._param_est(n_evals=n_evals+1, mode=mode, threshold=threshold)
 
     def _apply_lowpass(self, vf0, cent_freq, strength):
         self.vf = vf0*np.sinc((self.freqs-cent_freq)*strength)
@@ -297,9 +292,26 @@ class signal:
         self.phi = self.t_pts[env_peak+best_ind-np.argmax(self.v_pts)]*2*np.pi*self.f0
         return np.roll(env, best_ind)
 
+    def get_envelope_vec_pot(self):
+        '''if self.envelope is not None:
+            return self.envelope'''
+        #divide by i\omega, handle the zero frequency divergence in a sketchy way
+        oms = 2*np.pi*self.freqs
+        oms[0] = self.vf[1]
+        full_fft = np.pad(-self.vf/oms, (0, self.mags.shape[0]-2))
+        #take the inverse fourier transform and shift to the peak of the pulse
+        self.envelope = 2*self._roll_envelope(np.abs( fft.ifft(np.roll(full_fft, -self.f0_ind)) ))
+        #self.envelope = np.abs( np.roll(fft.ifft(np.roll(full_fft, -self.f0_ind)), self.t0_ind) )
+        #for odd numbers of time points, the inverse fourier transform will have one fewer points
+        if len(self.t_pts) > len(self.envelope):
+            self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
+        mu, env = self.get_mu(env=self.envelope)
+        #self.phi = (mu-self.t_pts[np.argmax(self.v_pts)])*2*np.pi*self.f0
+        return self.envelope
+
     def get_envelope(self):
-        if self.envelope is not None:
-            return self.envelope
+        '''if self.envelope is not None:
+            return self.envelope'''
         #take the inverse fourier transform and shift to the peak of the pulse
         full_fft = np.pad(self.vf, (0, self.mags.shape[0]-2))
         self.envelope = 2*self._roll_envelope(np.abs( fft.ifft(np.roll(full_fft, -self.f0_ind)) ))
@@ -338,8 +350,8 @@ class signal:
             return np.sum((this_env[samp_is] - vs)**2)
         res = opt.minimize(fp, 0.0)
         print(fp(0.0), res.fun)
-        self._t0_corr += res.x
-        self._phi_corr = fix_angle(self._phi_corr + 2*np.pi*self.f0*res.x)
+        self._t0_corr += res.x[0]
+        self._phi_corr = fix_angle(self._phi_corr + 2*np.pi*self.f0*res.x[0])
         #find the envelope to do some proce
         env_amp = np.max(env)
         _,env_w,_ = self.get_sig(env=env/(np.trapz(env)*self.dt))
@@ -438,6 +450,29 @@ class signal:
         axs[1].plot(self.t_pts, self.get_envelope(), color='red', label='envelope')
         axs[1].axvline(peak_t, color='teal', linestyle=':')
         axs[1].plot(self.t_pts, env*np.cos(2*np.pi*self.f0*(self.t_pts-peak_t)+self._phi_corr), color='orange', label='extracted pulse')
+
+    def compare_envelopes(self, axs):
+        env = self.get_envelope()
+        env_vec = self.get_envelope_vec_pot()
+        axs.plot(self.t_pts, self.v_pts, color='black', label='measured E(t)')
+        axs.plot(self.t_pts, np.abs(env), color='blue', label='a(t)')
+        axs.plot(self.t_pts, 2*np.abs(env_vec), color='red', label='b(t)')
+        axs.legend(loc='upper right')
+
+    def compare_signals(self, axs):
+        print(self._phi_corr)
+        env = self.get_envelope()
+        env_vec = 2*self.get_envelope_vec_pot()
+        max_t = self.t_pts[np.argmax(self.v_pts)]
+        t0 = max_t + self._phi_corr/(2*np.pi*self.f0)
+        env_shift = int((t0 - self.t_pts[self.t0_ind])/self.dt)
+        sig_direct = np.roll(env, env_shift)*np.cos(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr)
+        sig_vector = np.roll(env_vec, env_shift)*np.sin(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr)
+        sig_vector = np.pad(np.diff(sig_vector), (0,1))
+        axs.plot(self.t_pts, self.v_pts, color='black', label='measured')
+        axs.plot(self.t_pts, np.real(sig_direct), color='blue', label='a(t)')
+        axs.plot(self.t_pts, np.real(sig_vector), color='red', label='b(t)')
+        axs.legend(loc='upper right')
 
     def make_fit_plt(self, ax):
         #extract gaussian peaks
