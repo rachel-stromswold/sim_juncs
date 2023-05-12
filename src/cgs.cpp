@@ -1,317 +1,5 @@
 #include "cgs.hpp"
 
-/** ======================================================== scripting language functions ================================== **/
-
-enum basis_comp_vectors { Ex, Ey, Ez, Hx, Hy, Hz };
-
-basis_comp_vectors read_component_string(const char* str) {
-    basis_comp_vectors component = Ex;
-    if (strcmp(str, "Ex") == 0) {
-	component = Ex;
-    } else if (strcmp(str, "Ey") == 0) {
-	component = Ey;
-    } else if (strcmp(str, "Ez") == 0) {
-	component = Ez;
-    } else if (strcmp(str, "Hx") == 0) {
-	component = Hx;
-    } else if (strcmp(str, "Hy") == 0) {
-	component = Hy;
-    } else if (strcmp(str, "Hz") == 0) {
-	component = Hz;
-    }
-    return component;
-}
-value cgs_gen_gaussian_source(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 5) { er = E_LACK_TOKENS;return ret; }
-    if (f.args[0].type != VAL_STR) { er = E_BAD_TOKEN;return ret; }
-    if (!f.args[0].val.s) { er = E_BAD_VALUE;return ret; }
-    if (f.args[1].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
-    if (f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
-    if (f.args[3].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
-    if (f.args[4].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace( "type", make_val_str("Gaussian_source") );
-    ret.val.c->emplace( "component", make_val_num((double)read_component_string(f.args[0].val.s)) );
-    ret.val.c->emplace("wavelength", f.args[1]);
-    ret.val.c->emplace("amplitude", f.args[2]);
-    ret.val.c->emplace("t_0", f.args[3]);
-    ret.val.c->emplace("width", f.args[4]);
-    ret.val.c->emplace("phase", f.args[5]);
-    //read additional parameters
-    ret.val.c->emplace("cutoff", make_val_num(5));
-    ret.val.c->emplace("start_time", make_val_num(5));
-    ret.val.c->emplace("end_time", make_val_num(5));
-    for (size_t i = 5; i < f.n_args; ++i) {
-	if (f.arg_names[i]) {
-	    if (strcmp(f.arg_names[i], "cutoff") == 0) ret.val.c->emplace("cutoff", f.args[i]);
-	    else if (strcmp(f.arg_names[i], "start_time") == 0) ret.val.c->emplace("start_time", f.args[i]);
-	    else if (strcmp(f.arg_names[i], "end_time") == 0) ret.val.c->emplace("end_time", f.args[i]);
-	}
-    }
-    //the last argument is always the region
-    ret.val.c->emplace("region", f.args[f.n_args-1]);
-    return ret;
-}
-value cgs_gen_continuous_source(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 4) { er = E_LACK_TOKENS;return ret; }
-    if (f.args[0].type != VAL_STR) { er = E_BAD_TOKEN;return ret; }
-    if (!f.args[0].val.s) { er = E_BAD_VALUE;return ret; }
-    if (f.args[1].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
-    if (f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
-    if (f.args[3].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("CW_source"));
-    ret.val.c->emplace( "component", make_val_num((double)read_component_string(f.args[0].val.s)) );
-    ret.val.c->emplace("wavelength", f.args[1]);
-    ret.val.c->emplace("amplitude", f.args[2]);
-    ret.val.c->emplace("start_time", f.args[3]);
-    //read additional parameters
-    ret.val.c->emplace("width", make_val_num(5));
-    ret.val.c->emplace("slowness", make_val_num(5));
-    ret.val.c->emplace("end_time", make_val_num(std::numeric_limits<double>::max()));
-    for (size_t i = 5; i < f.n_args; ++i) {
-	if (f.arg_names[i]) {
-	    if (strcmp(f.arg_names[i], "width") == 0) ret.val.c->emplace("width", f.args[i]);
-	    else if (strcmp(f.arg_names[i], "slowness") == 0) ret.val.c->emplace("slowness", f.args[i]);
-	    else if (strcmp(f.arg_names[i], "end_time") == 0) ret.val.c->emplace("end_time", f.args[i]);
-	}
-    }
-    //the last argument is always the region
-    ret.val.c->emplace("region", f.args[f.n_args-1]);
-    return ret;
-}
-value cgs_gen_box(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 2) { er = E_LACK_TOKENS;return ret; }
-    value corn_1 = f.args[0].cast_to(VAL_3VEC, er);
-    if (er != E_SUCCESS) return ret;
-    value corn_2 = f.args[1].cast_to(VAL_3VEC, er);
-    if (er != E_SUCCESS) return ret;
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("Box"));
-    ret.val.c->emplace("pt_1", corn_1);
-    ret.val.c->emplace("pt_2", corn_2);
-    cleanup_val(&corn_1);
-    cleanup_val(&corn_2);
-    return ret;
-}
-value cgs_gen_plane(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 2) { er = E_LACK_TOKENS;return ret; }
-    value normal;
-    double offset = 0;
-    if (f.n_args < 3) {
-	//this means we have a normal vector and an offset
-	normal = f.args[0].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS || f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return ret; }
-	offset = f.args[1].val.x;
-    } else {
-	//this means we have three points defining the plane
-	value point_1 = f.args[0].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS) return ret;
-	value point_2 = f.args[1].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS) { cleanup_val(&point_1);return ret; }
-	value point_3 = f.args[2].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS) { cleanup_val(&point_1);cleanup_val(&point_2);return ret; }
-	//figure out the normal and offset from the information provided
-	vec3 diff_2 = *(point_2.val.v) - *(point_1.val.v);
-	vec3 diff_3 = *(point_3.val.v) - *(point_1.val.v);
-	normal = make_val_vec3( diff_2.cross(diff_3).normalize() );
-	offset = normal.val.v->dot(*(point_1.val.v));
-	cleanup_val(&point_1);
-	cleanup_val(&point_2);
-	cleanup_val(&point_3);
-    }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("Plane"));
-    ret.val.c->emplace("normal", normal);
-    ret.val.c->emplace("offset", make_val_num(offset));
-    cleanup_val(&normal);
-    return ret;
-}
-value cgs_gen_sphere(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 2) { er = E_LACK_TOKENS;return ret; }
-    //if we have enough tokens make sure we have both elements as vectors
-    value cent = f.args[0].cast_to(VAL_3VEC, er);
-    if (er != E_SUCCESS) return ret;
-    if (f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return ret; }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("Sphere"));
-    ret.val.c->emplace("center", cent);
-    ret.val.c->emplace("radius", f.args[1]);
-    //cleanup
-    cleanup_val(&cent);
-    return ret;
-}
-value cgs_gen_cylinder(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 2) { er = E_LACK_TOKENS;return ret; }
-    value cent = f.args[0].cast_to(VAL_3VEC, er);
-    if (er != E_SUCCESS) return ret;
-    if (f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return ret; }
-    //by default set the top and bottom radius to be the same
-    value r2 = f.args[1];
-    if (f.n_args > 2 && f.args[2].type == VAL_NUM) r2 = f.args[2];
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("Cylinder"));
-    ret.val.c->emplace("center", cent);
-    ret.val.c->emplace("radius", f.args[1]);
-    ret.val.c->emplace("radius_up", r2);
-    cleanup_val(&cent);
-    return ret;
-}
-value cgs_gen_composite(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
-    if (f.args[f.n_args-1].type != VAL_INST) { er = E_BAD_VALUE;return ret; }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("Composite"));
-    for (size_t i = 0; i < f.n_args-1; ++i) {
-	if (f.arg_names[i]) ret.val.c->emplace(f.arg_names[i], f.args[i]);
-    }
-    ret.val.c->emplace("geometry", f.args[f.n_args-1]);
-    return ret;
-}
-value cgs_gen_union(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
-    if (f.args[0].type != VAL_INST) { er = E_BAD_VALUE;return ret; }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("Union"));
-    ret.val.c->emplace("geometry", f.args[0]);
-    return ret;
-}
-value cgs_gen_intersect(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
-    if (f.args[0].type != VAL_INST) { er = E_BAD_VALUE;return ret; }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("Intersect"));
-    ret.val.c->emplace("geometry", f.args[0]);
-    return ret;
-}
-value cgs_gen_complement(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
-    if (f.args[0].type != VAL_INST) { er = E_BAD_VALUE;return ret; }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("Complement"));
-    ret.val.c->emplace("geometry", f.args[0]);
-    return ret;
-}
-value cgs_gen_difference(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
-    if (f.args[0].type != VAL_INST) { er = E_BAD_VALUE;return ret; }
-    if (f.args[0].val.c->size() < 2) { er = E_BAD_VALUE;return ret; }
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    //setup the two sub elements, we subtract all elements after the first from the first
-    value term_1;term_1.type = VAL_INST;term_1.val.c = new context(&c);
-    value term_2;term_2.type = VAL_INST;term_2.val.c = new context(term_1.val.c);
-    name_val_pair inst = f.args[0].val.c->peek(0);
-    term_1.val.c->emplace(inst.get_name(), inst.get_val());
-    term_2.val.c->emplace("type", make_val_str("Complement"));
-    for (size_t i = 1; i < f.args[0].val.c->size(); ++i) {
-	inst = f.args[0].val.c->peek(i);
-	term_2.val.c->emplace(inst.get_name(), inst.get_val());
-    }
-    term_1.val.c->emplace(NULL, term_2);
-    //actually put the difference in the instance
-    ret.val.c->emplace("type", make_val_str("Intersect"));
-    ret.val.c->emplace("geometry", term_1);
-    cleanup_val(&term_2);
-    cleanup_val(&term_1);
-    return ret;
-}
-value cgs_gen_snapshot(context& c, cgs_func f, parse_ercode& er) {
-    value ret;
-    if (f.n_args < 2) { er = E_LACK_TOKENS;return ret; }
-    //read the filename and the viewpoint
-    if (f.args[0].type != VAL_STR) { er = E_BAD_VALUE;return ret; }
-    value viewpoint = f.args[0].cast_to(VAL_3VEC, er);
-    if (er != E_SUCCESS) return ret;
-    //default values
-    value res(make_val_num(DEF_IM_RES));
-    value n_samples(make_val_num(DEF_TEST_N));
-    value step(make_val_num(WALK_STEP));
-    //read named arguments
-    value cam_look = lookup_named(f, "look").cast_to(VAL_3VEC, er);
-    if (cam_look.type != VAL_3VEC)
-	cam_look = make_val_vec3( *(viewpoint.val.v)*-1 );
-    value cam_up = lookup_named(f, "up").cast_to(VAL_3VEC, er);
-    if (cam_up.type != VAL_3VEC)
-	cam_up = make_val_vec3(vec3(0,0,1));
-    value tmp = lookup_named(f, "resolution");
-    if (tmp.type == VAL_NUM)
-	res = tmp;
-    tmp = lookup_named(f, "n_samples");
-    if (tmp.type == VAL_NUM)
-	n_samples = tmp;
-    tmp = lookup_named(f, "step");
-    if (tmp.type == VAL_NUM)
-	step = tmp;
-    value scale = lookup_named(f, "scale");
-    if (scale.type != VAL_NUM)
-	scale = make_val_num(0.5 / cam_look.val.v->norm());
-    //setup the snapshot object struct
-    ret.type = VAL_INST;ret.val.c = new context(&c);
-    ret.val.c->emplace("type", make_val_str("snapshot"));
-    ret.val.c->emplace("fname", f.args[0]);
-    ret.val.c->emplace("cam_v", viewpoint);
-    ret.val.c->emplace("look_v", cam_look);
-    ret.val.c->emplace("up_v", cam_up);
-    ret.val.c->emplace("res", res);
-    ret.val.c->emplace("n_samples", n_samples);
-    ret.val.c->emplace("step", step);
-    ret.val.c->emplace("scale", scale);
-    cleanup_val(&viewpoint);
-    cleanup_val(&cam_look);
-    cleanup_val(&cam_up);
-    return ret;
-}
-void setup_geometry_context(context& con) {
-    //we have to set up the context with all of our functions
-    value tmp_f = make_val_func("Gaussian_src", 5, &cgs_gen_gaussian_source);
-    con.emplace("Gaussian_src", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Continuous_src", 4, &cgs_gen_continuous_source);
-    con.emplace("Continuous_src", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Box", 2, &cgs_gen_box);
-    con.emplace("Box", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Plane", 2, &cgs_gen_plane);
-    con.emplace("Plane", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Sphere", 2, &cgs_gen_sphere);
-    con.emplace("Sphere", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Cylinder", 2, &cgs_gen_cylinder);
-    con.emplace("Cylinder", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Composite", 1, &cgs_gen_composite);
-    con.emplace("Composite", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Union", 1, &cgs_gen_union);
-    con.emplace("Union", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Intersect", 1, &cgs_gen_intersect);
-    con.emplace("Intersect", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Complement", 1, &cgs_gen_complement);
-    con.emplace("Complement", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("Difference", 1, &cgs_gen_difference);
-    con.emplace("Difference", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("snapshot", 2, &cgs_gen_snapshot);
-    con.emplace("snapshot", tmp_f);
-    cleanup_val(&tmp_f);
-}
-
 /** ======================================================== object ======================================================== **/
 
 object::object(int p_invert) {
@@ -431,15 +119,137 @@ int cylinder::in(const vec3& r) {
 
 /** ======================================================== composite_object ======================================================== **/
 
-composite_object::composite_object(combine_type p_cmb) {
+parse_ercode make_object(context* inst, object** ptr, object_type* type, int p_invert) {
+    parse_ercode er = E_SUCCESS;
+    value type_val = inst->lookup("type");
+    if (type_val.type == VAL_STR) {
+	if (strcmp(type_val.val.s, "Box") == 0) {
+	    parse_ercode er1;
+	    value pt_1 = inst->lookup("pt_1").cast_to(VAL_3VEC, er1);
+	    value pt_2 = inst->lookup("pt_2").cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS || er1 != E_SUCCESS) {
+		printf("Error: Box() supplied value that was not a valid vector");
+		if (er == E_SUCCESS) er = er1;
+		goto clean_box;
+	    }
+	    if (ptr) *ptr = new box(*(pt_1.val.v), *(pt_2.val.v), p_invert);
+	    if (type) *type = CGS_BOX;
+clean_box:
+	    cleanup_val(&pt_1);
+	    cleanup_val(&pt_2);
+	    return er;
+	} else if (strcmp(type_val.val.s, "Plane") == 0) {
+	    value offset = inst->lookup("offset");
+	    if (offset.type != VAL_NUM) { er = E_BAD_TYPE; return er; }
+	    value normal = inst->lookup("normal").cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS)
+		goto clean_plane;
+	    if (ptr) *ptr = new plane(*(normal.val.v), offset.val.x, p_invert);
+	    if (type) *type = CGS_PLANE;
+clean_plane:
+	    cleanup_val(&normal);
+	    return er;
+	} else if (strcmp(type_val.val.s, "Sphere") == 0) {
+	    value radius = inst->lookup("radius");
+	    if (radius.type != VAL_NUM) { er = E_BAD_TYPE; return er; }
+	    value center = inst->lookup("center").cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS)
+		goto clean_sphere;
+	    if (ptr) *ptr = new sphere(*(center.val.v), radius.val.x, p_invert);
+	    if (type) *type = CGS_SPHERE;
+clean_sphere:
+	    cleanup_val(&center);
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Cylinder") == 0) {
+	    value h = inst->lookup("h");
+	    value r1 = inst->lookup("r1");
+	    value r2 = inst->lookup("r2");
+	    if (h.type != VAL_NUM || r1.type != VAL_NUM || r2.type != VAL_NUM) { er = E_BAD_TYPE; return er; }
+	    value center = inst->lookup("center").cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS)
+		goto clean_cylinder;
+	    if (ptr) *ptr = new cylinder(*(center.val.v), h.val.x, r1.val.x, r2.val.x, p_invert);
+	    if (type) *type = CGS_CYLINDER;
+clean_cylinder:
+	    cleanup_val(&center);
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Union") == 0) {
+	    value gv = inst->lookup("geometry");
+	    if (gv.type != VAL_LIST) { er = E_BAD_TYPE; return er; }
+	    if (ptr) *ptr = new composite_object(CGS_UNION, gv.val.l, gv.n_els, p_invert);
+	    if (type) *type = CGS_COMPOSITE;
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Intersect") == 0) {
+	    value gv = inst->lookup("geometry");
+	    if (gv.type != VAL_LIST) { er = E_BAD_TYPE; return er; }
+	    if (ptr) *ptr = new composite_object(CGS_INTERSECT, gv.val.l, gv.n_els, p_invert);
+	    if (type) *type = CGS_COMPOSITE;
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Complement") == 0) {
+	    if (ptr) *ptr = NULL;
+	    if (type) *type = CGS_COMP_INVERT;
+	    return E_SUCCESS;
+	}
+    }
+    if (ptr) *ptr = NULL;
+    if (type) *type = CGS_UNDEF;
+    return E_BAD_VALUE;
+}
+
+composite_object::composite_object(combine_type p_cmb) : object(false) {
     children[0] = NULL;
     children[1] = NULL;
     cmb = p_cmb;
 }
 
+void composite_object::init_from_list(value* l, size_t n) {
+    //setup reading of the geometry
+    object_stack tree_pos;
+    stack<block_type> blk_stack;
+    block_type last_type = BLK_UNDEF;
+    composite_object* last_comp = this;
+    int invert = 0;
+    //keep track of transformations
+    stack<mat3x3> transform_stack;
+    mat3x3 cur_trans_mat;
+    mat3x3 next_trans_mat;
+    for (size_t i = 0; i < n; ++i) {
+	value g_obj = l[i];
+	if (g_obj.type == VAL_INST) {
+	    object* obj = NULL;
+	    object_type type;
+	    parse_ercode er = make_object(g_obj.val.c, &obj, &type, invert);
+	    if (er) {
+		printf("Encountered error generating composite object code %d.\n", er);
+		break;
+	    }
+	    if (!obj) {
+		//invert objects are a special case that we handle here
+		if (type && type == CGS_COMP_INVERT) {
+		    invert = 1 - invert;
+		    blk_stack.push(BLK_INVERT);
+		    obj = new composite_object(cmb, g_obj.val.c, 1-invert);
+		}
+	    } else {
+		if (last_comp->get_child_l() == NULL) {
+		    last_comp->add_child(0, obj, type);
+		} else if (i == n-1) {
+		    last_comp->add_child(1, obj, type);
+		} else {
+		    composite_object* ncobj = new composite_object(cmb);
+		    last_comp->add_child(1, ncobj, CGS_COMPOSITE);
+		    last_comp = ncobj;
+		    last_comp->add_child(0, obj, type);
+		}
+	    }
+	}
+    }
+}
+
 composite_object::composite_object(combine_type p_cmb, const cgs_func& spec, int p_invert) : object(p_invert) {
     children[0] = NULL;
     children[1] = NULL;
+    cmb = p_cmb;
     //iterate through arguments and add them to the metadata
     for (_uint i = 0; i < spec.n_args; ++i) {
 	if (spec.arg_names[i]) {
@@ -448,7 +258,35 @@ composite_object::composite_object(combine_type p_cmb, const cgs_func& spec, int
 	    metadata[tok_cpp] = copy_val(spec.args[i]);
 	}
     }
+}
+
+composite_object::composite_object(combine_type p_cmb, value* list, size_t n_els, int p_invert) : object(p_invert) {
+    children[0] = NULL;
+    children[1] = NULL;
+    child_types[0] = CGS_UNDEF;
+    child_types[1] = CGS_UNDEF;
     cmb = p_cmb;
+    init_from_list(list, n_els);
+}
+
+composite_object::composite_object(combine_type p_cmb, context* inst, int p_invert) : object(p_invert) {
+    children[0] = NULL;
+    children[1] = NULL;
+    child_types[0] = CGS_UNDEF;
+    child_types[1] = CGS_UNDEF;
+    cmb = p_cmb;
+    //read metadata
+    size_t n_args = inst->size()-1;
+    for (size_t i = 2; i < n_args; ++i) {
+	name_val_pair p = inst->peek(i);
+	std::string tok_cpp(p.get_name());
+	metadata[tok_cpp] = copy_val(p.get_val());
+    }
+    //get the geometry data
+    value tmp_val = inst->peek_val();
+    if (tmp_val.type == VAL_LIST) {
+	init_from_list(tmp_val.val.l, tmp_val.n_els);
+    } 
 }
 
 /**
@@ -772,20 +610,7 @@ parse_ercode scene::fail_exit(parse_ercode er, FILE* fp) {
     return er;
 }
 
-/*instance::instance(cgs_func decl) : type(decl.name) {
-    fields.reserve(decl.n_args);
-    value def_val;def_val.n_els = 0;def_val.type = VAL_UNDEF;def_val.val.x = 0;
-    for (size_t i = 0; i < decl.n_args; ++i) {
-	//if a default value was supplied, use that. Otherwise use an undefined initial value
-	if (decl.args[i].type != VAL_UNDEF) {
-	    fields.emplace_back(decl.arg_names[i], decl.args[i]);
-	} else {
-	    fields.emplace_back(decl.args[i].val.s, def_val);
-	}
-    }
-}*/
-
-parse_ercode scene::read_file(const char* p_fname) {
+/*parse_ercode scene::read_file(const char* p_fname) {
     parse_ercode er = E_SUCCESS;
 
     //generate the composite object on the fly
@@ -845,13 +670,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 			    cur_func.name = CGS_trim_whitespace(cur_func.name + KEY_DEF_LEN, NULL);
 
 			    //TODO: finish
-			}/* else if (dectype_start = token_block(cur_func.name, "class")) {
-			    cur_func.name = CGS_trim_whitespace(cur_func.name + KEY_CLASS_LEN, NULL);
-			    value tmp_val;
-			    tmp_val.type = VAL_INST;
-			    tmp_val.val.i = new instance(cur_func);
-			    tmp_val.n_els = cur_func.n_args;
-			}*/
+			}
 			//try interpreting the function as a geometric object
 			object* obj = NULL;
 			object_type type;
@@ -952,7 +771,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 			last_type = BLK_UNDEF;
 		    } else if (buf[i] == '}') {
 			block_type bt = BLK_UNDEF;
-			if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf(/*{*/"Error on line %lu: unexpected '}'\n", lineno);
+			if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf(*//*{*//*"Error on line %lu: unexpected '}'\n", lineno);
 			switch (bt) {
 			    case BLK_INVERT: invert = 1 - invert;break;
 			    case BLK_ROOT: tree_pos.reset();
@@ -999,6 +818,72 @@ parse_ercode scene::read_file(const char* p_fname) {
     } else {
         printf("Error: couldn't open file %s for reading!\n", p_fname);
         return E_NOFILE;
+    }
+
+    return er;
+}*/
+
+parse_ercode scene::read_file(const char* p_fname) {
+    parse_ercode er = E_SUCCESS;
+
+    size_t init_size = named_items.size();
+    line_buffer lb(p_fname);
+    er = named_items.read_from_lines(lb);
+    if (er != E_SUCCESS) return er;
+
+    for (size_t i = 1; i <= named_items.size() - init_size; ++i) {
+	value inst = named_items.peek_val(i);
+	//only inspect instances
+	if (inst.type == VAL_INST) {
+	    value type_val = inst.val.c->lookup("type");
+	    //branch depending on instance type
+	    if (type_val.type == VAL_STR) {
+		if (strcmp(type_val.val.s, "Composite") == 0) {
+		    //read the combination type and default to a union
+		    combine_type cmb_type = CGS_UNION;
+		    type_val = inst.val.c->lookup("combine_type");
+		    if (type_val.type == VAL_STR) {
+			if (strcmp(type_val.val.s, "intersect") == 0 || strcmp(type_val.val.s, "Intersect") == 0)
+			    cmb_type = CGS_INTERSECT;
+		    }
+		    composite_object* ncobj = new composite_object(cmb_type, inst.val.c, false);
+		    roots.push_back(ncobj);
+		} else if (strcmp(type_val.val.s, "snapshot") == 0) {
+		    value v_f = inst.val.c->lookup("fname");
+		    //read vectors and cast them
+		    value v_c = inst.val.c->lookup("cam_v").cast_to(VAL_3VEC, er);
+		    if (er) { return er; }
+		    value v_l = inst.val.c->lookup("look_v").cast_to(VAL_3VEC, er);
+		    if (er) { cleanup_val(&v_c);return er; }
+		    value v_u = inst.val.c->lookup("up_v").cast_to(VAL_3VEC, er);
+		    if (er) { cleanup_val(&v_c);cleanup_val(&v_l);return er; }
+		    //read numeric values
+		    value v_res = inst.val.c->lookup("res");
+		    value v_n = inst.val.c->lookup("n_samples");
+		    value v_st = inst.val.c->lookup("step");
+		    value v_sc = inst.val.c->lookup("scale");
+		    if (v_f.type != VAL_STR) { er = E_BAD_TYPE;return er; }
+		    if (v_res.type != VAL_NUM) { er = E_BAD_TYPE;return er; }
+		    if (v_n.type != VAL_NUM) { er = E_BAD_TYPE;return er; }
+		    if (v_st.type != VAL_NUM) { er = E_BAD_TYPE;return er; }
+		    if (v_sc.type != VAL_NUM) { er = E_BAD_TYPE;return er; }
+		    if (v_c.val.v->norm() == 0 || v_u.val.v->norm() == 0 || v_res.val.x == 0 || v_n.val.x == 0) {
+			printf("invalid parameters passed to snapshot on line\n");
+		    } else {
+			//make the drawing
+			rvector<2> scale_vec;
+			scale_vec.el[0] = v_sc.val.x;
+			scale_vec.el[1] = v_sc.val.x;
+			size_t res = (size_t)(v_res.val.x);
+			size_t n_samples = (size_t)(v_n.val.x);
+			draw(v_f.val.s, *(v_c.val.v), *(v_l.val.v), *(v_u.val.v), scale_vec, res, res, n_samples, v_st.val.x);
+		    }
+		    cleanup_val(&v_c);
+		    cleanup_val(&v_l);
+		    cleanup_val(&v_u);
+		}
+	    }
+	}
     }
 
     return er;

@@ -12,8 +12,8 @@ app_name = 'sim_geom'
 tst_name = 'tst'
 
 #source files
-app_srcs = files('src/cgs_read.cpp', 'src/cgs.cpp', 'src/data_utils.cpp', 'src/disp.cpp', 'src/main.cpp')
-tst_srcs = files('src/cgs_read.cpp', 'src/cgs.cpp', 'src/data_utils.cpp', 'src/disp.cpp', 'src/main_test.cpp')
+app_srcs = files('src/cgs_read.cpp', 'src/cgs_data.cpp', 'src/cgs.cpp', 'src/data_utils.cpp', 'src/disp.cpp', 'src/main.cpp')
+tst_srcs = files('src/cgs_read.cpp', 'src/cgs_data.cpp', 'src/cgs.cpp', 'src/data_utils.cpp', 'src/disp.cpp', 'src/main_test.cpp')
 
 #check whether 32 bit or 64 bit precision for saved fields is used
 app_args = []

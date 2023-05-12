@@ -373,9 +373,13 @@ line_buffer::line_buffer(const char* p_fname) {
 		this_buf[line_len] = (char)res;
 		res = fgetc(fp);
 	    }
-	    this_buf = (char*)xrealloc(this_buf, sizeof(char)*(line_len+1));
-	    lines[n_lines] = this_buf;
-	    line_sizes[n_lines++] = line_len;
+	    if (line_len > 0) {
+		this_buf = (char*)xrealloc(this_buf, sizeof(char)*(line_len+1));
+		lines[n_lines] = this_buf;
+		line_sizes[n_lines++] = line_len;
+	    } else {
+		free(this_buf);
+	    }
 	} while (go_again);
 	lines = (char**)xrealloc(lines, sizeof(char*)*n_lines);
 	line_sizes = (size_t*)xrealloc(line_sizes, sizeof(size_t)*n_lines);
@@ -777,7 +781,11 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	er = E_LACK_TOKENS;
 	return sto;
     } else if (tmp_f.n_args == 1) {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;
+	    return sto;
+	}
 	if (tmp_f.args[0].val.x < 0) { er = E_BAD_VALUE;return sto; }
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
@@ -788,8 +796,16 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	    sto.val.l[i].val.x = i;
 	}
     } else if (tmp_f.n_args == 2) {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
-	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;
+	    return sto;
+	}
+	if (tmp_f.args[1].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;
+	    return sto;
+	}
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
 	int list_start = (int)(tmp_f.args[0].val.x);
@@ -804,9 +820,15 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	    ++j;
 	}
     } else {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
-	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
-	if (tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[1].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[2].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;return sto; }
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
 	double list_start = tmp_f.args[0].val.x;
@@ -852,6 +874,7 @@ value make_linspace(cgs_func tmp_f, parse_ercode& er) {
             er = E_SUCCESS;
             return sto;
         } else {
+	    printf("Error: linspaces can only be specified with numeric types");
             er = E_BAD_TYPE;
             return sto;
         }    
@@ -972,7 +995,7 @@ value make_val_list(const value* vs, size_t n_vs) {
     v.type = VAL_LIST;
     v.n_els = n_vs;
     v.val.l = (value*)malloc(sizeof(value)*v.n_els);
-    for (size_t i = 0; i < v.n_els; ++i) v.val.l[i] = vs[i];
+    for (size_t i = 0; i < v.n_els; ++i) v.val.l[i] = copy_val(vs[i]);
     return v;
 }
 value make_val_mat(mat3x3 m) {
@@ -1160,6 +1183,7 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	if (type == VAL_3VEC) {
 	    ret.n_els = 3;
 	    ret.val.l = (value*)malloc(sizeof(value)*ret.n_els);
+	    if (!ret.val.l) { ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;return ret; }
 	    for (size_t i = 0; i < ret.n_els; ++i) {
 		ret.val.l[i].type = VAL_NUM;
 		ret.val.l[i].n_els = 1;
@@ -1168,6 +1192,15 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	    return ret;
 	} else if (type == VAL_MAT) {
 	    //TODO
+	} else if (type == VAL_INST) {
+	    ret.n_els = val.c->size();
+	    ret.val.l = (value*)calloc(ret.n_els, sizeof(value));
+	    if (!ret.val.l) { ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;return ret; }
+	    for (size_t i = 1; i < ret.n_els; ++i) {
+		ret.val.l[i] = copy_val(val.c->peek_val(i));
+	    }
+	    ret.n_els = n_els;
+	    return ret;
 	}
     } else if (t == VAL_STR) {
 	ret.val.s = (char*)malloc(sizeof(char)*BUF_SIZE);
@@ -1600,7 +1633,9 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	}
     } else if (term_char == '.') {
 	value inst_val = lookup(find_token_before(str, i));
-	if (inst_val.type != VAL_INST) { er = E_BAD_TYPE;return sto; }
+	if (inst_val.type != VAL_INST) {
+	    printf("Error: tried to lookup from non instance type\n");
+	    er = E_BAD_TYPE;return sto; }
 	str[i] = term_char;
 	return inst_val.val.c->parse_value(str+i+1, er);
     }
@@ -1852,12 +1887,16 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    } else {
 		value tmp_lst = lookup(pre_list_name);
 		str[first_open_ind] = '[';//]
-		if (tmp_lst.type != VAL_LIST) { cleanup_val(&tmp_lst);er = E_BAD_TYPE;return sto; }
+		if (tmp_lst.type != VAL_LIST) {
+		    printf("Error: tried to index from non list type\n");
+		    cleanup_val(&tmp_lst);er = E_BAD_TYPE;return sto; }
 		str[last_close_ind] = 0;
 		value contents = parse_value(str+first_open_ind+1, er);
 		str[last_close_ind] = /*[*/']';
 		//check that we found the list and that it was valid
-		if (contents.type != VAL_NUM) { cleanup_val(&contents);er = E_BAD_TYPE;return sto; }
+		if (contents.type != VAL_NUM) {
+		    printf("Error: only integers are valid indices\n");
+		    cleanup_val(&contents);er = E_BAD_TYPE;return sto; }
 		//now figure out the index
 		long tmp = (long)(contents.val.x);
 		if (tmp < 0) tmp = tmp_lst.n_els+tmp;
@@ -1870,7 +1909,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    //now parse the argument as a context
 	    size_t n_els;
 	    str[last_close_ind] = 0;
-	    char** list_els = csv_to_list(str+first_open_ind+1, ';', &n_els, er);
+	    char** list_els = csv_to_list(str+first_open_ind+1, ',', &n_els, er);
 	    if (er != E_SUCCESS) { free(list_els);return sto; }
 	    //setup the context
 	    sto.val.c = new collection(this);
@@ -1918,27 +1957,37 @@ value context::parse_value(char* str, parse_ercode& er) {
 			sto = print(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "sin") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;goto clean_paren; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = sin(tmp_f.args[0].val.x);
 		    } else if (strcmp(tmp_f.name, "cos") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = cos(tmp_f.args[0].val.x);
 		    } else if (strcmp(tmp_f.name, "tan") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = tan(tmp_f.args[0].val.x);
 		    } else if (strcmp(tmp_f.name, "exp") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = exp(tmp_f.args[0].val.x);
 		    } else if (strcmp(tmp_f.name, "sqrt") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = sqrt(tmp_f.args[0].val.x);
 		    } else {
@@ -1950,6 +1999,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 				sto = func_val.val.f->eval(*this, tmp_f, er);
 			    }
 			} else {
+			    printf("Error: unrecognized function name %s\n", tmp_f.name);
 			    er = E_BAD_TYPE;
 			}
 		    }
@@ -1974,6 +2024,35 @@ clean_paren:
     return sto;
 }
 
+/*
+ * helper function for parse_value which appends at most n characters from the string str to line while dynamically resizing the buffer if necessary
+ * line: the line to save to
+ * line_off: the current end of line
+ * line_size: the size in memory allocated for line
+ * n: the maximum number of characters to write
+ */
+char* append_to_line(char* line, size_t* line_off, size_t* line_size, const char* str, size_t n) {
+    if (!line_off || !line_size || !str || n == 0) return line;
+    size_t ls = *line_size;
+    size_t i = *line_off;
+    if (!line || i + n >= ls) {
+	ls = 2*i + n + 1;
+	line = (char*)xrealloc(line, ls);
+    }
+    size_t j = 0;
+    for (; j < n; ++j) {
+	line[i+j] = str[j];
+	//terminate on reaching the string end
+	if (!str[j]) {
+	    ++j;
+	    break;
+	}
+    }
+    *line_off = i+j;
+    *line_size = ls;
+    return line;
+}
+
 value context::parse_value(const line_buffer& b, line_buffer_ind& p, parse_ercode& er) {
     value ret;ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;
     //test incrementing, if that doesnt work return undefined
@@ -1981,11 +2060,14 @@ value context::parse_value(const line_buffer& b, line_buffer_ind& p, parse_ercod
     b.dec(p);
     //local variables
     line_buffer lines_enc;
-    char* line;
+    char* line = NULL;
+    size_t line_off = 0;
+    size_t line_size = 0;
     //iterate until we find a scope character delimiter
     line_buffer_ind init = p;
     size_t len = b.get_line_size(p.line);
     bool found = false;
+    bool hit_end = false;
     for (;p.off < len; ++p.off) {
 	char match_tok = 0;
 	switch(b.get(p)) {
@@ -1998,14 +2080,30 @@ value context::parse_value(const line_buffer& b, line_buffer_ind& p, parse_ercod
 	}
 	if (match_tok) {
 	    line_buffer_ind end;
-	    line = b.get_enclosed(init, &end, b.get(p), match_tok, true, true).flatten(' ');
-	    p = end;
+	    line_buffer enc = b.get_enclosed(init, &end, b.get(p), match_tok, true, true);
+	    char* tmp = enc.flatten(' ');
 	    found = true;
-	    break;
+	    //if we're still on the same line, then we need to continue until we reach the end. Otherwise, terminate
+	    if (end.line == init.line && end.off < len) {
+		line = append_to_line(line, &line_off, &line_size, tmp, end.off - init.off);
+		p = end;
+		init = p;
+	    } else {
+		line = append_to_line(line, &line_off, &line_size, tmp, strlen(tmp)+1);
+		free(tmp);
+		p = end;
+		hit_end = true;
+		break;
+	    }
 	}
     }
-    if (!found)
+    if (!found) {
 	line = b.get_line(init);
+    } else if (!hit_end) {
+	//this indicates that we reached the end of a block, but not the end of the line
+	line = append_to_line(line, &line_off, &line_size, b.get_line(init), b.get_line_size(init.line) - init.off + 1);
+	line[line_off-1] = 0;
+    }
     ret = parse_value(line, er);
     free(line);
     return ret;

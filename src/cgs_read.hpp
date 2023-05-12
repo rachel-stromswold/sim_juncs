@@ -401,7 +401,7 @@ public:
     parse_ercode set_value(const char* name, value new_val);
     parse_ercode read_from_lines(const line_buffer& b);
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
-    value peek_val(size_t i=0);
+    value peek_val(size_t i=1);
 };
 
 /**
