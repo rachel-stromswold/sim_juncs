@@ -163,7 +163,7 @@ class signal:
                 f_max = self.f0_ind + j + 1
         return [f_min, f_max]
 
-    def _param_est(self, n_evals=0, threshold=0.1, mode="l"):
+    def _param_est(self, n_evals=0, threshold=0.5, mode="l"):
         freq_range = self._get_freq_fwhm(threshold=threshold)
         f_min = freq_range[0]
         f_max = freq_range[1]
@@ -463,18 +463,18 @@ class signal:
         print(self._phi_corr)
         env = self.get_envelope()
         env_vec = self.get_envelope_vec_pot()
-        max_t = self.t_pts[np.argmax(self.v_pts)]
-        t0 = max_t + self._phi_corr/(2*np.pi*self.f0)
-
-        env_shift = int((t0 - self.t_pts[self.t0_ind])/self.dt)
+        max_field_t = self.t_pts[np.argmax(self.v_pts)]
         #get the signal from a(t)e^(i(\omega_0(t-t_0) + \phi)) + c.c.
-        sig_direct = np.roll(env, env_shift)*np.exp( 1j*(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr) )
-        sig_direct = sig_direct + np.conjugate(np.roll(env, env_shift))*np.exp( -1j*(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr) )
-        sig_vector = np.roll(env_vec, env_shift)*np.sin(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr)
+        sig_direct = np.real( env*np.exp(1j*(2*np.pi*self.f0*(self.t_pts-self.t_pts[self.t0_ind]) + self._phi_corr)) )
+        #roll the signal so that it lines up with the peak
+        max_sig_t = self.t_pts[np.argmax(sig_direct)]
+        sig_direct = np.roll(sig_direct, int((max_field_t-max_sig_t)/self.dt))
+        #get the signal using the differential of the vector potential
+        sig_vector = env_vec*np.sin(2*np.pi*self.f0*(self.t_pts-self.t_pts[self.t0_ind]) + self._phi_corr)
         sig_vector = np.pad(np.diff(sig_vector), (0,1))
         axs.plot(self.t_pts, self.v_pts, color='black', label='measured')
-        axs.plot(self.t_pts, sig_direct/2, color='blue', label='a(t)')
-        axs.plot(self.t_pts, np.real(sig_vector), color='red', label='b(t)')
+        axs.plot(self.t_pts, sig_direct, color='red', label='a(t)', linestyle=':')
+        axs.plot(self.t_pts, np.real(sig_vector), color='blue', label='b(t)')
         axs.set_ylim([-1, 1])
         axs.legend(loc='upper right')
 
