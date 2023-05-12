@@ -300,7 +300,7 @@ class signal:
         oms[0] = self.vf[1]
         full_fft = np.pad(-self.vf/oms, (0, self.mags.shape[0]-2))
         #take the inverse fourier transform and shift to the peak of the pulse
-        self.envelope = 2*self._roll_envelope(np.abs( fft.ifft(np.roll(full_fft, -self.f0_ind)) ))
+        self.envelope = 2*np.roll( fft.ifft(np.roll(full_fft, -self.f0_ind))*np.exp(-1j*self._phi_corr), self.t0_ind )
         #self.envelope = np.abs( np.roll(fft.ifft(np.roll(full_fft, -self.f0_ind)), self.t0_ind) )
         #for odd numbers of time points, the inverse fourier transform will have one fewer points
         if len(self.t_pts) > len(self.envelope):
@@ -314,8 +314,8 @@ class signal:
             return self.envelope'''
         #take the inverse fourier transform and shift to the peak of the pulse
         full_fft = np.pad(self.vf, (0, self.mags.shape[0]-2))
-        self.envelope = 2*self._roll_envelope(np.abs( fft.ifft(np.roll(full_fft, -self.f0_ind)) ))
-        #self.envelope = np.abs( np.roll(fft.ifft(np.roll(full_fft, -self.f0_ind)), self.t0_ind) )
+        self.envelope_fourier = fft.ifft(np.roll(full_fft, -self.f0_ind))*np.exp(-1j*self._phi_corr)
+        self.envelope = 2*np.roll(self.envelope_fourier, self.t0_ind)
         #for odd numbers of time points, the inverse fourier transform will have one fewer points
         if len(self.t_pts) > len(self.envelope):
             self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
@@ -462,16 +462,20 @@ class signal:
     def compare_signals(self, axs):
         print(self._phi_corr)
         env = self.get_envelope()
-        env_vec = 2*self.get_envelope_vec_pot()
+        env_vec = self.get_envelope_vec_pot()
         max_t = self.t_pts[np.argmax(self.v_pts)]
         t0 = max_t + self._phi_corr/(2*np.pi*self.f0)
+
         env_shift = int((t0 - self.t_pts[self.t0_ind])/self.dt)
-        sig_direct = np.roll(env, env_shift)*np.cos(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr)
+        #get the signal from a(t)e^(i(\omega_0(t-t_0) + \phi)) + c.c.
+        sig_direct = np.roll(env, env_shift)*np.exp( 1j*(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr) )
+        sig_direct = sig_direct + np.conjugate(np.roll(env, env_shift))*np.exp( -1j*(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr) )
         sig_vector = np.roll(env_vec, env_shift)*np.sin(2*np.pi*self.f0*(self.t_pts-t0) + self._phi_corr)
         sig_vector = np.pad(np.diff(sig_vector), (0,1))
         axs.plot(self.t_pts, self.v_pts, color='black', label='measured')
-        axs.plot(self.t_pts, np.real(sig_direct), color='blue', label='a(t)')
+        axs.plot(self.t_pts, sig_direct/2, color='blue', label='a(t)')
         axs.plot(self.t_pts, np.real(sig_vector), color='red', label='b(t)')
+        axs.set_ylim([-1, 1])
         axs.legend(loc='upper right')
 
     def make_fit_plt(self, ax):
