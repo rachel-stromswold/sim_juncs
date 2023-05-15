@@ -119,9 +119,9 @@ int cylinder::in(const vec3& r) {
 
 /** ======================================================== composite_object ======================================================== **/
 
-parse_ercode make_object(context* inst, object** ptr, object_type* type, int p_invert) {
+parse_ercode make_object(context* inst, object** ptr, object_type* type, int p_invert, stack<mat3x3>& transform_stack) {
     parse_ercode er = E_SUCCESS;
-    value type_val = inst->lookup("type");
+    value type_val = inst->lookup("__type__");
     if (type_val.type == VAL_STR) {
 	if (strcmp(type_val.val.s, "Box") == 0) {
 	    parse_ercode er1;
@@ -176,18 +176,22 @@ clean_cylinder:
 	} else if (strcmp(type_val.val.s, "Union") == 0) {
 	    value gv = inst->lookup("geometry");
 	    if (gv.type != VAL_LIST) { er = E_BAD_TYPE; return er; }
-	    if (ptr) *ptr = new composite_object(CGS_UNION, gv.val.l, gv.n_els, p_invert);
+	    if (ptr) *ptr = new composite_object(CGS_UNION, gv.val.l, gv.n_els, p_invert, transform_stack);
 	    if (type) *type = CGS_COMPOSITE;
 	    return E_SUCCESS;
 	} else if (strcmp(type_val.val.s, "Intersect") == 0) {
 	    value gv = inst->lookup("geometry");
 	    if (gv.type != VAL_LIST) { er = E_BAD_TYPE; return er; }
-	    if (ptr) *ptr = new composite_object(CGS_INTERSECT, gv.val.l, gv.n_els, p_invert);
+	    if (ptr) *ptr = new composite_object(CGS_INTERSECT, gv.val.l, gv.n_els, p_invert, transform_stack);
 	    if (type) *type = CGS_COMPOSITE;
 	    return E_SUCCESS;
 	} else if (strcmp(type_val.val.s, "Complement") == 0) {
 	    if (ptr) *ptr = NULL;
 	    if (type) *type = CGS_COMP_INVERT;
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Rotate") == 0) {
+	    if (ptr) *ptr = NULL;
+	    if (type) *type = CGS_COMP_ROTATE;
 	    return E_SUCCESS;
 	}
     }
@@ -202,7 +206,21 @@ composite_object::composite_object(combine_type p_cmb) : object(false) {
     cmb = p_cmb;
 }
 
-void composite_object::init_from_list(value* l, size_t n) {
+void composite_object::append(composite_object** lc_ptr, object* obj, object_type type, bool is_last) {
+    if (!lc_ptr) return;
+    if ((*lc_ptr)->get_child_l() == NULL) {
+	(*lc_ptr)->add_child(0, obj, type);
+    } else if (is_last) {
+	(*lc_ptr)->add_child(1, obj, type);
+    } else {
+	composite_object* ncobj = new composite_object(cmb);
+	(*lc_ptr)->add_child(1, ncobj, CGS_COMPOSITE);
+	*lc_ptr = ncobj;
+	(*lc_ptr)->add_child(0, obj, type);
+    }
+}
+
+void composite_object::init_from_list(value* l, size_t n, stack<mat3x3>& transform_stack) {
     //setup reading of the geometry
     object_stack tree_pos;
     stack<block_type> blk_stack;
@@ -210,37 +228,42 @@ void composite_object::init_from_list(value* l, size_t n) {
     composite_object* last_comp = this;
     int invert = 0;
     //keep track of transformations
-    stack<mat3x3> transform_stack;
-    mat3x3 cur_trans_mat;
-    mat3x3 next_trans_mat;
+    mat3x3 trans_mat = mat3x3::id();
+    for (size_t i = 1; i <= transform_stack.size(); ++i) {
+	trans_mat = trans_mat*transform_stack.peek(i);
+    }
     for (size_t i = 0; i < n; ++i) {
 	value g_obj = l[i];
 	if (g_obj.type == VAL_INST) {
 	    object* obj = NULL;
 	    object_type type;
-	    parse_ercode er = make_object(g_obj.val.c, &obj, &type, invert);
+	    parse_ercode er = make_object(g_obj.val.c, &obj, &type, invert, transform_stack);
 	    if (er) {
 		printf("Encountered error generating composite object code %d.\n", er);
 		break;
 	    }
 	    if (!obj) {
-		//invert objects are a special case that we handle here
-		if (type && type == CGS_COMP_INVERT) {
-		    invert = 1 - invert;
-		    blk_stack.push(BLK_INVERT);
-		    obj = new composite_object(cmb, g_obj.val.c, 1-invert);
+		//transformation objects are a special case that we handle here
+		if (type) {
+		    if (type == CGS_COMP_INVERT) {
+			invert = 1 - invert;
+			blk_stack.push(BLK_INVERT);
+			obj = new composite_object(cmb, g_obj.val.c, 1-invert, transform_stack);
+			append(&last_comp, obj, CGS_COMPOSITE, (i==n-1));
+		    } else if (type  == CGS_COMP_ROTATE) {
+			value va = g_obj.val.c->lookup("axis");
+			value vt = g_obj.val.c->lookup("theta");
+			if (va.type == VAL_3VEC && vt.type == VAL_NUM) {
+			    mat3x3 tmp = make_rotation(vt.val.x, *(va.val.v));
+			    transform_stack.push(tmp);
+			    obj = new composite_object(cmb, g_obj.val.c, invert, transform_stack);
+			    append(&last_comp, obj, CGS_COMPOSITE, (i==n-1));		    
+			}
+		    }
 		}
 	    } else {
-		if (last_comp->get_child_l() == NULL) {
-		    last_comp->add_child(0, obj, type);
-		} else if (i == n-1) {
-		    last_comp->add_child(1, obj, type);
-		} else {
-		    composite_object* ncobj = new composite_object(cmb);
-		    last_comp->add_child(1, ncobj, CGS_COMPOSITE);
-		    last_comp = ncobj;
-		    last_comp->add_child(0, obj, type);
-		}
+		obj->set_trans_mat(trans_mat);
+		append(&last_comp, obj, type, (i==n-1));
 	    }
 	}
     }
@@ -260,16 +283,16 @@ composite_object::composite_object(combine_type p_cmb, const cgs_func& spec, int
     }
 }
 
-composite_object::composite_object(combine_type p_cmb, value* list, size_t n_els, int p_invert) : object(p_invert) {
+composite_object::composite_object(combine_type p_cmb, value* list, size_t n_els, int p_invert, stack<mat3x3>& transform_stack) : object(p_invert) {
     children[0] = NULL;
     children[1] = NULL;
     child_types[0] = CGS_UNDEF;
     child_types[1] = CGS_UNDEF;
     cmb = p_cmb;
-    init_from_list(list, n_els);
+    init_from_list(list, n_els, transform_stack);
 }
 
-composite_object::composite_object(combine_type p_cmb, context* inst, int p_invert) : object(p_invert) {
+composite_object::composite_object(combine_type p_cmb, context* inst, int p_invert, stack<mat3x3>& transform_stack) : object(p_invert) {
     children[0] = NULL;
     children[1] = NULL;
     child_types[0] = CGS_UNDEF;
@@ -277,7 +300,7 @@ composite_object::composite_object(combine_type p_cmb, context* inst, int p_inve
     cmb = p_cmb;
     //read metadata
     size_t n_args = inst->size()-1;
-    for (size_t i = 2; i < n_args; ++i) {
+    for (size_t i = 2; i <= n_args; ++i) {
 	name_val_pair p = inst->peek(i);
 	std::string tok_cpp(p.get_name());
 	metadata[tok_cpp] = copy_val(p.get_val());
@@ -285,7 +308,7 @@ composite_object::composite_object(combine_type p_cmb, context* inst, int p_inve
     //get the geometry data
     value tmp_val = inst->peek_val();
     if (tmp_val.type == VAL_LIST) {
-	init_from_list(tmp_val.val.l, tmp_val.n_els);
+	init_from_list(tmp_val.val.l, tmp_val.n_els, transform_stack);
     } 
 }
 
@@ -835,7 +858,7 @@ parse_ercode scene::read_file(const char* p_fname) {
 	value inst = named_items.peek_val(i);
 	//only inspect instances
 	if (inst.type == VAL_INST) {
-	    value type_val = inst.val.c->lookup("type");
+	    value type_val = inst.val.c->lookup("__type__");
 	    //branch depending on instance type
 	    if (type_val.type == VAL_STR) {
 		if (strcmp(type_val.val.s, "Composite") == 0) {
@@ -846,7 +869,8 @@ parse_ercode scene::read_file(const char* p_fname) {
 			if (strcmp(type_val.val.s, "intersect") == 0 || strcmp(type_val.val.s, "Intersect") == 0)
 			    cmb_type = CGS_INTERSECT;
 		    }
-		    composite_object* ncobj = new composite_object(cmb_type, inst.val.c, false);
+		    stack<mat3x3> transform_stack;
+		    composite_object* ncobj = new composite_object(cmb_type, inst.val.c, false, transform_stack);
 		    roots.push_back(ncobj);
 		} else if (strcmp(type_val.val.s, "snapshot") == 0) {
 		    value v_f = inst.val.c->lookup("fname");

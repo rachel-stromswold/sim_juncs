@@ -70,8 +70,8 @@ public:
 
 //store a line number and an offset within that line to describe a position in a line_buffer
 struct line_buffer_ind {
-    long line;
-    long off;
+    size_t line;
+    size_t off;
     line_buffer_ind() { line = 0;off = 0; }
     line_buffer_ind(long pl, long po) { line = pl;off = po; }
 };
@@ -305,6 +305,9 @@ struct value {
     int rep_string(char* sto, size_t n) const;
     value cast_to(valtype type, parse_ercode& er) const;
 };
+//check whether the value is of the specified type based on the type string
+inline bool is_type(value v, valtype t) { return v.type == t; }
+bool is_type(value v, const char* type);
 void cleanup_val(value* o);
 value copy_val(const value o);
 void swap_val(value* a, value* b);

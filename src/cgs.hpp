@@ -26,7 +26,7 @@
 
 typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE, CGS_CMB_NOOP } combine_type;
 //note that ROOTS are a special type of COMPOSITES
-typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_PLANE, CGS_CYLINDER, CGS_COMP_UNION, CGS_COMP_INTERSECT, CGS_COMP_INVERT} object_type;
+typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_PLANE, CGS_CYLINDER, CGS_COMP_INVERT, CGS_COMP_ROTATE} object_type;
 
 void setup_geometry_context(context& con);
 
@@ -130,12 +130,13 @@ protected:
     //this is a helper function which returns a pointer to a copy of the object pointed to by the child on the specified side
     object* copy_child(_uint side) const;
     //initialize a composite object from a list of objects
-    void init_from_list(value* l, size_t n);
+    void init_from_list(value* l, size_t n, stack<mat3x3>& transform_stack);
+    void append(composite_object** lc_ptr, object* obj, object_type type, bool is_last=false);
 
 public:
     composite_object(combine_type p_cmb = CGS_UNION);
-    composite_object(combine_type p_cmb, value* list, size_t n_els, int p_invert);
-    composite_object(combine_type p_cmb, context* inst, int p_invert);
+    composite_object(combine_type p_cmb, value* list, size_t n_els, int p_invert, stack<mat3x3>& transform_stack);
+    composite_object(combine_type p_cmb, context* inst, int p_invert, stack<mat3x3>& transform_stack);
     composite_object(combine_type p_cmb, const cgs_func& spec, int p_invert);
     composite_object(const composite_object& o);
     composite_object(composite_object&& o);

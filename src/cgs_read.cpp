@@ -1030,6 +1030,32 @@ value make_val_func(const char* name, size_t n_args, value (*p_exec)(context&, c
     ret.val.f = new user_func(p_exec);
     return ret;
 }
+
+bool is_type(value v, const char* str) {
+    if (v.type == VAL_INST) {
+	value type_str = v.val.c->lookup("__type__");
+	if (type_str.type == VAL_STR)
+	    return (strcmp(str, type_str.val.s) == 0);
+    } else if (strcmp(str, "undefined") == 0) {
+	return (v.type == VAL_UNDEF);
+    } else if (strcmp(str, "string") == 0) {
+	return (v.type == VAL_STR);
+    } else if (strcmp(str, "numeric") == 0) {
+	return (v.type == VAL_NUM);
+    } else if (strcmp(str, "list") == 0) {
+	return (v.type == VAL_LIST);
+    } else if (strcmp(str, "vec3") == 0) {
+	return (v.type == VAL_3VEC);
+    } else if (strcmp(str, "matrix") == 0) {
+	return (v.type == VAL_MAT);
+    } else if (strcmp(str, "function") == 0) {
+	return (v.type == VAL_FUNC);
+    } else if (strcmp(str, "instance") == 0) {
+	return (v.type == VAL_INST);
+    }
+    return false;
+}
+
 void cleanup_val(value* v) {
     if (v->type == VAL_STR && v->val.s) {
 	free(v->val.s);
@@ -1057,8 +1083,13 @@ value copy_val(const value o) {
 	ret.val.s = (char*)malloc(sizeof(char)*o.n_els);
 	for (size_t i = 0; i < o.n_els; ++i) ret.val.s[i] = o.val.s[i];
     } else if (o.type == VAL_LIST) {
-	ret.val.l = (value*)calloc(o.n_els, sizeof(value));
-	for (size_t i = 0; i < o.n_els; ++i) ret.val.l[i] = copy_val(o.val.l[i]);
+	if (o.val.l == NULL) {
+	    ret.n_els = 0;
+	    ret.val.l = NULL;
+	} else {
+	    ret.val.l = (value*)calloc(o.n_els, sizeof(value));
+	    for (size_t i = 0; i < o.n_els; ++i) ret.val.l[i] = copy_val(o.val.l[i]);
+	}
     } else if (o.type == VAL_MAT) {
 	ret.val.m = new mat3x3(*(o.val.m));
     } else if (o.type == VAL_3VEC) {

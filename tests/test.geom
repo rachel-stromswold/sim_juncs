@@ -4,12 +4,8 @@ sum_list = list[0] + list[1] + list[2] + list[3]
 prod_list = list[0]*list[1]*list[2]*list[3] + offset
 acid_test = 100*offset - ((list[2] < list[1]) ? list[2] : list[1] + (list[1] > list[0]) ? list[1] : list[2])
 
-Gaussian_source("Ey", 1.333333, 3.0, 0.2, 5.0, 4.2, 7.0, [
-    Box([0,0,.2], [.4,.4,.2])
-])
-CW_source("Hz", 1.66, 0.2, 1.2, 0.1, 8.0, [
-    Box([0,0,.2], [.4,.4,.2])
-])
+Gaussian_source("Ey", 1.333333, 7.0, 3.0, 0.75, cutoff=6, start_time=5.2, Box([0,0,.2], [.4,.4,.2]))
+CW_source("Hz", 1.66, 8.0, 0.2, 1.2, slowness=0.1, Box([0,0,.2], [.4,.4,.2]))
 
 monitors(locations = [[0.5,0.5,0.5]])
 

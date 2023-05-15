@@ -590,6 +590,8 @@ TEST_CASE("Test value makers") {
 	CHECK(lst_val.val.l[i].type == VAL_NUM);
 	CHECK(lst_val.val.l[i].val.x == (double)i/2);
     }
+    for (size_t i = 0; i < SMALL_TEST_N; ++i)
+	cleanup_val(val_bufs+i);
     cleanup_val(&lst_val);
 }
 
@@ -1345,7 +1347,7 @@ TEST_CASE("Test context parsing") {
 
 TEST_CASE("Test context file parsing") {
     line_buffer lb("tests/context_test.geom");
-    CHECK(lb.get_n_lines() == 10);
+    CHECK(lb.get_n_lines() == 7);
     context c;
     setup_geometry_context(c);
     size_t init_size = c.size();
@@ -1355,9 +1357,9 @@ TEST_CASE("Test context file parsing") {
     //look at the Gaussian
     value inst = c.peek_val(4);
 	CHECK(inst.type == VAL_INST);
-	CHECK(inst.val.c->size() == 11);
+	CHECK(inst.val.c->size() == 9);
 	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("type"));
+	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "Gaussian_source") == 0);
 	value tmp = inst.val.c->lookup("component");
@@ -1366,8 +1368,6 @@ TEST_CASE("Test context file parsing") {
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == doctest::Approx(1.33));
 	tmp = inst.val.c->lookup("amplitude");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1.0);
-	tmp = inst.val.c->lookup("t_0");
-	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 5.0);
 	tmp = inst.val.c->lookup("width");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 2.0);
 	tmp = inst.val.c->lookup("phase");
@@ -1376,15 +1376,12 @@ TEST_CASE("Test context file parsing") {
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.125);
 	tmp = inst.val.c->lookup("start_time");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == -1.25);
-	tmp = inst.val.c->lookup("end_time");
-	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 4);
-	CHECK(inst.val.c->peek().get_val().type == VAL_LIST);
-	CHECK(inst.val.c->peek().get_val().n_els == 1);
+	CHECK(is_type(inst.val.c->peek_val(), "Box"));
     inst = c.peek_val(3);
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 8);
 	strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("type"));
+	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "CW_source") == 0);
 	tmp = inst.val.c->lookup("component");
@@ -1399,13 +1396,12 @@ TEST_CASE("Test context file parsing") {
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 2.25);
 	tmp = inst.val.c->lookup("slowness");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 12);
-	CHECK(inst.val.c->peek().get_val().type == VAL_LIST);
-	CHECK(inst.val.c->peek().get_val().n_els == 1);
+	CHECK(is_type(inst.val.c->peek_val(), "Box"));
     inst = c.peek_val(2);
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 5);
 	strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("type"));
+	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "Composite") == 0);
 	tmp = inst.val.c->lookup("eps");
@@ -1414,13 +1410,16 @@ TEST_CASE("Test context file parsing") {
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1);
 	tmp = inst.val.c->lookup("color");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 10);
-	CHECK(inst.val.c->peek().get_val().type == VAL_LIST);
-	CHECK(inst.val.c->peek().get_val().n_els == 1);
+	value geom = inst.val.c->peek_val();
+	CHECK(geom.type == VAL_LIST);
+	CHECK(geom.n_els == 2);
+	CHECK(is_type(geom.val.l[0], "Box"));
+	CHECK(is_type(geom.val.l[1], "Box"));
     inst = c.peek_val(1);
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 9);
 	strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("type"));
+	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "snapshot") == 0);
 	tmp = inst.val.c->lookup("fname");
@@ -1614,6 +1613,7 @@ TEST_CASE("Test File Parsing") {
     composite_object* comp_r = (composite_object*)(root->get_child_r());
     CHECK(comp_r->get_child_type_l() == CGS_COMPOSITE);
     composite_object* comp_rl = (composite_object*)(comp_r->get_child_l());
+    composite_object* comp_rr = (composite_object*)(comp_r->get_child_r());
     CHECK(comp_l != NULL);
     CHECK(comp_r != NULL);
     CHECK(comp_rl != NULL);
@@ -1627,13 +1627,19 @@ TEST_CASE("Test File Parsing") {
     //check the right branch
     CHECK(comp_r->get_combine_type() == CGS_INTERSECT);
     CHECK(comp_r->get_child_l() != NULL);
-    CHECK(comp_rl->get_combine_type() == CGS_DIFFERENCE);
+    CHECK(comp_rl->get_combine_type() == CGS_INTERSECT);
     CHECK(comp_rl->get_child_l() != NULL);
     CHECK(comp_rl->get_child_type_l() == CGS_BOX);
     CHECK(comp_rl->get_child_r() != NULL);
-    CHECK(comp_rl->get_child_type_r() == CGS_PLANE);
-    CHECK(comp_r->get_child_r() != NULL);
+    CHECK(comp_rl->get_child_type_r() == CGS_COMPOSITE);
+    CHECK(comp_rl->get_child_r() != NULL);
+    composite_object* comp_rlr = (composite_object*)(comp_rl->get_child_r());
+    CHECK(comp_rlr->get_child_type_l() == CGS_PLANE);
+    CHECK(comp_rlr->get_child_l() != NULL);
+    CHECK(comp_rlr->get_child_type_r() == CGS_UNDEF);
+    CHECK(comp_rlr->get_child_r() == NULL);
     CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
+    CHECK(comp_r->get_child_r() != NULL);
 }
 
 TEST_CASE("Test Geometric Inclusion") {
@@ -1875,21 +1881,21 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.type == SRC_GAUSSIAN);
 	CHECK(inf.component == meep::Ey);
 	CHECK(inf.wavelen == 1.333333);
-	CHECK(inf.width == doctest::Approx(3.0));
-	CHECK(inf.phase == 0.2);
-	CHECK(inf.start_time == 5.0);
-	CHECK(inf.end_time == doctest::Approx(30.2));
 	CHECK(inf.amplitude == 7.0);
+	CHECK(inf.width == doctest::Approx(3.0));
+	CHECK(inf.phase == 0.75);
+	CHECK(inf.start_time == doctest::Approx(5.2));
+	CHECK(inf.end_time == doctest::Approx(41.2));
 
 	inf = sources[1];
 	CHECK(inf.type == SRC_CONTINUOUS);
 	CHECK(inf.component == meep::Hz);
 	CHECK(inf.wavelen == 1.66);
+	CHECK(inf.amplitude == 8.0);
 	CHECK(inf.phase == 0.0);
 	CHECK(inf.start_time == 0.2);
 	CHECK(inf.end_time == 1.2);
 	CHECK(inf.width == 0.1);
-	CHECK(inf.amplitude == 8.0);
 #endif
 
 	cleanup_settings(&args);
