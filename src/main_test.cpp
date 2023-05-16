@@ -590,6 +590,8 @@ TEST_CASE("Test value makers") {
 	CHECK(lst_val.val.l[i].type == VAL_NUM);
 	CHECK(lst_val.val.l[i].val.x == (double)i/2);
     }
+    for (size_t i = 0; i < SMALL_TEST_N; ++i)
+	cleanup_val(val_bufs+i);
     cleanup_val(&lst_val);
 }
 
@@ -1283,7 +1285,7 @@ TEST_CASE("Test context parsing") {
 	CHECK(strcmp(val_b.val.s, "b") == 0);
     }
     SUBCASE ("with nesting") {
-	const char* lines[] = { "a = {name = \"apple\"; values = [20, 11]}", "b = a.values[0]", "c = b + a.values[1]" }; 
+	const char* lines[] = { "a = {name = \"apple\", values = [20, 11]}", "b = a.values[0]", "c = a.values[1] + a.values[0] + 1" }; 
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	line_buffer b_1(lines, n_lines);
 	context c;
@@ -1307,18 +1309,11 @@ TEST_CASE("Test context parsing") {
 	CHECK(val_b.val.x == 20);
 	value val_c = c.lookup("c");
 	CHECK(val_c.type == VAL_NUM);
-	CHECK(val_c.val.x == 31);
+	CHECK(val_c.val.x == 32);
     }
     SUBCASE ("user defined functions") {
 	const char* fun_name = "test_fun";
 	char* tmp_name = strdup(fun_name);
-	/*cgs_func call_sig;
-	call_sig.n_args = 1;
-	call_sig.args[0].type = VAL_UNDEF;
-	call_sig.args[0].val.x = 0;
-	call_sig.args[0].n_els = 0;
-	call_sig.arg_names[0] = NULL;
-	call_sig.name = tmp_name;*/
 
 	const char* lines[] = { "a = test_fun(1)", "b=test_fun(10)" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
@@ -1352,7 +1347,7 @@ TEST_CASE("Test context parsing") {
 
 TEST_CASE("Test context file parsing") {
     line_buffer lb("tests/context_test.geom");
-    CHECK(lb.get_n_lines() == 12);
+    CHECK(lb.get_n_lines() == 7);
     context c;
     setup_geometry_context(c);
     size_t init_size = c.size();
@@ -1360,62 +1355,77 @@ TEST_CASE("Test context file parsing") {
     CHECK(er == E_SUCCESS);
     CHECK(c.size() == init_size+4);
     //look at the Gaussian
-    value inst = c.peek_val(4);
+    value inst = c.peek_val(4); {
 	CHECK(inst.type == VAL_INST);
-	CHECK(inst.val.c->size() == 8);
+	CHECK(inst.val.c->size() == 9);
 	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("type"));
+	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "Gaussian_source") == 0);
-	value tmp = inst.val.c->lookup("wavelength");
+	value tmp = inst.val.c->lookup("component");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_EX);
+	tmp = inst.val.c->lookup("wavelength");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == doctest::Approx(1.33));
 	tmp = inst.val.c->lookup("amplitude");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1.0);
-	tmp = inst.val.c->lookup("t_0");
-	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 5.0);
 	tmp = inst.val.c->lookup("width");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 2.0);
 	tmp = inst.val.c->lookup("phase");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.0);
-	CHECK(inst.val.c->peek().get_val().type == VAL_INST);
-    inst = c.peek_val(3);
+	tmp = inst.val.c->lookup("cutoff");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.125);
+	tmp = inst.val.c->lookup("start_time");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == -1.25);
+	CHECK(is_type(inst.val.c->peek_val(), "Box"));
+    }
+    inst = c.peek_val(3); {
+	CHECK(inst.type == VAL_INST);
+	CHECK(inst.val.c->size() == 8);
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
+	CHECK(strval.name_matches("__type__"));
+	CHECK(strval.get_val().type == VAL_STR);
+	CHECK(strcmp(strval.get_val().val.s, "CW_source") == 0);
+	value tmp = inst.val.c->lookup("component");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_HZ);
+	tmp = inst.val.c->lookup("wavelength");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.625);
+	tmp = inst.val.c->lookup("amplitude");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.25);
+	tmp = inst.val.c->lookup("start_time");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.75);
+	tmp = inst.val.c->lookup("end_time");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 2.25);
+	tmp = inst.val.c->lookup("slowness");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 12);
+	CHECK(is_type(inst.val.c->peek_val(), "Box"));
+    }
+    inst = c.peek_val(2); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 5);
-	strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("type"));
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
+	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "Composite") == 0);
-	tmp = inst.val.c->lookup("eps");
-	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 3.5);
-	tmp = inst.val.c->lookup("alpha");
-	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 254);
-	tmp = inst.val.c->lookup("color");
-	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 22);
-	CHECK(inst.val.c->peek().get_val().type == VAL_INST);
-	CHECK(inst.val.c->peek().get_val().val.c->size() == 1);
-    inst = c.peek_val(2);
-	CHECK(inst.type == VAL_INST);
-	CHECK(inst.val.c->size() == 5);
-	strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("type"));
-	CHECK(strval.get_val().type == VAL_STR);
-	CHECK(strcmp(strval.get_val().val.s, "Composite") == 0);
-	tmp = inst.val.c->lookup("eps");
+	value tmp = inst.val.c->lookup("eps");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 3.5);
 	tmp = inst.val.c->lookup("alpha");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1);
 	tmp = inst.val.c->lookup("color");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 10);
-	CHECK(inst.val.c->peek().get_val().type == VAL_INST);
-	CHECK(inst.val.c->peek().get_val().val.c->size() == 1);
-    inst = c.peek_val(1);
+	value geom = inst.val.c->peek_val();
+	CHECK(geom.type == VAL_LIST);
+	CHECK(geom.n_els == 2);
+	CHECK(is_type(geom.val.l[0], "Box"));
+	CHECK(is_type(geom.val.l[1], "Box"));
+    }
+    inst = c.peek_val(1); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 9);
-	strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("type"));
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
+	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "snapshot") == 0);
-	tmp = inst.val.c->lookup("fname");
+	value tmp = inst.val.c->lookup("fname");
 	CHECK(tmp.type == VAL_STR);CHECK(strcmp(tmp.val.s, "/tmp/run_alpha.pgm") == 0);
 	tmp = inst.val.c->lookup("cam_v");
 	CHECK(tmp.type == VAL_3VEC);
@@ -1431,6 +1441,7 @@ TEST_CASE("Test context file parsing") {
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == DEF_TEST_N);
 	tmp = inst.val.c->lookup("step");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == WALK_STEP);
+    }
 }
 
 TEST_CASE("Test volumes") {
@@ -1580,23 +1591,6 @@ TEST_CASE("Test File Parsing") {
     parse_ercode er;
     scene s("tests/test.geom", &er);
     CHECK(er == E_SUCCESS);
-    //check that metadata works
-    std::vector<composite_object*> data_vec = s.get_data();
-    CHECK(data_vec.size() > 0);
-    CHECK(data_vec[0]->has_metadata("name"));
-    CHECK(data_vec[0]->has_metadata("entry"));
-    CHECK(data_vec[0]->has_metadata("num"));
-    value name_val = data_vec[0]->fetch_metadata("name");
-    value ntry_val = data_vec[0]->fetch_metadata("entry");
-    value num_val = data_vec[0]->fetch_metadata("num");
-    CHECK(name_val.type == VAL_STR);
-    CHECK(ntry_val.type == VAL_STR);
-    CHECK(num_val.type == VAL_NUM);
-    CHECK(name_val.val.s != NULL);
-    CHECK(ntry_val.val.s != NULL);
-    CHECK(strcmp(name_val.to_c_str(), "foo") == 0);
-    CHECK(strcmp(ntry_val.to_c_str(), "bar,(arr),[blah]") == 0);
-    CHECK(num_val.to_float() == 3);
     //look at context variables
     context c = s.get_context();
     value offset = c.lookup("offset");
@@ -1623,6 +1617,7 @@ TEST_CASE("Test File Parsing") {
     composite_object* comp_r = (composite_object*)(root->get_child_r());
     CHECK(comp_r->get_child_type_l() == CGS_COMPOSITE);
     composite_object* comp_rl = (composite_object*)(comp_r->get_child_l());
+    composite_object* comp_rr = (composite_object*)(comp_r->get_child_r());
     CHECK(comp_l != NULL);
     CHECK(comp_r != NULL);
     CHECK(comp_rl != NULL);
@@ -1636,13 +1631,19 @@ TEST_CASE("Test File Parsing") {
     //check the right branch
     CHECK(comp_r->get_combine_type() == CGS_INTERSECT);
     CHECK(comp_r->get_child_l() != NULL);
-    CHECK(comp_rl->get_combine_type() == CGS_DIFFERENCE);
+    CHECK(comp_rl->get_combine_type() == CGS_INTERSECT);
     CHECK(comp_rl->get_child_l() != NULL);
     CHECK(comp_rl->get_child_type_l() == CGS_BOX);
     CHECK(comp_rl->get_child_r() != NULL);
-    CHECK(comp_rl->get_child_type_r() == CGS_PLANE);
-    CHECK(comp_r->get_child_r() != NULL);
+    CHECK(comp_rl->get_child_type_r() == CGS_COMPOSITE);
+    CHECK(comp_rl->get_child_r() != NULL);
+    composite_object* comp_rlr = (composite_object*)(comp_rl->get_child_r());
+    CHECK(comp_rlr->get_child_type_l() == CGS_PLANE);
+    CHECK(comp_rlr->get_child_l() != NULL);
+    CHECK(comp_rlr->get_child_type_r() == CGS_UNDEF);
+    CHECK(comp_rlr->get_child_r() == NULL);
     CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
+    CHECK(comp_r->get_child_r() != NULL);
 }
 
 TEST_CASE("Test Geometric Inclusion") {
@@ -1884,21 +1885,21 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.type == SRC_GAUSSIAN);
 	CHECK(inf.component == meep::Ey);
 	CHECK(inf.wavelen == 1.333333);
-	CHECK(inf.width == doctest::Approx(3.0));
-	CHECK(inf.phase == 0.2);
-	CHECK(inf.start_time == 5.0);
-	CHECK(inf.end_time == doctest::Approx(30.2));
 	CHECK(inf.amplitude == 7.0);
+	CHECK(inf.width == doctest::Approx(3.0));
+	CHECK(inf.phase == 0.75);
+	CHECK(inf.start_time == doctest::Approx(5.2));
+	CHECK(inf.end_time == doctest::Approx(41.2));
 
 	inf = sources[1];
 	CHECK(inf.type == SRC_CONTINUOUS);
 	CHECK(inf.component == meep::Hz);
 	CHECK(inf.wavelen == 1.66);
+	CHECK(inf.amplitude == 8.0);
 	CHECK(inf.phase == 0.0);
 	CHECK(inf.start_time == 0.2);
 	CHECK(inf.end_time == 1.2);
 	CHECK(inf.width == 0.1);
-	CHECK(inf.amplitude == 8.0);
 #endif
 
 	cleanup_settings(&args);

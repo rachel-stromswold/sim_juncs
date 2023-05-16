@@ -15,9 +15,16 @@ struct matrix {
 public:
     _ftype el[M*N];
     //Default constructor to zero matrix
-    matrix() {
+    matrix(int val=0) {
 	for (size_t i = 0; i < M*N; ++i) {
 	    el[i] = 0;
+	}
+	if (val != 0) {
+	    size_t min_m = M;
+	    if (N < M) min_m = N;
+	    for (size_t i = 0; i < min_m; ++i) {
+		el[N*i+i] = val;
+	    }
 	}
     }
     /**
@@ -39,6 +46,9 @@ public:
 		el[N*i+j] = c.el[i];
 	    }
 	}
+    }
+    _ftype get(size_t i, size_t j) {
+	return el[N*i + j];
     }
     //copy constructor
     matrix(const matrix<M,N>& o) {
@@ -211,6 +221,14 @@ inline matrix<3,3> make_rotation(_ftype theta, vec3 a) {
     ret.el[0] = ct+a.el[0]*a.el[0]*ctc;	ret.el[1] = a.el[0]*a.el[1]*ctc-a.el[2]*st;	ret.el[2] = a.el[0]*a.el[2]*ctc + a.el[1]*st;
     ret.el[3] = ret.el[1]+2*a.el[2]*st;	ret.el[4] = ct+a.el[1]*a.el[1]*ctc;		ret.el[5] = a.el[1]*a.el[2]*ctc - a.el[0]*st;
     ret.el[6] = ret.el[2]-2*a.el[1]*st;	ret.el[7] = ret.el[5]+2*a.el[0]*st;		ret.el[8] = ct+a.el[2]*a.el[2]*ctc;
+    return ret;
+}
+//TODO: finish
+inline matrix<3,3> invert(matrix<3,3> a) {
+    _ftype inv_det = a.get(0,0)*(a.get(1,1)*a.get(2,2) - a.get(1,2)*a.get(2,1))
+		    + a.get(0,1)*(a.get(1,2)*a.get(2,0) - a.get(1,0)*a.get(2,2))
+		    + a.get(0,2)*(a.get(1,0)*a.get(2,1) - a.get(1,1)*a.get(2,0));
+    matrix<3,3> ret;
     return ret;
 }
 

@@ -70,8 +70,8 @@ public:
 
 //store a line number and an offset within that line to describe a position in a line_buffer
 struct line_buffer_ind {
-    long line;
-    long off;
+    size_t line;
+    size_t off;
     line_buffer_ind() { line = 0;off = 0; }
     line_buffer_ind(long pl, long po) { line = pl;off = po; }
 };
@@ -305,6 +305,9 @@ struct value {
     int rep_string(char* sto, size_t n) const;
     value cast_to(valtype type, parse_ercode& er) const;
 };
+//check whether the value is of the specified type based on the type string
+inline bool is_type(value v, valtype t) { return v.type == t; }
+bool is_type(value v, const char* type);
 void cleanup_val(value* o);
 value copy_val(const value o);
 void swap_val(value* a, value* b);
@@ -382,7 +385,7 @@ private:
     context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
     //parse_ercode read_single_line(char* line, read_state& b);
-    parse_ercode read_single_line(char* line, context::read_state& rs);
+    parse_ercode read_single_line(const char* line, context::read_state& rs);
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
@@ -401,7 +404,7 @@ public:
     parse_ercode set_value(const char* name, value new_val);
     parse_ercode read_from_lines(const line_buffer& b);
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
-    value peek_val(size_t i=0);
+    value peek_val(size_t i=1);
 };
 
 /**

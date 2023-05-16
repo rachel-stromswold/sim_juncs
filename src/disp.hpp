@@ -105,7 +105,7 @@ public:
     //double cutoff;
     double amplitude;
 
-    source_info(value info, parse_ercode* ercode);
+    source_info(value info, parse_ercode& ercode);
 };
 
 // Gaussian-envelope source with given frequency, width, peak-time, cutoff and phase
@@ -113,7 +113,7 @@ class gaussian_src_time_phase : public meep::src_time {
 public:
     //gaussian_src_time_phase(double f, double fwidth, double phase, double s = 5.0);
     gaussian_src_time_phase(double f, double w, double phase, double start_time, double end_time);
-    virtual ~gaussian_src_time_phase() {}
+    //virtual ~gaussian_src_time_phase() {}
 
     virtual std::complex<double> dipole(double time) const;
     virtual double last_time() const { return float(peak_time + cutoff); };
@@ -162,7 +162,7 @@ public:
 #ifdef DEBUG_INFO
     std::vector<drude_suscept> parse_susceptibilities(value val, int* er);
     meep::structure* structure_from_settings(const parse_settings& s, scene& problem, parse_ercode* ercode);
-    parse_ercode parse_monitors(composite_object* comp);
+    parse_ercode parse_monitors(value vl);
 #endif
 
 private:

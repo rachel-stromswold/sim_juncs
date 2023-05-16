@@ -317,7 +317,67 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
     return in_bound(r);
 }
 
-source_info::source_info(value info, parse_ercode* ercode) {
+source_info::source_info(value info, parse_ercode& ercode) {
+    ercode = E_SUCCESS;
+    type = SRC_GAUSSIAN;
+    component = meep::Ex;
+    wavelen = 0.7;
+    width = 1;
+    phase = 0;
+    start_time = 0;
+    end_time = 0;
+    amplitude = 1.0;
+    parse_ercode tmp_er = E_SUCCESS;
+
+    bool is_gauss = is_type(info, "Gaussian_source");
+    bool is_contin = is_type(info, "CW_source");
+    if (is_contin || is_gauss) {
+	value tmp = info.val.c->lookup("component");
+	if (tmp.type == VAL_NUM) {
+	    switch ((basis_comp_vectors)(tmp.val.x)) {
+		case C_EY: component = meep::Ey;break;
+		case C_EZ: component = meep::Ez;break;
+		case C_HX: component = meep::Hx;break;
+		case C_HY: component = meep::Hy;break;
+		case C_HZ: component = meep::Hz;break;
+		default:break;
+	    }
+	}
+	tmp = info.val.c->lookup("wavelength");
+	if (tmp.type == VAL_NUM)
+	    wavelen = tmp.val.x;
+	tmp = info.val.c->lookup("amplitude");
+	if (tmp.type == VAL_NUM)
+	    amplitude = tmp.val.x;
+	tmp = info.val.c->lookup("start_time");
+	if (tmp.type == VAL_NUM)
+	    start_time = tmp.val.x;
+	tmp = info.val.c->lookup("end_time");
+	if (tmp.type == VAL_NUM)
+	    end_time = tmp.val.x;
+	tmp = info.val.c->lookup("slowness");
+	if (tmp.type == VAL_NUM)
+	    width = tmp.val.x;
+    } else {
+	ercode = E_BAD_TYPE;
+    }
+    if (is_gauss) {
+	value tmp = info.val.c->lookup("width");
+	if (tmp.type == VAL_NUM)
+	    width = tmp.val.x;
+	tmp = info.val.c->lookup("phase");
+	if (tmp.type == VAL_NUM)
+	    phase = tmp.val.x;
+	double cutoff = 5;
+	tmp = info.val.c->lookup("cutoff");
+	if (tmp.type == VAL_NUM)
+	    cutoff = 6;
+	end_time = start_time + 2*cutoff*width;
+    }
+    if (is_contin) type = SRC_CONTINUOUS;
+}
+
+/*source_info::source_info(value info, parse_ercode* ercode) {
     if (ercode) *ercode = E_SUCCESS;
     //initialize default values
     type = SRC_GAUSSIAN;
@@ -453,7 +513,7 @@ source_info::source_info(value info, parse_ercode* ercode) {
 
     //set the error code if there was one and the caller wants it
     if (ercode) *ercode = tmp_er;
-}
+}*/
 
 gaussian_src_time_phase::gaussian_src_time_phase(double f, double w, double phase, double st, double et) {
     omega = 2*M_PI*f;
@@ -537,26 +597,21 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(value val, int* er
  * Read a composite_object specifying monitor locations into a list of monitor locations
  * returns: an error code if one was encountered or E_SUCCESS
  */
-parse_ercode bound_geom::parse_monitors(composite_object* comp) {
-    //only continue if the user specified locations
-    if (comp->has_metadata("locations")) {
-	value tmp_val = comp->fetch_metadata("locations");
-	if (tmp_val.get_type() != VAL_LIST) {
-	    printf("Location type is not a list! ignoring\n");
-	} else {
-	    parse_ercode er = E_SUCCESS;
-	    for (size_t i = 0; i < tmp_val.n_els; ++i) {
-		//see if we can cast to a vector and check for errors
-		value vec_cast = tmp_val.val.l[i].cast_to(VAL_3VEC, er);
-		if (er != E_SUCCESS) return er;
-		//convert to a meep vector and append
-		meep::vec tmp_vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z());
-		monitor_locs.push_back(tmp_vec);
-		cleanup_val(&vec_cast);
-	    }
+parse_ercode bound_geom::parse_monitors(value vl) {
+    if (vl.type == VAL_LIST) {
+	parse_ercode er = E_SUCCESS;
+	for (size_t i = 0; i < vl.n_els; ++i) {
+	    //see if we can cast to a vector and check for errors
+	    value vec_cast = vl.val.l[i].cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS) { cleanup_val(&vec_cast);return er; }
+	    //convert to a meep vector and append
+	    meep::vec tmp_vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z());
+	    monitor_locs.push_back(tmp_vec);
+	    cleanup_val(&vec_cast);
 	}
+	return er;
     }
-    return E_SUCCESS;
+    return E_BAD_TYPE;
 }
 
 double dummy_eps(const meep::vec& r) { (void)r;return 1.0; }
@@ -663,8 +718,64 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
     post_source_t = s.post_source_t;
 
     //add fields specified in the problem
+    context& c = problem.get_context();
+    for (size_t i = c.size(); i > 0; --i) {
+	parse_ercode tmp_er;
+	value inst = c.peek_val(i);
+	source_info cur_info(inst, tmp_er);
+	//only inspect instances
+	if (tmp_er == E_SUCCESS) {
+	    value reg = inst.val.c->lookup("region");
+	    parse_ercode tmp_er = E_BAD_TYPE;
+	    if (is_type(reg, "Box")) {
+		tmp_er = E_SUCCESS;
+		parse_ercode tmp_er2 = E_SUCCESS;
+		value p1 = reg.val.c->lookup("pt_1").cast_to(VAL_3VEC, tmp_er);
+		value p2 = reg.val.c->lookup("pt_2").cast_to(VAL_3VEC, tmp_er2);
+		if (tmp_er == E_SUCCESS && tmp_er2 == E_SUCCESS) {
+		    double x_0 = p1.val.v->x();double x_1 = p2.val.v->x();
+		    double y_0 = p1.val.v->y();double y_1 = p2.val.v->y();
+		    double z_0 = p1.val.v->z();double z_1 = p2.val.v->z();
+		    meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
+		    double c_by_a = 0.299792458*s.um_scale;
+		    //We specify the width of the pulse in units of the oscillation period
+		    double frequency = 1 / (cur_info.wavelen*s.um_scale);
+		    double width = cur_info.width*c_by_a;
+		    double start_time = cur_info.start_time*c_by_a;
+		    double end_time = cur_info.end_time*c_by_a;
+		    if (cur_info.type == SRC_GAUSSIAN) {
+			printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
+				frequency, width, start_time, end_time);
+			gaussian_src_time_phase src(frequency, width, cur_info.phase, start_time, end_time);
+			fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+		    } else if (cur_info.type == SRC_CONTINUOUS) { 
+			printf("Adding continuous wave: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
+				frequency, width, start_time, end_time);
+			meep::continuous_src_time src(frequency, width, start_time, end_time);
+			fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+		    }
+#ifdef DEBUG_INFO
+		    sources.push_back(cur_info);
+#endif
+		    //set the total timespan based on the added source
+		    ttot = fields.last_source_time() + post_source_t*0.299792458*s.um_scale;
+		}
+		cleanup_val(&p1);
+		cleanup_val(&p2);
+	    }
+	} else {
+	    if (is_type(inst, "monitor")) {
+		value vl = inst.val.c->lookup("locations");
+		parse_ercode tmp_er = parse_monitors(vl);
+		if (tmp_er != E_SUCCESS)
+		    printf("warning: Invalid monitor location encountered! (all monitors must be vectors or lists with three elements)\n");
+		monitor_clusters.push_back(monitor_locs.size());
+	    }
+	}
+    }
+
     std::vector<composite_object*> data = problem.get_data();
-    for (size_t i = 0; i < data.size(); ++i) {
+    /*for (size_t i = 0; i < data.size(); ++i) {
 	if (data[i]->has_metadata("type")) {
         value type = data[i]->fetch_metadata("type");
 	    if (type.type == VAL_STR && strcmp(type.val.s, "field_source") == 0) {
@@ -727,7 +838,7 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
 		monitor_clusters.push_back(monitor_locs.size());
 	    }
 	}
-    }
+    }*/
     write_settings(stdout);
     dump_span = s.field_dump_span;
     dump_raw = s.dump_raw;
