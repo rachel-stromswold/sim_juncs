@@ -1362,6 +1362,7 @@ TEST_CASE("Test context file parsing") {
 	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "Gaussian_source") == 0);
+    cleanup_val(&strval);
 	value tmp = inst.val.c->lookup("component");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_EX);
 	tmp = inst.val.c->lookup("wavelength");
@@ -1384,6 +1385,7 @@ TEST_CASE("Test context file parsing") {
 	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "CW_source") == 0);
+    cleanup_val(&strval);
 	tmp = inst.val.c->lookup("component");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_HZ);
 	tmp = inst.val.c->lookup("wavelength");
@@ -1404,6 +1406,7 @@ TEST_CASE("Test context file parsing") {
 	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "Composite") == 0);
+    cleanup_val(&strval);
 	tmp = inst.val.c->lookup("eps");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 3.5);
 	tmp = inst.val.c->lookup("alpha");
@@ -1422,6 +1425,7 @@ TEST_CASE("Test context file parsing") {
 	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "snapshot") == 0);
+    cleanup_val(&strval);
 	tmp = inst.val.c->lookup("fname");
 	CHECK(tmp.type == VAL_STR);CHECK(strcmp(tmp.val.s, "/tmp/run_alpha.pgm") == 0);
 	tmp = inst.val.c->lookup("cam_v");

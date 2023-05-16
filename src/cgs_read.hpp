@@ -385,7 +385,7 @@ private:
     context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
     //parse_ercode read_single_line(char* line, read_state& b);
-    parse_ercode read_single_line(char* line, context::read_state& rs);
+    parse_ercode read_single_line(const char* line, context::read_state& rs);
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }

@@ -2142,7 +2142,7 @@ value context::parse_value(const line_buffer& b, line_buffer_ind& p, parse_ercod
 
 /**helper function for read_from lines that reads a single line
  */
-parse_ercode context::read_single_line(char* line, context::read_state& rs) {
+parse_ercode context::read_single_line(const char* line, context::read_state& rs) {
     parse_ercode er = E_SUCCESS;
     //tracking variables
     size_t k = 0;
