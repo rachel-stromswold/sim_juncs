@@ -9,9 +9,9 @@ from matplotlib.colors import LinearSegmentedColormap
 from scipy.stats import linregress
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-plt.rc('font', size=14)
-plt.rc('xtick', labelsize=12)
-plt.rc('ytick', labelsize=12)
+plt.rc('font', size=18)
+plt.rc('xtick', labelsize=18)
+plt.rc('ytick', labelsize=18)
 
 N_COLS = 1
 
@@ -320,11 +320,13 @@ def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis', vlines=[
     if len(xlabels[0]) == 0:
         ax.get_xaxis().set_visible(False)
     else:
-        ax.set_xticks(xlabels[0], labels=xlabels[1])
+        ax.set_xticks(xlabels[0])
+        ax.set_xticklabels(xlabels[1])
     if len(ylabels[0]) == 0:
         ax.get_yaxis().set_visible(False)
     else:
-        ax.set_yticks(ylabels[0], labels=ylabels[1])
+        ax.set_yticks(ylabels[0])
+        ax.set_yticklabels(ylabels[1])
     for xx in vlines:
         ax.axvline(x=xx, color='gray')
     #do plots
@@ -334,7 +336,7 @@ def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis', vlines=[
         im = ax.imshow(imdat, vmin=rng[0], vmax=rng[1], cmap=cmap)
     if args.plot_cbar:
         divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="2%", pad=0.05)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
         plt.colorbar(im, cax=cax)
         cax.set_ylabel(label)
     fg.tight_layout()
@@ -385,19 +387,19 @@ def plot_average_phase(pf, n_groups=-1):
     n_cbar = 1
     wrs = [1]
     vlines = [xl, xr]
-    xlabels = [[xl, xr, len(cl_xs[0])-1], ["{}".format(-args.gap_width*500), "{}".format(args.gap_width*500), "(nm)"]]
+    xlabels = [[xl, xr], ["{}".format(-args.gap_width*500), "{}".format(args.gap_width*500)]]
     ylabels = [[], []]
     if args.plot_cbar:
         n_cbar = 2
         wrs = [32,1]
     if args.plot_y_labels:
-        ylabels = [[1, len(cl_xs)-1], ["0 nm", "{} nm".format(args.gap_thick*500)]]
+        ylabels = [[1, len(cl_xs)-1], ["0", "{}".format(args.gap_thick*500)]]
 
     #save heatmaps of amplitudes and phases
     for i in range(n_groups):
         #heat_fig, heat_ax = plt.subplots(2,n_cbar, gridspec_kw={'width_ratios':wrs, 'wspace':0.1, 'hspace':0.1})
         heat_fig, heat_ax = plt.subplots(2, gridspec_kw={'hspace':0.1})
-        make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], "", "amplitude\n(arb. units)", rng=AMP_RANGE, cmap='Reds', vlines=vlines, ylabels=ylabels)
+        make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], "", "amplitude\n(arb. units)", rng=AMP_RANGE, cmap='magma', vlines=vlines, ylabels=ylabels)
         make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap, vlines=vlines, xlabels=xlabels, ylabels=ylabels)
         #make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
 
@@ -406,7 +408,7 @@ def plot_average_phase(pf, n_groups=-1):
         #plot skews
         nfig = plt.figure()
         nax = plt.gca()
-        make_heatmap(nfig, nax, cl_skew[i*grp_len:(i+1)*grp_len], "", "skewness", cmap='Reds', rng=SKW_RANGE, vlines=vlines, xlabels=xlabels, ylabels=ylabels)
+        make_heatmap(nfig, nax, cl_skew[i*grp_len:(i+1)*grp_len], "", "skewness", cmap='magma', rng=SKW_RANGE, vlines=vlines, xlabels=xlabels, ylabels=ylabels)
         nfig.savefig(args.prefix+"/heatmap_skew_grp{}.pdf".format(i), bbox_inches='tight')
         plt.close(nfig)
         #plot errors
@@ -418,7 +420,7 @@ def plot_average_phase(pf, n_groups=-1):
         #plot reflected phases
         heat_fig, heat_ax = plt.subplots(2)
         make_heatmap(heat_fig, heat_ax[0], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
-        make_heatmap(heat_fig, heat_ax[1], cl_ampr[i*grp_len:(i+1)*grp_len], "Reflected amplitudes", r"$\phi/2\pi$", rng=AMP_RANGE, cmap='Reds')
+        make_heatmap(heat_fig, heat_ax[1], cl_ampr[i*grp_len:(i+1)*grp_len], "Reflected amplitudes", r"$\phi/2\pi$", rng=AMP_RANGE, cmap='magma')
         heat_fig.savefig(args.prefix+"/heatmap_phs_grp{}.pdf".format(i))
         plt.close(heat_fig)
 
