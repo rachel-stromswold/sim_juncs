@@ -291,6 +291,7 @@ value cgs_gen_difference(context& c, cgs_func f, parse_ercode& er) {
     ret.val.c->emplace("geometry", tmp);
     cleanup_val(&contents[1]);
     cleanup_val(&vl);
+    free(complement_contents);
     return ret;
 }
 value cgs_gen_rotate(context& c, cgs_func f, parse_ercode& er) {

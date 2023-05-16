@@ -1355,14 +1355,13 @@ TEST_CASE("Test context file parsing") {
     CHECK(er == E_SUCCESS);
     CHECK(c.size() == init_size+4);
     //look at the Gaussian
-    value inst = c.peek_val(4);
+    value inst = c.peek_val(4); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 9);
 	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
 	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "Gaussian_source") == 0);
-    cleanup_val(&strval);
 	value tmp = inst.val.c->lookup("component");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_EX);
 	tmp = inst.val.c->lookup("wavelength");
@@ -1378,15 +1377,15 @@ TEST_CASE("Test context file parsing") {
 	tmp = inst.val.c->lookup("start_time");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == -1.25);
 	CHECK(is_type(inst.val.c->peek_val(), "Box"));
-    inst = c.peek_val(3);
+    }
+    inst = c.peek_val(3); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 8);
-	strval = inst.val.c->peek(inst.val.c->size());
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
 	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "CW_source") == 0);
-    cleanup_val(&strval);
-	tmp = inst.val.c->lookup("component");
+	value tmp = inst.val.c->lookup("component");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_HZ);
 	tmp = inst.val.c->lookup("wavelength");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.625);
@@ -1399,15 +1398,15 @@ TEST_CASE("Test context file parsing") {
 	tmp = inst.val.c->lookup("slowness");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 12);
 	CHECK(is_type(inst.val.c->peek_val(), "Box"));
-    inst = c.peek_val(2);
+    }
+    inst = c.peek_val(2); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 5);
-	strval = inst.val.c->peek(inst.val.c->size());
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
 	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "Composite") == 0);
-    cleanup_val(&strval);
-	tmp = inst.val.c->lookup("eps");
+	value tmp = inst.val.c->lookup("eps");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 3.5);
 	tmp = inst.val.c->lookup("alpha");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1);
@@ -1418,15 +1417,15 @@ TEST_CASE("Test context file parsing") {
 	CHECK(geom.n_els == 2);
 	CHECK(is_type(geom.val.l[0], "Box"));
 	CHECK(is_type(geom.val.l[1], "Box"));
-    inst = c.peek_val(1);
+    }
+    inst = c.peek_val(1); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 9);
-	strval = inst.val.c->peek(inst.val.c->size());
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
 	CHECK(strval.name_matches("__type__"));
 	CHECK(strval.get_val().type == VAL_STR);
 	CHECK(strcmp(strval.get_val().val.s, "snapshot") == 0);
-    cleanup_val(&strval);
-	tmp = inst.val.c->lookup("fname");
+	value tmp = inst.val.c->lookup("fname");
 	CHECK(tmp.type == VAL_STR);CHECK(strcmp(tmp.val.s, "/tmp/run_alpha.pgm") == 0);
 	tmp = inst.val.c->lookup("cam_v");
 	CHECK(tmp.type == VAL_3VEC);
@@ -1442,6 +1441,7 @@ TEST_CASE("Test context file parsing") {
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == DEF_TEST_N);
 	tmp = inst.val.c->lookup("step");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == WALK_STEP);
+    }
 }
 
 TEST_CASE("Test volumes") {

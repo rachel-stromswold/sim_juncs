@@ -2119,6 +2119,7 @@ value context::parse_value(const line_buffer& b, line_buffer_ind& p, parse_ercod
 		line = append_to_line(line, &line_off, &line_size, tmp, end.off - init.off);
 		p = end;
 		init = p;
+		free(tmp);
 	    } else {
 		line = append_to_line(line, &line_off, &line_size, tmp, strlen(tmp)+1);
 		free(tmp);
@@ -2132,7 +2133,9 @@ value context::parse_value(const line_buffer& b, line_buffer_ind& p, parse_ercod
 	line = b.get_line(init);
     } else if (!hit_end) {
 	//this indicates that we reached the end of a block, but not the end of the line
-	line = append_to_line(line, &line_off, &line_size, b.get_line(init), b.get_line_size(init.line) - init.off + 1);
+	char* in_line = b.get_line(init);
+	line = append_to_line(line, &line_off, &line_size, in_line, b.get_line_size(init.line) - init.off + 1);
+	free(in_line);
 	line[line_off-1] = 0;
     }
     ret = parse_value(line, er);
@@ -2237,12 +2240,12 @@ parse_ercode context::read_from_lines(const line_buffer& b) {
 	    er = read_single_line(line, rs);
 	    if (er != E_SUCCESS) { free(line);return er; }
 	}
+	free(line);
 	//if we're at the end of a line, try incrementing. If that doesn't work, then we've reached the end of the file.
 	if (rs.pos.off >= rs.b.get_line_size(rs.pos.line)) {
 	    if (!b.inc(rs.pos))
 		break;
 	}
-	free(line);
     }
 
     return er;

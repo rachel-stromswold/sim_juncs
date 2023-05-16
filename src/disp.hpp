@@ -113,7 +113,7 @@ class gaussian_src_time_phase : public meep::src_time {
 public:
     //gaussian_src_time_phase(double f, double fwidth, double phase, double s = 5.0);
     gaussian_src_time_phase(double f, double w, double phase, double start_time, double end_time);
-    virtual ~gaussian_src_time_phase() {}
+    //virtual ~gaussian_src_time_phase() {}
 
     virtual std::complex<double> dipole(double time) const;
     virtual double last_time() const { return float(peak_time + cutoff); };
