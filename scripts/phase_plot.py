@@ -87,7 +87,6 @@ class waveguide_est:
     def get_field_amps(self, x_pts, z, diel_const, n_modes=HIGHEST_MODE):
         length = self.geom.meep_len_to_um(self.geom.r_junc - self.geom.l_junc)
         #these are some useful constants that we define. Note that lc is just the wavelength inside the dielectric, kc_sq is the square of 2pi/lc and l_rat_sq is (lc/2l)^2 where l is the length of the sample. We derived the expression beta^2 = kc^2 (1 - l_rat_sq*n^2), so neg_beta_sq is just -beta^2.
-        #lc = vac_wavelen/np.sqrt(np.real(diel_const))
         lc = self.vac_wavelen/np.real(diel_const)
         kc_sq = (2*np.pi / lc)**2
         l_rat_sq = 0.25*(lc/length)**2
