@@ -306,6 +306,7 @@ TEST_CASE("Test line reading") {
     CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
     CHECK(strcmp(buf, "last_test()") == 0);
     free(buf);
+    fclose(fp);
 }
 
 TEST_CASE("Check that numbers are written correctly") {

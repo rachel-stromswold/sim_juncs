@@ -361,9 +361,6 @@ line_buffer::line_buffer(const char* p_fname) {
 		lines = (char**)xrealloc(lines, sizeof(char*)*buf_size);
 		line_sizes = (size_t*)xrealloc(line_sizes, sizeof(size_t)*buf_size);
 	    }
-	    //these need to be set to zero so that read_cgs_line() will allocate a buffer for us
-	    /*char* this_buf = NULL;
-	    line_len = read_cgs_line(&this_buf, &line_len, fp, &lineno);*/
 	    //read the line until a semicolon, newline or EOF is found
 	    size_t this_size = BUF_SIZE;
 	    char* this_buf = (char*)malloc(this_size);
@@ -396,6 +393,7 @@ line_buffer::line_buffer(const char* p_fname) {
 	} while (go_again);
 	lines = (char**)xrealloc(lines, sizeof(char*)*n_lines);
 	line_sizes = (size_t*)xrealloc(line_sizes, sizeof(size_t)*n_lines);
+	fclose(fp);
     } else {
         printf("Error: couldn't open file %s for reading!\n", p_fname);
 	free(lines);
