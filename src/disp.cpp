@@ -619,7 +619,7 @@ double dummy_eps(const meep::vec& r) { (void)r;return 1.0; }
 /**
  * This is a helper function for the bound_geom constructor. Meep doesn't implement copy or move constructors so we have to initialize the structure immediately so that the fields can be initialized in turn.
  */
-meep::structure* bound_geom::structure_from_settings(const parse_settings& s, scene& problem, parse_ercode* ercode) {
+meep::structure* bound_geom::structure_from_settings(const parse_settings& s, scene& problem) {
     pml_thickness = s.pml_thickness;
     len = s.len;
 
@@ -696,9 +696,13 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
  */
 bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
     problem(s.geom_fname, context_from_settings(s), ercode),
-    strct(structure_from_settings(s, problem, ercode)),
+    strct(structure_from_settings(s, problem)),
     fields(strct)
 {
+    if (*ercode != E_SUCCESS) {
+        printf("Scene parsing failed, exiting.\n");
+        exit(1);
+    }
     //TODO: actually fix the memory issues
     for (size_t i = 0; i < FIELDS_PAD_SIZE; ++i) dummy_vals[i] = 0;
     um_scale = s.um_scale;
