@@ -74,6 +74,9 @@ struct line_buffer_ind {
     size_t off;
     line_buffer_ind() { line = 0;off = 0; }
     line_buffer_ind(long pl, long po) { line = pl;off = po; }
+    //increase/decrease the line buffer by a specified amount while keeping line number the same
+    friend line_buffer_ind operator+(const line_buffer_ind& lhs, const size_t& rhs);
+    friend line_buffer_ind operator-(const line_buffer_ind& lhs, const size_t& rhs);
 };
 
 class line_buffer {
@@ -384,15 +387,11 @@ private:
     };
     context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
-    //parse_ercode read_single_line(char* line, read_state& b);
-    parse_ercode read_single_line(const char* line, context::read_state& rs);
+    parse_ercode read_single_line(context::read_state& rs);
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
-    //context(const context& o);
-    //context(context&& o);
     ~context() {}
-    //parse_ercode push(_uint side, CompositeObject* obj);
     void emplace(const char* p_name, value p_val) { name_val_pair inst(p_name, p_val);push(inst); }
     value lookup(const char* name) const;
     parse_ercode pop_n(size_t n);

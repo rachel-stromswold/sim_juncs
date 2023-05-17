@@ -203,8 +203,6 @@ public:
     void read();
  
     parse_ercode read_file(const char* p_fname);
-    parse_ercode make_object(const cgs_func& f, object** ptr, object_type* type, int p_invert) const;
-    parse_ercode make_transformation(const cgs_func& f, mat3x3& res) const;
     context& get_context() { return named_items; }
     //void cleanup_func(cgs_func& f);
     void draw_stochastic(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);

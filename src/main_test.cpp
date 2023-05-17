@@ -1285,7 +1285,7 @@ TEST_CASE("Test context parsing") {
 	CHECK(strcmp(val_b.val.s, "b") == 0);
     }
     SUBCASE ("with nesting") {
-	const char* lines[] = { "a = {name = \"apple\", values = [20, 11]}", "b = a.values[0]", "c = a.values[1] + a.values[0] + 1" }; 
+	const char* lines[] = { "a = {name = \"apple\", values = [20, 11]}", "b = a.values[0]", "c = a.values[1] + a.values[0]+1" }; 
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	line_buffer b_1(lines, n_lines);
 	context c;
@@ -1347,7 +1347,7 @@ TEST_CASE("Test context parsing") {
 
 TEST_CASE("Test context file parsing") {
     line_buffer lb("tests/context_test.geom");
-    CHECK(lb.get_n_lines() == 7);
+    CHECK(lb.get_n_lines() == 10);
     context c;
     setup_geometry_context(c);
     size_t init_size = c.size();
@@ -1485,106 +1485,6 @@ TEST_CASE("Test volumes") {
     CHECK(abs(v_cyl - cyl_frac)/v_cyl < EPSILON);
     //draw test images
     vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
-}
-
-TEST_CASE("Test object Trees") {
-    //declare variables
-    char buf[BUF_SIZE];
-    object_stack test_stack;
-    object* cur_obj;object_type cur_type;
-    parse_ercode er;
-
-    //setup a bunch of strings describing objects
-    const char* root_obj_str = "Composite(eps = 3.5)";
-    const char* l_str = "union()";
-    const char* ll_str = "Box(vec(0,0,0), vec(1,1,1))";
-    const char* lr_str = "Sphere(vec(2,0,0), 1)";
-    const char* r_str = "intersect()";
-    const char* rl_str = "Box(vec(0,0,0), vec(1,1,1))";
-    const char* rr_str = "Cylinder(vec(2,0,0), 1, 1)";
-
-    scene sc;
-    //Insert root object
-    strncpy(buf, root_obj_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cgs_func cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert object 1
-    strncpy(buf, l_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert left union object
-    strncpy(buf, ll_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert right union object
-    strncpy(buf, lr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert object 2
-    strncpy(buf, r_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert left union object
-    strncpy(buf, rl_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert right union object
-    strncpy(buf, rr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-
-    //get all composite objects in the tree
-    composite_object* root = test_stack.get_root();
-    CHECK(root != NULL);
-    composite_object* comp_l = (composite_object*)(root->get_child_l());
-    composite_object* comp_r = (composite_object*)(root->get_child_r());
-    //check that all are not NULL and that types are correct
-    CHECK(root->get_child_type_l() == CGS_COMPOSITE);
-    CHECK(root->get_child_type_r() == CGS_COMPOSITE);
-    CHECK(comp_l != NULL);
-    CHECK(comp_r != NULL);
-
-    //now test that the composite object has the right structure
-    CHECK(comp_l->get_combine_type() == CGS_UNION);
-    CHECK(comp_l->get_child_l() != NULL);
-    CHECK(comp_l->get_child_type_l() == CGS_BOX);
-    CHECK(comp_l->get_child_r() != NULL);
-    CHECK(comp_l->get_child_type_r() == CGS_SPHERE);
-    //check the right branch
-    CHECK(comp_r->get_combine_type() == CGS_INTERSECT);
-    CHECK(comp_r->get_child_l() != NULL);
-    CHECK(comp_r->get_child_type_l() == CGS_BOX);
-    CHECK(comp_r->get_child_r() != NULL);
-    CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
-    delete root;
 }
 
 TEST_CASE("Test File Parsing") {

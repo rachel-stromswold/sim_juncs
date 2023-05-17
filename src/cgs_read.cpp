@@ -321,6 +321,19 @@ char* CGS_trim_whitespace(char* str, size_t* len) {
 
 /** ============================ line_buffer ============================ **/
 
+
+line_buffer_ind operator+(const line_buffer_ind& lhs, const size_t& rhs) {
+    return line_buffer_ind(lhs.line, lhs.off+rhs);
+}
+line_buffer_ind operator-(const line_buffer_ind& lhs, const size_t& rhs) {
+    line_buffer_ind ret(lhs.line, lhs.off);
+    if (rhs > ret.off)
+	ret.off = 0;
+    else
+	ret.off -= rhs;
+    return ret;
+}
+
 line_buffer::line_buffer() {
     lines = NULL;
     line_sizes = NULL;
@@ -1742,7 +1755,13 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.m = new mat3x3((*tmp_l.val.m) * (*tmp_r.val.m));
 	}
     } else if (term_char == '/') {
-	if (tmp_r.val.x == 0) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_NAN;return sto; }//TODO: return a nan?
+	if (tmp_r.val.x == 0) {
+	    printf("Error: division by zero.\n");
+	    cleanup_val(&tmp_l);
+	    cleanup_val(&tmp_r);
+	    er = E_NAN;
+	    return sto;
+	}//TODO: return a nan?
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
 	    sto.val.x = tmp_l.val.x / tmp_r.val.x;
 	} else if (tmp_r.type == VAL_NUM && tmp_l.type == VAL_MAT) {	
@@ -1750,7 +1769,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.m = new mat3x3(*tmp_r.val.m / tmp_r.val.x);
 	}
     } else if (term_char == '^') {
-	if (tmp_r.val.x == 0 || tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_NAN;return sto; }//TODO: return a nan?
+	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_NAN;return sto; }//TODO: return a nan?
 	sto.type = VAL_NUM;
 	sto.val.x = pow(tmp_l.val.x, tmp_r.val.x);
     }
@@ -1931,9 +1950,17 @@ value context::parse_value(char* str, parse_ercode& er) {
 		//now figure out the index
 		long tmp = (long)(contents.val.x);
 		if (tmp < 0) tmp = tmp_lst.n_els+tmp;
-		if (tmp < 0) { er = E_OUT_OF_RANGE;return sto; }
+		if (tmp < 0) {
+		    printf("Error: index %d is out of range for list of size %lu.\n", tmp, tmp_lst.n_els);
+		    er = E_OUT_OF_RANGE;
+		    return sto;
+		}
 		size_t ind = (size_t)tmp;
-		if (ind >= tmp_lst.n_els) { er = E_OUT_OF_RANGE;return sto; }
+		if (ind >= tmp_lst.n_els) {
+		    printf("Error: index %d is out of range for list of size %lu.\n", tmp, tmp_lst.n_els);
+		    er = E_OUT_OF_RANGE;
+		    return sto;
+		}
 		return copy_val(tmp_lst.val.l[ind]);
 	    }
 	} else if (str[first_open_ind] == '{' && str[last_close_ind] == '}') {
@@ -2084,119 +2111,104 @@ char* append_to_line(char* line, size_t* line_off, size_t* line_size, const char
     return line;
 }
 
-value context::parse_value(const line_buffer& b, line_buffer_ind& p, parse_ercode& er) {
-    value ret;ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;
-    //test incrementing, if that doesnt work return undefined
-    if (!b.inc(p)) return ret;
-    b.dec(p);
-    //local variables
-    line_buffer lines_enc;
-    char* line = NULL;
-    size_t line_off = 0;
-    size_t line_size = 0;
-    //iterate until we find a scope character delimiter
-    line_buffer_ind init = p;
-    size_t len = b.get_line_size(p.line);
-    bool found = false;
-    bool hit_end = false;
-    for (;p.off < len; ++p.off) {
-	char match_tok = 0;
-	switch(b.get(p)) {
-	    case '(': match_tok = ')';break;
-	    case '[': match_tok = ']';break;
-	    case '{': match_tok = '}';break;
-	    case '\"': match_tok = '\"';break;
-	    case '\'': match_tok = '\'';break;
-	    default: break;
-	}
-	if (match_tok) {
-	    line_buffer_ind end;
-	    line_buffer enc = b.get_enclosed(init, &end, b.get(p), match_tok, true, true);
-	    char* tmp = enc.flatten(' ');
-	    found = true;
-	    //if we're still on the same line, then we need to continue until we reach the end. Otherwise, terminate
-	    if (end.line == init.line && end.off < len) {
-		line = append_to_line(line, &line_off, &line_size, tmp, end.off - init.off);
-		p = end;
-		init = p;
-		free(tmp);
-	    } else {
-		line = append_to_line(line, &line_off, &line_size, tmp, strlen(tmp)+1);
-		free(tmp);
-		p = end;
-		hit_end = true;
-		break;
-	    }
-	}
-    }
-    if (!found) {
-	line = b.get_line(init);
-    } else if (!hit_end) {
-	//this indicates that we reached the end of a block, but not the end of the line
-	char* in_line = b.get_line(init);
-	line = append_to_line(line, &line_off, &line_size, in_line, b.get_line_size(init.line) - init.off + 1);
-	free(in_line);
-	line[line_off-1] = 0;
-    }
-    ret = parse_value(line, er);
-    free(line);
-    return ret;
-}
-
 /**helper function for read_from lines that reads a single line
  */
-parse_ercode context::read_single_line(const char* line, context::read_state& rs) {
+parse_ercode context::read_single_line(context::read_state& rs) {
     parse_ercode er = E_SUCCESS;
     //tracking variables
+    size_t buf_off = 0;
+    size_t len = rs.b.get_line_size(rs.pos.line);
     size_t k = 0;
     bool started = false;
     char* lval = NULL;
-    line_buffer_ind start_pos = rs.pos;
-    for (rs.pos.off = 0; line[rs.pos.off]; ++rs.pos.off) {
-	//handle comments
-	if (line[rs.pos.off] == '/') {
-	    if (line[rs.pos.off+1] == '/') {
-		break;
-	    } else if (line[rs.pos.off+1] == '*') {
-		rs.blk_stk.push(BLK_COMMENT);
-	    } else if (rs.pos.off > 0 && line[rs.pos.off-1] == '*') {
-		block_type tmp = BLK_UNDEF;
-		er = rs.blk_stk.pop(&tmp);
-		if (er != E_SUCCESS) { return er; }
-		if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
-	    }
+    size_t rval_ind = 0;
+    line_buffer_ind init = rs.pos;
+    for (rs.pos.off = 0;; ++rs.pos.off) {
+	//make sure the buffer is large enough
+	if (k >= rs.buf_size) {
+	    rs.buf_size *= 2;
+	    rs.buf = (char*)xrealloc(rs.buf, sizeof(char)*rs.buf_size);
 	}
-	block_type cur_blkt = BLK_UNDEF;
-	if (rs.blk_stk.size() > 0) cur_blkt = rs.blk_stk.peek();
-	if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
-	    if (k >= rs.buf_size) {
-		rs.buf_size *= 2;
-		rs.buf = (char*)xrealloc(rs.buf, sizeof(char)*rs.buf_size);
-	    }
-	    //ignore preceeding whitespace
-	    if (line[rs.pos.off] != ' ' || line[rs.pos.off] != '\t' || line[rs.pos.off] != '\n') started = true;
-	    if (started) rs.buf[k++] = line[rs.pos.off];
-	    //check for assignment, otherwise handle blocks
-	    char match_tok = 0;
-	    char sep_tok = 0;
-	    if (line[rs.pos.off] == '('/*)*/ || line[rs.pos.off] == '['/*]*/ || line[rs.pos.off] == '{'/*}*/) {
+	//exit the loop when we reach the end, but make sure to include whatever parts haven't already been included
+	if (rs.pos.off >= len || rs.b.get(rs.pos) == 0) {
+	    rs.buf[k] = 0;
+	    break;
+	}
+	//ignore preceeding whitespace
+	if (rs.b.get(rs.pos) != ' ' || rs.b.get(rs.pos) != '\t' || rs.b.get(rs.pos) != '\n')
+	    started = true;
+	if (started) {
+	    //handle comments
+	    if (rs.b.get(rs.pos) == '/' && rs.pos.off > 0 && rs.b.get(rs.pos-1) == '/') {
+		//we don't care about lines that only contain comments, so we should skip over them, but in the other event we need to skip to the end of the line
+		if (k == 1)
+		    started = false;
+		else
+		    rs.pos.off = rs.b.get_line_size(rs.pos.line);
+		//terminate the expression and move to the next line
+		rs.buf[--k] = 0;
 		break;
-	    } else if (line[rs.pos.off] == '=') {
-		rs.buf[k-1] = 0;
+	    } else if (rs.b.get(rs.pos) == '*' && rs.pos.off > 0 && rs.b.get(rs.pos-1) == '/') {
+		if (k == 1)
+		    started = false;
+		rs.buf[--k] = 0;//set the slash to be a null terminator
+		while (rs.b.inc(rs.pos)) {
+		    if (rs.b.get(rs.pos) == '*' && rs.b.get(rs.pos+1) == '/') {
+			rs.pos = rs.pos+2;
+			break;
+		    }
+		}
+	    }
+	    //handle assignments
+	    if (rs.b.get(rs.pos) == '=') {
+		rs.buf[k++] = 0;
 		lval = CGS_trim_whitespace(rs.buf, NULL);
-		start_pos.off = k;
-		//make sure we aren't at the end of the file
-		break;
+		init.off = k;
+		//buf_off = k;
+		rval_ind = k;
+		continue;//don't copy the value into rs.buf
 	    }
+	    //if we encounter a block, then we need to make sure we include all of its contents, even if that block ends on another line
+	    char match_tok = 0;
+	    switch(rs.b.get(rs.pos)) {
+		case '(': match_tok = ')';break;
+		case '[': match_tok = ']';break;
+		case '{': match_tok = '}';break;
+		case '\"': match_tok = '\"';break;
+		case '\'': match_tok = '\'';break;
+		default: break;
+	    }
+	    if (match_tok) {
+		line_buffer_ind end;
+		line_buffer enc = rs.b.get_enclosed(rs.pos, &end, rs.b.get(rs.pos), match_tok, true, true);
+		char* tmp = enc.flatten(' ');
+		//if we're still on the same line, then we need to continue until we reach the end. Otherwise, save everything inclosed and terminate
+		if (end.line == init.line && end.off < len) {
+		    rs.buf = append_to_line(rs.buf, &k, &rs.buf_size, tmp, end.off - rs.pos.off);
+		    rs.pos = end;
+		    init = rs.pos;
+		    free(tmp);
+		    //continue;//don't copy the value into rs.buf
+		} else {
+		    rs.buf = append_to_line(rs.buf, &k, &rs.buf_size, tmp, strlen(tmp)+1);
+		    free(tmp);
+		    rs.pos = end;
+		    break;//we're done reading this line since we jumped across a line
+		}
+	    }
+	    //handle everything else
+	    rs.buf[k++] = rs.b.get(rs.pos);
 	}
     }
     //only set the rval if we haven't done so already
     if (started) {
-	value tmp_val = parse_value(rs.b, start_pos, er);
-	rs.pos = start_pos;
+	value tmp_val = parse_value(rs.buf+rval_ind, er);
 	if (er != E_SUCCESS) return er;
 	emplace(lval, tmp_val);
 	cleanup_val(&tmp_val);
+    } else {
+	rs.pos.line += 1;
+	rs.pos.off = 0;
     }
     return E_SUCCESS;
 }
@@ -2212,7 +2224,7 @@ parse_ercode context::read_from_lines(const line_buffer& b) {
 
     context::read_state rs(b);
     //iterate over each line in the file
-    for (; /*rs.pos.line < b.get_n_lines()b.get(rs.pos)*/;) {
+    while (true) {
 	char* line = b.get_line(rs.pos.line);
 	//check for class and function declarations
 	char* dectype_start = token_block(line, "def");
@@ -2237,7 +2249,7 @@ parse_ercode context::read_from_lines(const line_buffer& b) {
 		//we have to advance to the line after end of the function declaration
 	    }
 	} else {
-	    er = read_single_line(line, rs);
+	    er = read_single_line(rs);
 	    if (er != E_SUCCESS) { free(line);return er; }
 	}
 	free(line);
