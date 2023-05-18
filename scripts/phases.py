@@ -183,7 +183,7 @@ class signal:
         self._last_cent_f = 0.0
         while True:
             self.phi = np.angle(self.vf[0])
-            self.f0_ind = np.argmax(self.mags)
+            self.f0_ind = int( np.trapz(self.mags*self.freqs)/(np.trapz(self.mags)*(self.freqs[1]-self.freqs[0])) )
             #apply lowpass filters to noisy signals
             if self._low_stren >= MAX_LOWPASS_EVALS*lowpass_inc:
                 break
@@ -207,7 +207,7 @@ class signal:
         #perform post-processing
         self._param_est()
         if verbose > 1:
-            print("\tt0_corr: {}\n\tphi_corr: {}".format(self._t0_corr, self._phi_corr))
+            print("\tf0_corr: {}\n\tt0_corr: {}\n\tphi_corr: {}".format(self.freqs[self.f0_ind], self._t0_corr, self._phi_corr))
         self.envelope = None
         self.envelope_asym = None
         self.asym_lowpass = DEF_LOW_SCALE
@@ -249,8 +249,6 @@ class signal:
         #for odd numbers of time points, the inverse fourier transform will have one fewer points
         if len(self.t_pts) > len(self.envelope):
             self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
-        mu, env = self.get_mu(env=self.envelope)
-        #self.phi = (mu-self.t_pts[np.argmax(self.v_pts)])*2*np.pi*self.f0
         return self.envelope
 
     def get_envelope(self):
@@ -260,11 +258,15 @@ class signal:
         full_fft = np.pad(self.vf, (0, self.mags.shape[0]-2))
         self.envelope_fourier = fft.ifft(np.roll(full_fft, -self.f0_ind))*np.exp(-1j*self._phi_corr)
         self.envelope = 2*np.roll(self.envelope_fourier, self.t0_ind)
+        #roll the signal so that it lines up with the peak
+        sig_direct = np.real(self.envelope*np.exp(1j*(2*np.pi*self.f0*(self.t_pts-self.t_pts[self.t0_ind]) + self._phi_corr)))
+        t_ind_diff = np.argmax(self.v_pts) - np.argmax(np.real(sig_direct))
+        self.envelope = np.roll(self.envelope, t_ind_diff)
+        self.t0 = t_ind_diff*self.dt + self.t_pts[self.t0_ind]
+        print("\tpeak shift: {}".format(np.sign(t_ind_diff)*self.t_pts[np.abs(t_ind_diff)]))
         #for odd numbers of time points, the inverse fourier transform will have one fewer points
         if len(self.t_pts) > len(self.envelope):
             self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
-        mu, env = self.get_mu(env=self.envelope)
-        #self.phi = (mu-self.t_pts[np.argmax(self.v_pts)])*2*np.pi*self.f0
         return self.envelope
 
     def get_mu(self, env=None):
@@ -316,9 +318,9 @@ class signal:
         env = self.get_envelope()
         env_vec = self.get_envelope_vec_pot()
         axs.plot(self.t_pts, self.v_pts, color='black', label='measured E(t)')
-        axs.plot(self.t_pts, np.real(env), color='blue', label='Re$[a(t)]$')
-        axs.plot(self.t_pts, np.imag(env_vec), color='red', label='Im$[a(t)]$')
-        axs.legend(loc='upper right')
+        axs.fill_between(self.t_pts, np.real(env), -np.real(env), color='blue', label='Re$[a(t)]$', alpha=0.2)
+        axs.fill_between(self.t_pts, np.imag(env), -np.imag(env), color='red', label='Im$[a(t)]$', alpha=0.2)
+        #axs.legend(loc='upper right')
 
     def compare_signals(self, axs):
         print(self._phi_corr)
@@ -326,19 +328,15 @@ class signal:
         env_vec = self.get_envelope_vec_pot()
         max_field_t = self.t_pts[np.argmax(self.v_pts)]
         #get the signal from a(t)e^(i(\omega_0(t-t_0) + \phi)) + c.c.
-        sig_direct_re = np.real(env)*np.cos(2*np.pi*self.f0*(self.t_pts-self.t_pts[self.t0_ind]) + self._phi_corr)
-        sig_direct_im = np.imag(env)*np.sin(2*np.pi*self.f0*(self.t_pts-self.t_pts[self.t0_ind]) + self._phi_corr)
-        #roll the signal so that it lines up with the peak
-        max_sig_t = self.t_pts[np.argmax(np.real(sig_direct_re))]
-        sig_direct_re = np.roll(sig_direct_re, int((max_field_t-max_sig_t)/self.dt))
-        sig_direct_im = np.roll(sig_direct_im, int((max_field_t-max_sig_t)/self.dt))
-        #get the signal using the differential of the vector potential
-        sig_vector = env_vec*np.sin(2*np.pi*self.f0*(self.t_pts) + self._phi_corr)
-        sig_vector = np.pad(np.diff(sig_vector), (0,1))
+        sig_direct_re = np.real(env)*np.cos(2*np.pi*self.f0*(self.t_pts-self.t0) + self._phi_corr)
+        sig_direct_im = np.imag(env)*np.sin(2*np.pi*self.f0*(self.t_pts-self.t0) + self._phi_corr)
         axs.plot(self.t_pts, self.v_pts, color='black', label='measured')
-        axs.plot(self.t_pts, sig_direct_re, color='blue', label='Re$[a(t)]\cos(\omega (t-t_0)+\phi)$', linestyle=':')
-        axs.plot(self.t_pts, sig_direct_im, color='red', label='Im$[a(t)]\sin(\omega (t-t_0)+\phi)$', linestyle=':')
-        axs.plot(self.t_pts, sig_direct_re-sig_direct_im, color='green', label='Im$[a(t)]\sin(\omega (t-t_0)+\phi)$')
+        axs.fill_between(self.t_pts, np.real(env), -np.real(env), color='blue', label='Re$[a(t)]$', alpha=0.2)
+        axs.fill_between(self.t_pts, np.imag(env), -np.imag(env), color='red', label='Im$[a(t)]$', alpha=0.2)
+        axs.plot(self.t_pts, sig_direct_re, color='blue', label='Re$[a(t)]\cos(\omega (t-t_0)+\phi)$')
+        axs.plot(self.t_pts, -sig_direct_im, color='red', label='-Im$[a(t)]\sin(\omega (t-t_0)+\phi)$')
+        axs.legend(loc='upper right')
+        #axs.plot(self.t_pts, sig_direct_re-sig_direct_im, color='green', label='Im$[a(t)]\sin(\omega (t-t_0)+\phi)$', linestyle=':')
 
 N_RES_PARAMS = 7
 class cluster_res:
