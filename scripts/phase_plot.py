@@ -36,6 +36,7 @@ parser.add_argument('--recompute', action='store_true', help='If set, then phase
 parser.add_argument('--plot-cbar', action='store_true', help='If set, then plot the color bar for images', default=False)
 parser.add_argument('--plot-y-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--plot-x-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
+parser.add_argument('--plot-legend', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
 parser.add_argument('--do-time-fits', action='store_true', help='If set, then an additional post processing step is performed. This post processing applies phase fitting in the time domain after extracting parameters from the frequency domain. This can produce smoother looking figures, but tends to break in extremal cases.', default=False)
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
@@ -250,23 +251,34 @@ else:
     fig_name = "{}/fit_{}_{}".format(pf.prefix,clust,j)
     #read the data and set up the signal analyzer
     v_pts, err_2 = pf.get_point_times(clust, j, low_pass=False)
-    psig = phases.signal(pf.t_pts, v_pts, w0_type='avg')
+    psig = phases.signal(pf.t_pts, v_pts, w0_type='odd')
     #setup the plots
     raw_fig, raw_ax = plt.subplots(2)
     psig.make_raw_plt(raw_ax)
     raw_fig.savefig("{}_raw_opt.svg".format(fig_name))
-    #compare methods using electric fields directly and vector potentials
+    #plot the frequency domain envelope information
     fig, axs = plt.subplots()
-    #psig.compare_envelopes(axs[0])
-    #psig.compare_fspace(axs[0])
+    psig.compare_fspace(axs)
+    if args.plot_x_labels:
+        axs.set_xlabel('$f$ (1/fs)')
+    if args.plot_y_labels:
+        axs.set_ylabel('$\tilde{E}(\omega)$')
+    if args.plot_legend:
+        axs.legend(loc='upper right')
+    fig.set_size_inches(10, 8)
+    fig.savefig("{}_fdom.svg".format(fig_name))
+    #plot the time domain envelope information
+    fig, axs = plt.subplots()
     psig.compare_signals(axs)
     if args.plot_x_labels:
         axs.set_xlabel('$t$ (fs)')
     if args.plot_y_labels:
         axs.set_ylabel('$E(t)$')
-    #psig.compare_ttrace(axs)
+    if args.plot_legend:
+        axs.legend(loc='upper right')
     fig.set_size_inches(10, 8)
-    fig.savefig("{}_comparisons.svg".format(fig_name))
+    fig.savefig("{}_tdom.svg".format(fig_name))
+
     #make f0 estimation plot
     fig, axs = plt.subplots()
     psig.get_ang_func(psig.f0, fit_axs=axs)
