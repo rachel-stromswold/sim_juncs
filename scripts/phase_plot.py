@@ -35,6 +35,8 @@ parser.add_argument('--n-groups', type=int, help='for bowties there might be mul
 parser.add_argument('--recompute', action='store_true', help='If set, then phase estimation is recomputed. Otherwise, information is read from files saved in <prefix>', default=False)
 parser.add_argument('--plot-cbar', action='store_true', help='If set, then plot the color bar for images', default=False)
 parser.add_argument('--plot-y-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
+parser.add_argument('--plot-x-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
+parser.add_argument('--plot-legend', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
 parser.add_argument('--do-time-fits', action='store_true', help='If set, then an additional post processing step is performed. This post processing applies phase fitting in the time domain after extracting parameters from the frequency domain. This can produce smoother looking figures, but tends to break in extremal cases.', default=False)
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
@@ -246,23 +248,45 @@ else:
     point_arr = args.point.split(",")
     clust = "cluster_"+point_arr[0]
     j = int(point_arr[1])
-    #setup the plots
     fig_name = "{}/fit_{}_{}".format(pf.prefix,clust,j)
-    raw_fig, raw_ax = plt.subplots(2)
-    fin_fig = plt.figure()
-    fin_ax = fin_fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    #read the data and set up the signal analyzer
     v_pts, err_2 = pf.get_point_times(clust, j, low_pass=False)
-    raw_fig.savefig("{}/fit_{}_{}_raw.svg".format(args.prefix, clust, j))
-    fin_fig.savefig("{}/fit_{}_{}.svg".format(args.prefix, clust, j))
+    psig = phases.signal(pf.t_pts, v_pts, w0_type='fit')
+    #setup the plots
     raw_fig, raw_ax = plt.subplots(2)
-    psig = phases.signal(pf.t_pts, v_pts, w0_type='peak')
     psig.make_raw_plt(raw_ax)
-    raw_fig.savefig("{}/fit_{}_{}_raw_opt.svg".format(args.prefix, clust, j))
-    #compare methods using electric fields directly and vector potentials
+    raw_fig.savefig("{}_raw_opt.svg".format(fig_name))
+    #plot the frequency domain envelope information
     fig, axs = plt.subplots(2)
-    #psig.compare_envelopes(axs[0])
     psig.compare_fspace(axs[0])
+    axs[0].set_xlim(-0.05, 0.05)
     psig.compare_signals(axs[1])
-    #psig.compare_ttrace(axs)
+    axs[1].set_xlim(10, pf.t_pts[-1])
+    if args.plot_x_labels:
+        axs[0].set_xlabel('$f$ (1/fs)')
+        axs[1].set_xlabel('$t$ (fs)')
+    if args.plot_y_labels:
+        axs[0].set_ylabel('$E(\omega)$')
+        axs[1].set_ylabel('$E(t)$')
+    if args.plot_legend:
+        axs[0].legend(loc='upper left')
+        axs[1].legend(loc='upper right', ncol=2)
     fig.set_size_inches(10, 8)
-    fig.savefig("{}/fit_{}_{}_comparisons.svg".format(args.prefix, clust, j))
+    fig.savefig("{}_fdom.svg".format(fig_name))
+    #plot the time domain envelope information
+    fig, axs = plt.subplots()
+    psig.compare_signals(axs)
+    if args.plot_x_labels:
+        axs.set_xlabel('$t$ (fs)')
+    if args.plot_y_labels:
+        axs.set_ylabel('$E(t)$')
+    if args.plot_legend:
+        axs.legend(loc='upper right')
+    fig.set_size_inches(10, 8)
+    fig.savefig("{}_tdom.svg".format(fig_name))
+
+    #make f0 estimation plot
+    fig, axs = plt.subplots()
+    psig.get_ang_func(psig.f0, fit_axs=axs)
+    fig.savefig("{}_angles.svg".format(fig_name))
+    print(len(v_pts))
