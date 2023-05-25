@@ -50,8 +50,6 @@ context context_from_settings(const parse_settings& args) {
     return con;
 }
 
-
-
 /**
  * Helper function which initializes an array of smooth points
  */
@@ -815,13 +813,6 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 
     //save metadata
     H5::Group info_group = file.createGroup("info");
-    //we need to convert meep vectors to sto_vecs
-    sto_vec* tmp_vecs = (sto_vec*)malloc(sizeof(sto_vec)*n_locs);
-    for (_uint i = 0; i < n_locs; ++i) {
-        tmp_vecs[i].x = (_ftype)(monitor_locs[i].x());
-        tmp_vecs[i].y = (_ftype)(monitor_locs[i].y());
-        tmp_vecs[i].z = (_ftype)(monitor_locs[i].z());
-    }
     //write the start and end times for each simulation
     hsize_t t_info_dim[1];
     t_info_dim[0] = {3};
@@ -854,7 +845,29 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     for (_uint i = 0; i < n_srcs; ++i) tmp_srcs[i] = sources[i];
     src_dataset.write(tmp_srcs, srctype);
     free(tmp_srcs);
+    //save cgs parameters
+    H5::Group cgs_group = info_group.createGroup("cgs_params");
+    context& c = problem.get_context();
+    hsize_t c_info_dim[1];
+    c_info_dim[0] = {3};
+    H5::DataSpace c_info_space(1, t_info_dim);
+    for (size_t i = c.size(); i > 0; --i) {
+	name_val_pair nv = c.peek(i);
+	//only write numeric types
+	if (nv.get_val().type == VAL_NUM) {
+	    H5::DataSet c_info_dataset(cgs_group.createDataSet(nv.get_name(), H5_float_type, c_info_space));
+	    _ftype dval = nv.get_val().val.x;
+	    c_info_dataset.write(&dval, H5_float_type);
+	}
+    }
 
+    //we need to convert meep vectors to sto_vecs
+    sto_vec* tmp_vecs = (sto_vec*)malloc(sizeof(sto_vec)*n_locs);
+    for (_uint i = 0; i < n_locs; ++i) {
+        tmp_vecs[i].x = (_ftype)(monitor_locs[i].x());
+        tmp_vecs[i].y = (_ftype)(monitor_locs[i].y());
+        tmp_vecs[i].z = (_ftype)(monitor_locs[i].z());
+    }
     //iterate over each desired point and save its time series and fourier transform
     printf("found %lu monitor locations\n", n_locs);
     //iterate over monitor locations respecting groups, i will track monitor index, j will track group index
