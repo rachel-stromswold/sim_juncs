@@ -38,7 +38,8 @@ parser.add_argument('--plot-y-labels', action='store_true', help='If set, then p
 parser.add_argument('--plot-x-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--plot-legend', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
-parser.add_argument('--do-time-fits', action='store_true', help='If set, then an additional post processing step is performed. This post processing applies phase fitting in the time domain after extracting parameters from the frequency domain. This can produce smoother looking figures, but tends to break in extremal cases.', default=False)
+parser.add_argument('--sym-mode', help='Type of symmeterization mode to use', default="sym-o")
+parser.add_argument('--f0-mode', help='Type of central frequency estimate to use', default="avg")
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
 parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)
@@ -193,25 +194,25 @@ def make_heatmaps(pf, n_groups=-1):
         heat_fig, heat_ax = plt.subplots(2, gridspec_kw={'hspace':0.1})
         make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], "", "amplitude\n(arb. units)", rng=AMP_RANGE, cmap='magma', vlines=vlines, ylabels=ylabels)
         make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap, vlines=vlines, xlabels=xlabels, ylabels=ylabels)
-        heat_fig.savefig(args.prefix+"/heatmap_grp{}.pdf".format(i), bbox_inches='tight')
+        heat_fig.savefig(args.prefix+"/heatmap_grp{}.svg".format(i), bbox_inches='tight')
         plt.close(heat_fig)
         #plot skews
         nfig = plt.figure()
         nax = plt.gca()
         make_heatmap(nfig, nax, cl_skew[i*grp_len:(i+1)*grp_len], "", "skewness", cmap='magma', rng=SKW_RANGE, vlines=vlines, xlabels=xlabels, ylabels=ylabels)
-        nfig.savefig(args.prefix+"/heatmap_skew_grp{}.pdf".format(i), bbox_inches='tight')
+        nfig.savefig(args.prefix+"/heatmap_skew_grp{}.svg".format(i), bbox_inches='tight')
         plt.close(nfig)
         #plot errors
         heat_fig = plt.figure()
         heat_ax = plt.gca()
         make_heatmap(heat_fig, heat_ax, cl_err[i*grp_len:(i+1)*grp_len], "", "fit error (arb. units)", vlines=vlines, xlabels=xlabels, ylabels=ylabels)
-        heat_fig.savefig(args.prefix+"/heatmap_err_grp{}.pdf".format(i))
+        heat_fig.savefig(args.prefix+"/heatmap_err_grp{}.svg".format(i))
         plt.close(heat_fig)
         #plot reflected phases
         heat_fig, heat_ax = plt.subplots(2)
         make_heatmap(heat_fig, heat_ax[0], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
         make_heatmap(heat_fig, heat_ax[1], cl_ampr[i*grp_len:(i+1)*grp_len], "Reflected amplitudes", r"$\phi/2\pi$", rng=AMP_RANGE, cmap='magma')
-        heat_fig.savefig(args.prefix+"/heatmap_phs_grp{}.pdf".format(i))
+        heat_fig.savefig(args.prefix+"/heatmap_phs_grp{}.svg".format(i))
         plt.close(heat_fig)
 
     #save a figure of the average phase
@@ -241,7 +242,31 @@ def make_heatmaps(pf, n_groups=-1):
         avg_ax[1].scatter(cl_xs[0], tot_amp[i])
     avg_fig.savefig(args.prefix+"/avgs.pdf")
 
-pf = phases.phase_finder(args.fname, prefix=args.prefix, pass_alpha=args.lowpass, keep_n=-1, do_time_fits=args.do_time_fits)
+def config_axs(axs, xlab, ylab, leg_loc="upper right", leg_ncol=-1, leg_alpha=0.8, w=-1, h=-1):
+    if args.plot_x_labels:
+        axs.set_xlabel(xlab)
+    else:
+        axs.get_xaxis().set_visible(False)
+    if args.plot_y_labels:
+        axs.set_ylabel(ylab)
+    else:
+        axs.get_yaxis().set_visible(False)
+    if args.plot_legend:
+        if leg_ncol > 0:
+            axs.legend(loc=leg_loc, ncol=leg_ncol, framealpha=leg_alpha)
+        else:
+            axs.legend(loc=leg_loc)
+    #adjust the size of the plot
+    if w > 0 and h > 0:
+        l = axs.figure.subplotpars.left
+        r = axs.figure.subplotpars.right
+        t = axs.figure.subplotpars.top
+        b = axs.figure.subplotpars.bottom
+        figw = float(w)/(r-l)
+        figh = float(h)/(t-b)
+        axs.figure.set_size_inches(figw, figh)
+
+pf = phases.phase_finder(args.fname, prefix=args.prefix, pass_alpha=args.lowpass, keep_n=-1)
 if args.point == '':
     make_heatmaps(pf, n_groups=args.n_groups)
 else:
@@ -251,42 +276,36 @@ else:
     fig_name = "{}/fit_{}_{}".format(pf.prefix,clust,j)
     #read the data and set up the signal analyzer
     v_pts, err_2 = pf.get_point_times(clust, j, low_pass=False)
-    psig = phases.signal(pf.t_pts, v_pts, w0_type='fit')
+    fig, axs = plt.subplots()
+    psig = phases.signal(pf.t_pts, v_pts, w0_type=args.f0_mode, param_axs=axs)
+    config_axs(axs, "$\omega$ (1/fs)", "arg[$E(\omega)$]$/2\pi$", leg_loc="lower right")
+    fig.savefig("{}_param_est.svg".format(fig_name), bbox_inches='tight')
     #setup the plots
-    raw_fig, raw_ax = plt.subplots(2)
-    psig.make_raw_plt(raw_ax)
-    raw_fig.savefig("{}_raw_opt.svg".format(fig_name))
+    raw_fig, raw_ax = plt.subplots()
+    psig.plt_raw_fdom(raw_ax)
+    config_axs(raw_ax, "$\omega$ (1/fs)", "|$E(\omega)$|", leg_alpha=1, w=6, h=2.5)
+    raw_fig.savefig("{}_raw_fdom.svg".format(fig_name), bbox_inches='tight')
+    raw_fig, raw_ax = plt.subplots()
+    psig.plt_raw_tdom(raw_ax)
+    raw_fig.savefig("{}_raw_tdom.svg".format(fig_name), bbox_inches='tight')
     #plot the frequency domain envelope information
     fig, axs = plt.subplots(2)
-    psig.compare_fspace(axs[0])
+    psig.compare_fspace(axs[0], sym_mode=args.sym_mode, plt_raxs=not args.plot_y_labels)
     axs[0].set_xlim(-0.05, 0.05)
     psig.compare_signals(axs[1])
-    axs[1].set_xlim(10, pf.t_pts[-1])
-    if args.plot_x_labels:
-        axs[0].set_xlabel('$f$ (1/fs)')
-        axs[1].set_xlabel('$t$ (fs)')
-    if args.plot_y_labels:
-        axs[0].set_ylabel('$E(\omega)$')
-        axs[1].set_ylabel('$E(t)$')
-    if args.plot_legend:
-        axs[0].legend(loc='upper left')
-        axs[1].legend(loc='upper right', ncol=2)
-    fig.set_size_inches(10, 8)
-    fig.savefig("{}_fdom.svg".format(fig_name))
+    config_axs(axs[0], "$f$ (1/fs)", "$E(\omega)$", leg_loc="upper left")
+    config_axs(axs[1], "$t$ (fs)", "$E(t)$", leg_ncol=2)
+    #fig.set_size_inches(3.5, 2)
+    fig.savefig("{}_fdom.svg".format(fig_name), bbox_inches='tight')
     #plot the time domain envelope information
     fig, axs = plt.subplots()
     psig.compare_signals(axs)
-    if args.plot_x_labels:
-        axs.set_xlabel('$t$ (fs)')
-    if args.plot_y_labels:
-        axs.set_ylabel('$E(t)$')
-    if args.plot_legend:
-        axs.legend(loc='upper right')
-    fig.set_size_inches(10, 8)
-    fig.savefig("{}_tdom.svg".format(fig_name))
+    config_axs(axs, "$t$ (fs)", "$E(t)$", leg_ncol=2, w=2, h=1.5)
+    axs.set_ylim(-1.2, 1.2)
+    fig.savefig("{}_tdom.svg".format(fig_name), bbox_inches='tight')
 
     #make f0 estimation plot
     fig, axs = plt.subplots()
     psig.get_ang_func(psig.f0, fit_axs=axs)
-    fig.savefig("{}_angles.svg".format(fig_name))
+    fig.savefig("{}_angles.svg".format(fig_name), bbox_inches='tight')
     print(len(v_pts))
