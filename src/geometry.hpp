@@ -223,14 +223,26 @@ inline matrix<3,3> make_rotation(_ftype theta, vec3 a) {
     ret.el[6] = ret.el[2]-2*a.el[1]*st;	ret.el[7] = ret.el[5]+2*a.el[0]*st;		ret.el[8] = ct+a.el[2]*a.el[2]*ctc;
     return ret;
 }
-//TODO: finish
+/*TODO: finish
 inline matrix<3,3> invert(matrix<3,3> a) {
-    _ftype inv_det = a.get(0,0)*(a.get(1,1)*a.get(2,2) - a.get(1,2)*a.get(2,1))
+    _ftype det = a.get(0,0)*(a.get(1,1)*a.get(2,2) - a.get(1,2)*a.get(2,1))
 		    + a.get(0,1)*(a.get(1,2)*a.get(2,0) - a.get(1,0)*a.get(2,2))
 		    + a.get(0,2)*(a.get(1,0)*a.get(2,1) - a.get(1,1)*a.get(2,0));
     matrix<3,3> ret;
+    //first row
+    ret.el[0] = (a.get(1,1)*a.get(2,2)-a.get(1,2)*a.get(2,1))/det;
+    ret.el[1] = -(a.get(1,0)*a.get(2,2)-a.get(1,2)*a.get(2,0))/det;
+    ret.el[2] = (a.get(1,0)*a.get(2,1)-a.get(1,1)*a.get(2,0))/det;
+    //second row
+    ret.el[4] = -(a.get(0,1)*a.get(2,2)-a.get(0,2)*a.get(2,1))/det;
+    ret.el[5] = (a.get(0,0)*a.get(2,2)-a.get(0,2)*a.get(2,0))/det;
+    ret.el[6] = -(a.get(0,0)*a.get(2,1)-a.get(0,1)*a.get(2,0))/det;
+    //third row
+    ret.el[7] = (a.get(0,1)*a.get(1,2)-a.get(0,2)*a.get(1,1))/det;
+    ret.el[8] = -(a.get(0,0)*a.get(1,2)-a.get(0,2)*a.get(1,0))/det;
+    ret.el[9] = (a.get(0,0)*a.get(1,1)-a.get(0,1)*a.get(1,0))/det;
     return ret;
-}
+}*/
 
 struct quaternion : public rvector<4> {
     quaternion() : rvector<4>() {}

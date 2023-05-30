@@ -849,8 +849,8 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     H5::Group cgs_group = info_group.createGroup("cgs_params");
     context& c = problem.get_context();
     hsize_t c_info_dim[1];
-    c_info_dim[0] = {3};
-    H5::DataSpace c_info_space(1, t_info_dim);
+    c_info_dim[0] = {1};
+    H5::DataSpace c_info_space(1, c_info_dim);
     for (size_t i = c.size(); i > 0; --i) {
 	name_val_pair nv = c.peek(i);
 	//only write numeric types

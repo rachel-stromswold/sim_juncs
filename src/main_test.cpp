@@ -1664,6 +1664,7 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.field_dump_span == 171);
 	CHECK(args.ambient_eps == 1.0);
 	CHECK(strcmp(args.geom_fname, "tests/test.geom") == 0);
+	CHECK(strcmp(args.out_dir, "/test_dir") == 0);
 
 	cleanup_settings(&args);
     }
@@ -1963,6 +1964,17 @@ TEST_CASE("Test running with a very small system") {
     size_t n_clusts = *clust_data;
     free(clust_data);
     CHECK(n_clusts == geometry.get_n_monitor_clusters());
+    //read the cgs data
+    H5::Group c_grp = grp.openGroup("cgs_params");
+    size_t n_dat;
+    _ftype* dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "l_per_um", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 2.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "sim_length", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 2.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "pml_thickness", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 1.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "tot_len", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 4.0);free(dat);
 
     //iterate through each of the specified clusters
     size_t n_group_digits = (size_t)(n_clusts / log(10)) + 1;

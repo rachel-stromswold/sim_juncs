@@ -11,6 +11,7 @@
 #define DEFAULT_PULSE_START_T	0.0 //0.3 um
 #define DEFAULT_PULSE_WIDTH	1.0
 #define DEFAULT_RESOLUTION	2.0
+#define DEFAULT_OUT_DIR "/tmp"
 
 #define DEFAULT_SMOOTH_N	1
 #define DEFAULT_SMOOTH_RAD	0.05
@@ -23,8 +24,7 @@ typedef unsigned int _uint;
 //information for parsing arguments
 typedef struct {
     //system stuff
-    const char* out_dir = "/tmp";
-    char* geom_fname_al = NULL;
+    char* out_dir = NULL;
     char* geom_fname = NULL;
     char* conf_fname = NULL;
     //problem geometry
@@ -87,8 +87,9 @@ inline void set_ercode(int* sto, int er) {
 }
 
 inline void cleanup_settings(parse_settings* s) {
-    if (s->geom_fname_al) free(s->geom_fname_al);
+    if (s->geom_fname) free(s->geom_fname);
     if (s->user_opts) free(s->user_opts);
+    if (s->out_dir) free(s->out_dir);
 }
 
 /**
@@ -98,17 +99,19 @@ inline char* trim_whitespace(char* str, size_t* len) {
     if (!str) return NULL;
     char* start = NULL;
     _uint last_non = 0;
+    size_t j = 0;
     for (_uint i = 0; str[i] != 0; ++i) {
-	if (str[i] != ' ' && str[i] != '\t' && str[i] != '\n') {
-	    if (start)
-		last_non = i;
-	    else
-		start = str + i;
-	}
+        if (str[i] != ' ' && str[i] != '\t' && str[i] != '\n') {
+            if (!start)
+                start = str + i;
+            last_non = j;
+        }
+        if (start)
+            str[j++] = str[i];
     }
     str[last_non+1] = 0;
     if (len) *len = last_non+1;
-    return start;
+    return str;
 }
 
 /**
@@ -140,11 +143,16 @@ inline void handle_pair(parse_settings* s, char* const tok, _uint toklen, char* 
         s->courant = strtod(val, NULL);
     } else if (strcmp(tok, "ambient_eps") == 0 && s->ambient_eps < 0) {
         s->ambient_eps = strtod(val, NULL);
-    } else if (strcmp(tok, "geom_fname") == 0 && !s->geom_fname_al) {
+    } else if (strcmp(tok, "geom_fname") == 0 && !s->geom_fname) {
         //copy only the non whitespace portion
-	if (s->geom_fname_al) free(s->geom_fname_al);
-        s->geom_fname_al = strdup(val);
-        s->geom_fname = trim_whitespace(s->geom_fname_al, NULL);    
+        if (s->geom_fname) free(s->geom_fname);
+        s->geom_fname = strdup(val);
+        trim_whitespace(s->geom_fname, NULL);
+    } else if (strcmp(tok, "out_dir") == 0 && !s->out_dir) {
+        //copy only the non whitespace portion
+        if (s->out_dir) free(s->out_dir);
+        s->out_dir = strdup(val);
+        trim_whitespace(s->out_dir, NULL);
     } else if (strcmp(tok, "post_source_t") == 0) {
         s->post_source_t = strtod(val, NULL);
     } else if (strcmp(tok, "field_dump_span") == 0) {
@@ -179,6 +187,7 @@ inline void correct_defaults(parse_settings* s) {
 
     //adjust the resolution if we are to use a grid number for specification
     s->resolution = (double)(s->grid_num) / total_len;
+    if (s->out_dir == NULL) s->out_dir = strdup(DEFAULT_OUT_DIR);
 }
 
 /**
@@ -252,10 +261,10 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		    return 0;
 		} else {
 		    //deallocate memory if necessary
-		    if (a->geom_fname_al) free(a->geom_fname_al);
+		    if (a->geom_fname) free(a->geom_fname);
 		    //copy only the non whitespace portion
-		    a->geom_fname_al = strdup(argv[i+1]);
-		    a->geom_fname = trim_whitespace(a->geom_fname_al, NULL);
+		    a->geom_fname = strdup(argv[i+1]);
+		    trim_whitespace(a->geom_fname, NULL);
 		    to_rm = 2; //we need to remove both this and the next argument from the list
 		}
 	    } else if (strstr(argv[i], "--out-dir") == argv[i]) {
@@ -263,7 +272,9 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		    printf("Usage: meep --out-dir <prefix to output hdf5 files to>");
 		    return 0;
 		} else {
-		    a->out_dir = argv[i+1];
+            if (a->out_dir) free(a->out_dir);
+		    a->out_dir = strdup(argv[i+1]);
+            trim_whitespace(a->out_dir, NULL);
 		    to_rm = 2; //we need to remove both this and the next argument from the list
 		}
 	    } else if (strstr(argv[i], "--grid-res") == argv[i]) {
@@ -353,6 +364,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 	}
     }
     *argc = n_args;
+    if (a->out_dir == NULL) a->out_dir = strdup(DEFAULT_OUT_DIR);
 
     return 0;
 }
