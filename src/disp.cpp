@@ -640,7 +640,7 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
 
     std::vector<composite_object*> data = problem.get_data();
     write_settings(stdout);
-    dump_span = s.field_dump_span;
+    save_span = s.save_span;
     dump_raw = s.dump_raw;
 }
 
@@ -696,15 +696,15 @@ void bound_geom::run(const char* fname_prefix) {
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
 
     //avoid divisions by zero by defaulting to 1
-    if (dump_span == 0) dump_span = 1;
+    if (save_span == 0) save_span = 1;
 
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     size_t n_locs = monitor_locs.size();
     field_times.resize(n_locs);
     n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
     for (_uint j = 0; j < n_locs; ++j) {
-        field_times[j].reserve( 1+ (n_t_pts/dump_span) );
-        //make_data_arr(&(field_times[j]), n_t_pts/dump_span);
+        field_times[j].reserve( 1+ (n_t_pts/save_span) );
+        //make_data_arr(&(field_times[j]), n_t_pts/save_span);
     }
 
     //figure out the number of digits before the decimal and after
@@ -718,7 +718,7 @@ void bound_geom::run(const char* fname_prefix) {
     try {
         for (; i < n_t_pts; ++i) {
             //write each of the monitor locations, but only if we've reached a savepoint
-            if (i % dump_span == 0) {
+            if (i % save_span == 0) {
                 //fetch monitor points
                 for (_uint j = 0; j < n_locs; ++j) {
                     std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
@@ -769,7 +769,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     if (ret_val < 0) return;
     //use the space of rank 1 tensors with a dimension of n_t_pts
     hsize_t t_dim[1];
-    t_dim[0] = {n_t_pts/dump_span};
+    t_dim[0] = {n_t_pts/save_span};
     hsize_t f_dim[1];
     H5::DataSpace t_space(1, t_dim);
 
@@ -821,7 +821,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     //set the start and end times for the simulation TODO: is the first boundary necessary or can it be left implicit?
     _ftype time_boundaries[3];
     time_boundaries[0] = 0.0;time_boundaries[1] = meep_time_to_fs(ttot);            //start and end of simulation times
-    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])*dump_span/n_t_pts;   //step size
+    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])*save_span/n_t_pts;   //step size
     t_info_dataset.write(time_boundaries, H5_float_type);
     //write the number of clusters
     hsize_t n_info_dim[1];
@@ -832,7 +832,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     n_c_info_dataset.write(&hsize_sto, H5::PredType::NATIVE_HSIZE);
     //write the number of time points
     H5::DataSet n_t_info_dataset(info_group.createDataSet("n_time_points", H5::PredType::NATIVE_HSIZE, n_info_space));
-    hsize_sto = n_t_pts/dump_span;
+    hsize_sto = n_t_pts/save_span;
     n_t_info_dataset.write(&hsize_sto, H5::PredType::NATIVE_HSIZE);
     //write information about sources
     size_t n_srcs = sources.size();

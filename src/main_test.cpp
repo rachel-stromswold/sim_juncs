@@ -1661,7 +1661,7 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.smooth_rad == 0.25);
 	//CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
 	CHECK(args.post_source_t == 1.0);
-	CHECK(args.field_dump_span == 171);
+	CHECK(args.save_span == 171);
 	CHECK(args.ambient_eps == 1.0);
 	CHECK(strcmp(args.geom_fname, "tests/test.geom") == 0);
 	CHECK(strcmp(args.out_dir, "/test_dir") == 0);

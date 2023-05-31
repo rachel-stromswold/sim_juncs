@@ -189,7 +189,7 @@ private:
     double len;
     double z_center;
     double eps_scale;
-    _uint dump_span = 20;
+    _uint save_span = 20;
     bool dump_raw = false;
 
 #ifndef DEBUG_INFO

@@ -41,7 +41,7 @@ typedef struct {
     double smooth_rad = DEFAULT_SMOOTH_RAD;
     //misc
     double post_source_t = 10.0;
-    _uint field_dump_span = 20;
+    _uint save_span = 20;
     unsigned char dump_raw = 0;
     _uint verbosity = 1;//same as meep
     char* user_opts = NULL;
@@ -155,8 +155,8 @@ inline void handle_pair(parse_settings* s, char* const tok, _uint toklen, char* 
         trim_whitespace(s->out_dir, NULL);
     } else if (strcmp(tok, "post_source_t") == 0) {
         s->post_source_t = strtod(val, NULL);
-    } else if (strcmp(tok, "field_dump_span") == 0) {
-        s->field_dump_span = strtol(val, NULL, 10);
+    } else if (strcmp(tok, "save_span") == 0) {
+        s->save_span = strtol(val, NULL, 10);
     } else if (strcmp(tok, "dump_raw") == 0) {
         if (strcmp(val, "true") == 0)
             s->dump_raw = 1;
@@ -249,7 +249,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 	    //look for known argument names
 	    if (strstr(argv[i], "--conf-file") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --conf-file file name");
+		    printf("Usage: sim_geom --conf-file file name");
 		    return 0;
 		} else {
 		    a->conf_fname = argv[i+1];
@@ -257,7 +257,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--geom-file") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --out-dir <prefix to output hdf5 files to>");
+		    printf("Usage: sim_geom --out-dir <prefix to output hdf5 files to>");
 		    return 0;
 		} else {
 		    //deallocate memory if necessary
@@ -269,7 +269,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--out-dir") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --out-dir <prefix to output hdf5 files to>");
+		    printf("Usage: sim_geom --out-dir <prefix to output hdf5 files to>");
 		    return 0;
 		} else {
             if (a->out_dir) free(a->out_dir);
@@ -279,7 +279,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--grid-res") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --grid-res <grid points per unit length>");
+		    printf("Usage: sim_geom --grid-res <grid points per unit length>");
 		    return 0;
 		} else {
 		    a->resolution = strtod(argv[i+1], NULL);
@@ -292,7 +292,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--grid-num") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --grid-num total number of grid points to use");
+		    printf("Usage: sim_geom --grid-num total number of grid points to use");
 		    return 0;
 		} else {
 		    a->grid_num = strtol(argv[i+1], NULL, 10);
@@ -305,7 +305,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--length") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --length <length of each axis of the simulation volume in arbitrary units>");
+		    printf("Usage: sim_geom --length <length of each axis of the simulation volume in arbitrary units>");
 		    return 0;
 		} else {
 		    a->len = strtod(argv[i+1], NULL);
@@ -318,7 +318,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--eps1") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --eps1 <epsilon1>");
+		    printf("Usage: sim_geom --eps1 <epsilon1>");
 		    return 0;
 		} else {
 		    a->ambient_eps = strtod(argv[i+1], NULL);
@@ -329,9 +329,22 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		    }
 		    to_rm = 2;
 		}
+	    } else if (strstr(argv[i], "--save-span") == argv[i]) {
+		if (i == n_args-1) {
+		    printf("Usage: sim_geom --save_span <epsilon1>");
+		    return 0;
+		} else {
+		    a->save_span = strtod(argv[i+1], NULL);
+		    //check for errors
+		    if (errno != 0) {
+			printf("Invalid floating point supplied to --eps1");
+			return errno;
+		    }
+		    to_rm = 2;
+		}
 	    } else if (strstr(argv[i], "-v") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep -v <verbosity (integer)>");
+		    printf("Usage: sim_geom -v <verbosity (integer)>");
 		    return 0;
 		} else {
 		    a->verbosity = strtol(argv[i+1], NULL, 10);
@@ -344,7 +357,7 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--opts") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: meep --opts \"<name1=value1;name2=value2>\"");
+		    printf("Usage: sim_geom --opts \"<name1=value1;name2=value2>\"");
 		    return 0;
 		} else {
 		    if (a->user_opts) free(a->user_opts);
