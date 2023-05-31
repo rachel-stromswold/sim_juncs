@@ -331,10 +331,10 @@ inline int parse_args(parse_settings* a, int* argc, char ** argv) {
 		}
 	    } else if (strstr(argv[i], "--save-span") == argv[i]) {
 		if (i == n_args-1) {
-		    printf("Usage: sim_geom --save_span <epsilon1>");
+		    printf("Usage: sim_geom --save-span <epsilon1>");
 		    return 0;
 		} else {
-		    a->save_span = strtod(argv[i+1], NULL);
+		    a->save_span = strtol(argv[i+1], NULL, 10);
 		    //check for errors
 		    if (errno != 0) {
 			printf("Invalid floating point supplied to --eps1");

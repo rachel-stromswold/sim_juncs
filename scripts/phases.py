@@ -362,7 +362,7 @@ class signal:
         df = self.freqs[1]-self.freqs[0]
         f0i = int(f0/df)
         lrp = f0 - f0i*df
-        for i in range(min(f0i, self.freqs.shape[0]-f0i)):
+        for i in range(min(f0i, self.freqs.shape[0]-f0i-1)):
             #find amplitude for \tilde{b}(\omega) (note the factor of two comes from equation 13
             vef[i] = 0.5*(vec_vf[f0i-i+1]-vec_vf[f0i-i]+vec_vf[f0i+i+1]-vec_vf[f0i+i])*lrp/df + 0.5*(vec_vf[f0i-i]+vec_vf[f0i+i])
             vef[-i] = vef[i]

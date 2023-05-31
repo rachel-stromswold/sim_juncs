@@ -26,11 +26,11 @@ endif
 executable(app_name, app_srcs, dependencies: sim_deps, include_directories : inc_dirs, c_args: app_args)
 
 #copy the junction files
-src = join_paths(meson.source_root(), 'junctions', get_option('JUNCTION_TYPE'), 'junc.geom')
+src = join_paths(meson.source_root(), 'junctions', get_option('junction_type'), 'junc.geom')
 dst = join_paths(meson.build_root(), 'junc.geom')
 run_command('rm', dst, check: false)
 run_command('cp', '-s', src, dst, check: true)
-src = join_paths(meson.source_root(), 'junctions', get_option('JUNCTION_TYPE'), 'params.conf')
+src = join_paths(meson.source_root(), 'junctions', get_option('junction_type'), 'params.conf')
 dst = join_paths(meson.build_root(), 'params.conf')
 run_command('rm', dst, check: false)
 run_command('cp', '-s', src, dst, check: true)
@@ -44,4 +44,18 @@ if get_option('buildtype') == 'debug' or get_option('buildtype') == 'debugoptimi
   dst = join_paths(meson.build_root(), 'tests')
   message('copying @0@ to @1@ ...'.format(src,dst))
   run_command('cp', '-rs', src, dst, check: false)
+endif
+
+if get_option('exclude_scripts') == false
+  src = join_paths(meson.source_root(), 'scripts')
+  run_command('cp', '@0@/run.sh'.format(src), '@0@/run.sh'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/utils.py'.format(src), '@0@/utils.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/phases.py'.format(src), '@0@/phases.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/phase_plot.py'.format(src), '@0@/phase_plot.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/time_space.py'.format(src), '@0@/time_space.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/check_enes.py'.format(src), '@0@/check_enes.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/params.conf'.format(src), '@0@/params.conf'.format(meson.build_root()), check: false)
+  src = join_paths(meson.source_root(), 'junctions')
+  run_command('cp', '@0@/Au_SiO2_box/junc.geom'.format(src), '@0@/junc_box.geom'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/Au_SiO2_bowtie/junc.geom'.format(src), '@0@/junc_bowtie.geom'.format(meson.build_root()), check: false)
 endif
