@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -p standard --time=12:00:00 --mem=244G
-#SBATCH -a 1-12
+#SBATCH -p standard --time=20:00:00 --mem=244G
+#SBATCH -a 1-14
 
 #this is an SBATCH argument when running on femto: -C Gold6330
 
@@ -26,7 +26,7 @@ done
 #only load modules if we're running this on the cluster
 if [ $run_local == "f" ]; then
     pname="/local_scratch/$SLURM_JOB_ID"
-    oname="/scratch/$(whoami)/junc_simuls_paper"
+    oname="/scratch/$(whoami)/junc_simuls"
     
     #module load python3/3.8.8 meep/b3 hdf5/1.12.1/b1 openmpi/1.10.7/b1
 fi
@@ -72,7 +72,11 @@ mkdir $h5dir/fit_figs
 if [ $run_simuls == "t" ]; then
     rm -f $h5dir/*
     #valgrind --leak-check=full --track-origins=yes ./sim_geom --out-dir $h5dir --grid-res ${resolutions[$((SLURM_ARRAY_TASK_ID-1))]}
-    ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file $junc --opts "width=$width;thick=$thickness;inf_thick=$use_inf;wavelen=$wavelength;n_cycles=$n_cycles"
+    if [ $wavelength == "0.157" ]; then
+        ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file $junc --save-span 10 --opts "width=$width;thick=$thickness;inf_thick=$use_inf;wavelen=$wavelength;n_cycles=$n_cycles"
+    else
+        ./sim_geom --out-dir $h5dir --grid-res $resolution --geom-file $junc  --opts "width=$width;thick=$thickness;inf_thick=$use_inf;wavelen=$wavelength;n_cycles=$n_cycles"
+    fi
 fi
 #make the test plots in check_enes.py
 mkdir "$pname"/figures
@@ -85,16 +89,26 @@ if [ $make_movie == "t" ]; then
 	ffmpeg -r 30 -f image2 -s 1920x1080 -i $h5dir/im_%d.png -vcodec libx264 -crf 25  -pix_fmt yuv420p "$h5dir"/out.mp4
     mv "$h5dir"/out.mp4 "$outname".mp4
 else
-    if [ $SLURM_ARRAY_TASK_ID -eq 3 ] || [ $SLURM_ARRAY_TASK_ID -eq 9 ]; then
-	python check_enes.py --prefix $h5dir --grid-res $resolution --gap-width $width --gap-thick $thickness --save-span 10 | tee $h5dir/tmp.log
-    else
-	python check_enes.py --prefix $h5dir --grid-res $resolution --gap-width $width --gap-thick $thickness | tee $h5dir/tmp.log
-    fi
+        python check_enes.py --prefix $h5dir --grid-res $resolution --gap-width $width --gap-thick $thickness | tee $h5dir/tmp.log
 fi
 
-#make the frequency space plot
+#plot samples of the fields
 python time_space.py --fname $h5dir/field_samples.h5 --prefix $h5dir
-python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width $width --gap-thick $thickness
+#set the parameters used by the paper for figures
+plotting_opts=""
+if [ [ $width == "0.05" ] && [ $junc == *"box"* ] ] || [ $wavelength == "0.157" ]; then
+    #this is a special case that appears twice in the figures
+    python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width $width --gap-thick $thickness
+    cp "$h5dir"/heatmap_grp0.svg "$oname"/figures/heatmap_center_"$suf_name"_no_y.svg
+    cp "$h5dir"/heatmap_grp1.svg "$oname"/figures/heatmap_offset_"$suf_name"_no_y.svg
+    plotting_opts=$plotting_opts + "--plot-y-labels"
+elif [ [ $width == "0.20" ] && [ $junc == *"bowtie"* ] ] || [ $wavelength ==  "10.6" ]; then
+     plotting_opts=$plotting_opts + "--plot-cbar"
+fi
+if [ $use_inf == "1" ]; then
+    plotting_opts=$plotting_opts + "--plot-x-labels"
+fi
+python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width $width --gap-thick $thickness $plotting_opts
 
 #move the plots into a folder where we can view them
 mkdir $oname/figures

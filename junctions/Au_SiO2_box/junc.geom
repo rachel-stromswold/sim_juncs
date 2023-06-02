@@ -10,7 +10,7 @@ print("top = ", top, ", bot = ", bot, ", left = ", left, ", right = ", rght)
 pwidth = n_cycles*wavelen/0.29979
 Gaussian_source("Ex", wavelen, 1.0, pwidth, 0.0, cutoff=4, Box([0,0,1], [length,length,1]))
 
-mon_start = left - um_to_l(0.08)
+mon_start = mid - um_to_l(0.175)
 dx = 0.025
 npt = 40
 monitors(locations = [vec(x, mid, top-dx*meep_thick) for x in linspace(mon_start, mid, npt)])

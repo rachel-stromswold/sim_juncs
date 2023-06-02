@@ -146,7 +146,7 @@ def make_heatmaps(pf, n_groups=-1):
     cl_err = []
     wg = waveguide_est(args.gap_width, args.gap_thick, pf)
     for clust in pf.clust_names:
-        cr = wg.reflect_pts(pf.lookup_fits(clust, recompute=False))
+        cr = wg.reflect_pts(pf.lookup_fits(clust, recompute=args.recompute, save_fit_figs=args.save_fit_figs))
         #save x points, amplitudes and phases so that an average may be computed
         cl_xs.append(cr.xs)
         cl_amp.append(cr.get_amp())

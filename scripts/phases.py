@@ -357,8 +357,10 @@ class signal:
             self.f0,self.f0_ind = self._est_f0(mode='odd')
 
     def _get_sym_amps(self, vec_vf, f0):
-        ef = np.zeros(2*self.mags.shape[0]-2)
-        vef = np.zeros(2*self.mags.shape[0]-2)
+        #weirdness converting between scipy rfft and fft
+        fsize = 2*self.mags.shape[0] - 2 + (self.mags.shape[0] % 2)
+        ef = np.zeros(fsize)
+        vef = np.zeros(fsize)
         df = self.freqs[1]-self.freqs[0]
         f0i = int(f0/df)
         lrp = f0 - f0i*df
@@ -380,9 +382,7 @@ class signal:
             f0i = self.f0_ind
         else:
             f0i = int(f0 / (self.freqs[1]-self.freqs[0]))
-        pad_n = (0, self.mags.shape[0]-2)
-        self.env_fourier = np.roll(np.pad(self.vf, pad_n), -f0i)
-        self.vec_env_fourier = np.roll(np.pad((self.vf+DIV_S)/(2*np.pi*self.freqs+DIV_S), pad_n), -f0i)
+        pad_n =  (0, self.mags.shape[0]-2+(self.mags.shape[0]%2))
         if sym_mode is not None:
             if sym_mode=="exp":
                 ef,vf,f0 = self._fit_sym_amps(DEF_DEG)
@@ -520,7 +520,8 @@ class signal:
         ext_angles = fft.fftshift(np.angle(self.vec_env_fourier))
         ax2.plot(fft.fftshift(full_freqs), [fix_angle(a)/np.pi for a in ext_angles], color='green', linestyle='--')
         #figure out the actual angles for comparison
-        actual_angles = fft.fftshift( np.roll(np.pad(np.angle(self.vf)-self._phi_corr, (0, self.mags.shape[0]-2)), -self.f0_ind) )
+        pad_n = (0, self.mags.shape[0]-2+self.v_pts.shape[0]%2)
+        actual_angles = fft.fftshift( np.roll(np.pad(np.angle(self.vf)-self._phi_corr, pad_n), -self.f0_ind) )
         ax2.plot(fft.fftshift(full_freqs), [fix_angle(a)/np.pi for a in actual_angles], color='green', label='arg[$a(\omega)$]')
         ax2.set_ylim(-1, 1)
         if not plt_raxs:
@@ -751,8 +752,8 @@ class phase_finder:
             res_name = fig_name+"_res.txt"
             write_reses(res_name, [res])
         if raw_ax is not None:
-            psig.plt_raw_fdom(raw_ax[0])
-            psig.plt_raw_tdom(raw_ax[1])
+            psig.compare_fspace(raw_ax[0])
+            psig.compare_signals(raw_ax[1])
         _,_,skew,_ = psig.get_skewness() 
         return res, skew
 
