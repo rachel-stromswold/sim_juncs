@@ -358,7 +358,7 @@ class signal:
 
     def _get_sym_amps(self, vec_vf, f0):
         #weirdness converting between scipy rfft and fft
-        fsize = 2*self.mags.shape[0] - 2 + (self.mags.shape[0] % 2)
+        fsize = 2*self.mags.shape[0] - 2 + (self.v_pts.shape[0] % 2)
         ef = np.zeros(fsize)
         vef = np.zeros(fsize)
         df = self.freqs[1]-self.freqs[0]
@@ -382,7 +382,7 @@ class signal:
             f0i = self.f0_ind
         else:
             f0i = int(f0 / (self.freqs[1]-self.freqs[0]))
-        pad_n =  (0, self.mags.shape[0]-2+(self.mags.shape[0]%2))
+        pad_n =  (0, self.mags.shape[0]-2+(self.v_pts.shape[0]%2))
         if sym_mode is not None:
             if sym_mode=="exp":
                 ef,vf,f0 = self._fit_sym_amps(DEF_DEG)

@@ -96,17 +96,25 @@ fi
 python time_space.py --fname $h5dir/field_samples.h5 --prefix $h5dir
 #set the parameters used by the paper for figures
 plotting_opts=""
-if [ [ $width == "0.05" ] && [ $junc == *"box"* ] ] || [ $wavelength == "0.157" ]; then
+if [ $width == "0.05" ] && [ $junc == *"box"* ]; then
     #this is a special case that appears twice in the figures
     python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width $width --gap-thick $thickness
     cp "$h5dir"/heatmap_grp0.svg "$oname"/figures/heatmap_center_"$suf_name"_no_y.svg
-    cp "$h5dir"/heatmap_grp1.svg "$oname"/figures/heatmap_offset_"$suf_name"_no_y.svg
-    plotting_opts=$plotting_opts + "--plot-y-labels"
-elif [ [ $width == "0.20" ] && [ $junc == *"bowtie"* ] ] || [ $wavelength ==  "10.6" ]; then
-     plotting_opts=$plotting_opts + "--plot-cbar"
+    if [ $use_inf == "1" ] || [ $wavelength == "10.6" ]; then
+        python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width $width --gap-thick $thickness --plot-cbar
+        cp "$h5dir"/heatmap_grp0.svg "$oname"/figures/phase_"$suf_name"_cbar.svg
+        cp "$h5dir"/heatmap_skew_grp0.svg "$oname"/figures/skew_"$suf_name"_cbar.svg
+    fi
+    plotting_opts=$plotting_opts" --plot-y-labels"
+elif [ $wavelength == "0.157" ]; then
+    plotting_opts=$plotting_opts" --plot-y-labels"
+elif [ $width == "0.20" ] && [ $junc == *"bowtie"* ]; then
+     plotting_opts=$plotting_opts" --plot-cbar"
+elif [ $wavelength ==  "10.6" ]; then
+     plotting_opts=$plotting_opts" --plot-cbar"
 fi
 if [ $use_inf == "1" ]; then
-    plotting_opts=$plotting_opts + "--plot-x-labels"
+    plotting_opts=$plotting_opts" --plot-x-labels"
 fi
 python phase_plot.py --fname $h5dir/field_samples.h5 --prefix $h5dir --gap-width $width --gap-thick $thickness $plotting_opts
 
@@ -119,6 +127,6 @@ cp "$h5dir"/tdom_plot.svg "$oname"/figures/tdom_plot_"$suf_name".svg
 cp "$h5dir"/amps.svg "$oname"/figures/amps_"$suf_name".svg
 cp "$h5dir"/avgs.svg "$oname"/figures/avgs_"$suf_name".svg
 cp "$h5dir"/sigs.svg "$oname"/figures/sigs_"$suf_name".svg
-cp "$h5dir"/heatmap_grp0.svg "$oname"/figures/heatmap_center_"$suf_name".svg
-cp "$h5dir"/heatmap_grp1.svg "$oname"/figures/heatmap_offset_"$suf_name".svg
+cp "$h5dir"/heatmap_grp0.svg "$oname"/figures/phase_"$suf_name".svg
+cp "$h5dir"/heatmap_skew_grp0.svg "$oname"/figures/skew_"$suf_name".svg
 cp "$h5dir"/junc.pgm "$oname"/figures/junc_"$suf_name".pgm

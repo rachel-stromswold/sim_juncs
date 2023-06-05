@@ -110,7 +110,7 @@ def find_grouping(pf, n_groups):
     axs_mapping = [i%grp_len for i in range(pf.n_clusts)]
     return grp_len, n_groups, axs_mapping
 
-def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis', vlines=[], xlabels=[[],[]], ylabels=[[],[]]):
+def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis', vlines=[], xlabels=[[],[]], ylabels=[[],[]], w=-1):
     ax.set_title(title)
     if len(xlabels[0]) == 0:
         ax.get_xaxis().set_visible(False)
@@ -135,6 +135,15 @@ def make_heatmap(fg, ax, imdat, title, label, rng=None, cmap='viridis', vlines=[
         plt.colorbar(im, cax=cax)
         cax.set_ylabel(label)
     fg.tight_layout()
+    #adjust the size of the plot
+    if w > 0:
+        l = ax.figure.subplotpars.left
+        r = ax.figure.subplotpars.right
+        t = ax.figure.subplotpars.top
+        b = ax.figure.subplotpars.bottom
+        figw = float(w)/(r-l)
+        figh = figw*(t-b)/(r-l)
+        ax.figure.set_size_inches(figw, figh)
 
 def make_heatmaps(pf, n_groups=-1):
     grp_len,n_groups,_ = find_grouping(pf, n_groups)
@@ -181,19 +190,19 @@ def make_heatmaps(pf, n_groups=-1):
     n_cbar = 1
     wrs = [1]
     vlines = [xl, xr]
-    xlabels = [[xl, xr], ["{}".format(-args.gap_width*500), "{}".format(args.gap_width*500)]]
+    xlabels = [[xl, xr], ["{}  ".format(-int(args.gap_width*500)), "  {}".format(int(args.gap_width*500))]]
     ylabels = [[], []]
     if args.plot_cbar:
         n_cbar = 2
         wrs = [32,1]
     if args.plot_y_labels:
-        ylabels = [[1, len(cl_xs)-1], ["0", "{}".format(args.gap_thick*500)]]
+        ylabels = [[1, len(cl_xs)-1], ["0", "{}".format(int(args.gap_thick*500))]]
 
     #save heatmaps of amplitudes and phases
     for i in range(n_groups):
-        heat_fig, heat_ax = plt.subplots(2, gridspec_kw={'hspace':0.1})
-        make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], "", "amplitude\n(arb. units)", rng=AMP_RANGE, cmap='magma', vlines=vlines, ylabels=ylabels)
-        make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap, vlines=vlines, xlabels=xlabels, ylabels=ylabels)
+        heat_fig, heat_ax = plt.subplots(2, gridspec_kw={'hspace':0.2})
+        make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], "", "amp.", rng=AMP_RANGE, cmap='magma', vlines=vlines, ylabels=ylabels, w=2.2)
+        make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap, vlines=vlines, xlabels=xlabels, ylabels=ylabels, w=2.2)
         heat_fig.savefig(args.prefix+"/heatmap_grp{}.svg".format(i), bbox_inches='tight')
         plt.close(heat_fig)
         #plot skews
