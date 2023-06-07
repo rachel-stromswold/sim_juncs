@@ -3,20 +3,16 @@
 #ifndef CGS_H
 #define CGS_H
 
-#include "cgs_read.hpp"
+#include "cgs_data.hpp"
 #include <unordered_map>
 #include <vector>
 #include <cstring>
 #include <cstdint>
 #include <math.h>
 
-#define DEF_TEST_N	50000
-#define WALK_STEP_STC	0.05
-//This describes the fraction of the camera look depth that is used as a step size. Smaller values make more accurate images but take longer.
-#define WALK_STEP	0.01
 //To improve image quality, steps look at previous pixels and march forward using smaller steps. If the ray fails to colide within this region, then it switches to larger regions and takes larger steps.
 #define NEAR_THRESH	0.1
-#define DEF_IM_RES	255
+
 #define IM_DEPTH	255
 #define IM_LN_DEPTH	8
 
@@ -30,7 +26,9 @@
 
 typedef enum { CGS_UNION, CGS_INTERSECT, CGS_DIFFERENCE, CGS_CMB_NOOP } combine_type;
 //note that ROOTS are a special type of COMPOSITES
-typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_PLANE, CGS_CYLINDER } object_type;
+typedef enum { CGS_UNDEF, CGS_ROOT, CGS_DATA, CGS_COMPOSITE, CGS_SPHERE, CGS_BOX, CGS_PLANE, CGS_CYLINDER, CGS_COMP_INVERT, CGS_COMP_ROTATE} object_type;
+
+void setup_geometry_context(context& con);
 
 /*
  * A virtual class which describes a simple shape (such as cubes, cylinders spheres etc)
@@ -131,9 +129,14 @@ protected:
     int call_child_in(_uint side, const vec3& r);
     //this is a helper function which returns a pointer to a copy of the object pointed to by the child on the specified side
     object* copy_child(_uint side) const;
+    //initialize a composite object from a list of objects
+    void init_from_list(value* l, size_t n, stack<mat3x3>& transform_stack);
+    void append(composite_object** lc_ptr, object* obj, object_type type, bool is_last=false);
 
 public:
     composite_object(combine_type p_cmb = CGS_UNION);
+    composite_object(combine_type p_cmb, value* list, size_t n_els, int p_invert, stack<mat3x3>& transform_stack);
+    composite_object(combine_type p_cmb, context* inst, int p_invert, stack<mat3x3>& transform_stack);
     composite_object(combine_type p_cmb, const cgs_func& spec, int p_invert);
     composite_object(const composite_object& o);
     composite_object(composite_object&& o);
@@ -183,7 +186,7 @@ private:
     //let users define constants
     context named_items;
     parse_ercode fail_exit(parse_ercode er, FILE* fp);
-    void save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y);
+    std::vector<uint32_t> get_cols();
     void ray_step(_uint8* z_buf, _uint8* c_buf, size_t ind, size_t n1, size_t n2, vec3 disp);
 
 public:
@@ -200,13 +203,20 @@ public:
     void read();
  
     parse_ercode read_file(const char* p_fname);
-    parse_ercode make_object(const cgs_func& f, object** ptr, object_type* type, int p_invert) const;
-    parse_ercode make_transformation(const cgs_func& f, mat3x3& res) const;
     context& get_context() { return named_items; }
     //void cleanup_func(cgs_func& f);
     void draw_stochastic(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, size_t res=DEF_IM_RES, size_t n_samples=DEF_TEST_N);
     void draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x=DEF_IM_RES, size_t res_y=DEF_IM_RES, size_t n_samples=DEF_TEST_N, double walk_step=WALK_STEP);
     void draw(const char* out_fname, vec3 cam_pos);
 };
+
+//drawing utility functions
+void save_imbuf(const char* out_fname, uint32_t* c_buf, size_t res_x, size_t res_y);
+uint32_t blend(uint32_t c1, uint32_t c2);
+inline _uint8 get_a(uint32_t col) { return 0xff & (col >> 24); }
+inline _uint8 get_r(uint32_t col) { return 0xff & (col >> 16); }
+inline _uint8 get_g(uint32_t col) { return 0xff & (col >> 8); }
+inline _uint8 get_b(uint32_t col) { return 0xff & col; }
+inline uint32_t make_col(uint32_t r, uint32_t g, uint32_t b) { return 0xff000000 | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff); }
 
 #endif //CGS_H

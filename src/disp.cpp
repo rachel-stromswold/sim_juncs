@@ -50,8 +50,6 @@ context context_from_settings(const parse_settings& args) {
     return con;
 }
 
-
-
 /**
  * Helper function which initializes an array of smooth points
  */
@@ -317,142 +315,64 @@ double cgs_material_function::chi2(meep::component c, const meep::vec &r) {
     return in_bound(r);
 }
 
-source_info::source_info(value info, parse_ercode* ercode) {
-    if (ercode) *ercode = E_SUCCESS;
-    //initialize default values
+source_info::source_info(value info, parse_ercode& ercode) {
+    ercode = E_SUCCESS;
     type = SRC_GAUSSIAN;
     component = meep::Ex;
-    wavelen = 700.0;
+    wavelen = 0.7;
     width = 1;
     phase = 0;
     start_time = 0;
     end_time = 0;
     amplitude = 1.0;
     parse_ercode tmp_er = E_SUCCESS;
-    if (info.type == VAL_LIST) {
-	if (info.n_els > 3) {
-	    //read the component
-	    if (info.val.l[1].type == VAL_STR && info.val.l[1].val.s) {
-		if (strcmp(info.val.l[1].val.s, "Ex") == 0) {
-		    component = meep::Ex;
-		} else if (strcmp(info.val.l[1].val.s, "Ey") == 0) {
-		    component = meep::Ey;
-		} else if (strcmp(info.val.l[1].val.s, "Ez") == 0) {
-		    component = meep::Ez;
-		} else if (strcmp(info.val.l[1].val.s, "Hx") == 0) {
-		    component = meep::Hx;
-		} else if (strcmp(info.val.l[1].val.s, "Hy") == 0) {
-		    component = meep::Hy;
-		} else if (strcmp(info.val.l[1].val.s, "Hz") == 0) {
-		    component = meep::Hz;
-		}
-	    } else {
-		tmp_er = E_BAD_TOKEN;
-	    }
-	    //read the wavelength
-	    if (info.val.l[2].get_type() == VAL_NUM) {
-		wavelen = info.val.l[2].get_val().x;
-	    } else {
-		tmp_er = E_BAD_VALUE;
-	    }
-	    //read the type
-	    if (tmp_er == E_SUCCESS) {
-		//figure out what to do depending on what type of pulse envelope this is
-		if (info.val.l[0].type == VAL_STR && (strcmp(info.val.l[0].val.s, "gaussian") == 0 || strcmp(info.val.l[0].val.s, "Gaussian") == 0)) {
-		    type = SRC_GAUSSIAN;
-		    //set default values for the envelope
-		    start_time = 0;
-		    double cutoff = 5;
-		    if (info.n_els < 4) {
-			tmp_er = E_LACK_TOKENS;
-		    } else {
-			if (info.val.l[3].get_type() == VAL_NUM)
-			    width = info.val.l[3].get_val().x;
-			else
-			    tmp_er = E_BAD_TOKEN;
-			//set default values
-			amplitude = 1;
-			start_time = 0;
-			cutoff = DEFAULT_WIDTH_N;
-			//read the phase if specified
-			if (info.n_els > 4) {
-			    if (info.val.l[4].get_type() == VAL_NUM)
-				phase = info.val.l[4].get_val().x;
-			    else
-				tmp_er = E_BAD_TOKEN;
-			    if (errno) tmp_er = E_BAD_TOKEN;
-			}
-			//read the start time if supplied
-			if (info.n_els > 5) {
-			    if (info.val.l[5].get_type() == VAL_NUM)
-				start_time = info.val.l[5].get_val().x;
-			    else
-				tmp_er = E_BAD_TOKEN;
-			    if (errno) tmp_er = E_BAD_TOKEN;
-			}
-			//read the cutoff if supplied
-			if (info.n_els > 6) {
-			    if (info.val.l[6].get_type() == VAL_NUM)
-				cutoff = info.val.l[6].get_val().x;
-			    else
-				tmp_er = E_BAD_TOKEN;
-			    if (errno) tmp_er = E_BAD_TOKEN;
-			}
-			//read the amplitude if supplied
-			if (info.n_els > 7) {
-			    if (info.val.l[7].get_type() == VAL_NUM)
-				amplitude = info.val.l[7].get_val().x;
-			    else
-				tmp_er = E_BAD_TOKEN;
-			    if (errno) tmp_er = E_BAD_TOKEN;
-			}
-			end_time = start_time + 2*cutoff*width;
-		    }
-		} else if (strcmp(info.val.l[0].val.s, "continuous") == 0) {
-		    type = SRC_CONTINUOUS;
-		    phase = 0;
-		    if (info.n_els < 4) {
-			tmp_er = E_LACK_TOKENS;
-		    } else {
-			if (info.val.l[3].get_type() == VAL_NUM)
-			    start_time = info.val.l[3].get_val().x;
-			else
-			    tmp_er = E_BAD_TOKEN;
-			if (errno) tmp_er = E_BAD_TOKEN;
-			//read the end time if supplied
-			if (info.n_els > 4) {
-			    if (info.val.l[4].get_type() == VAL_NUM)
-				end_time = info.val.l[4].get_val().x;
-			    else
-				tmp_er = E_BAD_TOKEN;
-			    if (errno) tmp_er = E_BAD_TOKEN;
-			}
-			//read the width if supplied
-			if (info.n_els > 5) {
-			    if (info.val.l[5].get_type() == VAL_NUM)
-				width = info.val.l[5].get_val().x;
-			    else
-				tmp_er = E_BAD_TOKEN;
-			    if (errno) tmp_er = E_BAD_TOKEN;
-			}
-			//read the amplitude if supplied
-			if (info.n_els > 6) {
-			    if (info.val.l[6].get_type() == VAL_NUM)
-				amplitude = info.val.l[6].get_val().x;
-			    else
-				tmp_er = E_BAD_TOKEN;
-			    if (errno) tmp_er = E_BAD_TOKEN;
-			}
-		    }
-		}
-	    }
-	} else {
-	    tmp_er = E_LACK_TOKENS;
-	}
-    }
 
-    //set the error code if there was one and the caller wants it
-    if (ercode) *ercode = tmp_er;
+    bool is_gauss = is_type(info, "Gaussian_source");
+    bool is_contin = is_type(info, "CW_source");
+    if (is_contin || is_gauss) {
+	value tmp = info.val.c->lookup("component");
+	if (tmp.type == VAL_NUM) {
+	    switch ((basis_comp_vectors)(tmp.val.x)) {
+		case C_EY: component = meep::Ey;break;
+		case C_EZ: component = meep::Ez;break;
+		case C_HX: component = meep::Hx;break;
+		case C_HY: component = meep::Hy;break;
+		case C_HZ: component = meep::Hz;break;
+		default:break;
+	    }
+	}
+	tmp = info.val.c->lookup("wavelength");
+	if (tmp.type == VAL_NUM)
+	    wavelen = tmp.val.x;
+	tmp = info.val.c->lookup("amplitude");
+	if (tmp.type == VAL_NUM)
+	    amplitude = tmp.val.x;
+	tmp = info.val.c->lookup("start_time");
+	if (tmp.type == VAL_NUM)
+	    start_time = tmp.val.x;
+	tmp = info.val.c->lookup("end_time");
+	if (tmp.type == VAL_NUM)
+	    end_time = tmp.val.x;
+	tmp = info.val.c->lookup("slowness");
+	if (tmp.type == VAL_NUM)
+	    width = tmp.val.x;
+    } else {
+	ercode = E_BAD_TYPE;
+    }
+    if (is_gauss) {
+	value tmp = info.val.c->lookup("width");
+	if (tmp.type == VAL_NUM)
+	    width = tmp.val.x;
+	tmp = info.val.c->lookup("phase");
+	if (tmp.type == VAL_NUM)
+	    phase = tmp.val.x;
+	double cutoff = 5;
+	tmp = info.val.c->lookup("cutoff");
+	if (tmp.type == VAL_NUM)
+	    cutoff = 6;
+	end_time = start_time + 2*cutoff*width;
+    }
+    if (is_contin) type = SRC_CONTINUOUS;
 }
 
 gaussian_src_time_phase::gaussian_src_time_phase(double f, double w, double phase, double st, double et) {
@@ -537,34 +457,29 @@ std::vector<drude_suscept> bound_geom::parse_susceptibilities(value val, int* er
  * Read a composite_object specifying monitor locations into a list of monitor locations
  * returns: an error code if one was encountered or E_SUCCESS
  */
-parse_ercode bound_geom::parse_monitors(composite_object* comp) {
-    //only continue if the user specified locations
-    if (comp->has_metadata("locations")) {
-	value tmp_val = comp->fetch_metadata("locations");
-	if (tmp_val.get_type() != VAL_LIST) {
-	    printf("Location type is not a list! ignoring\n");
-	} else {
-	    parse_ercode er = E_SUCCESS;
-	    for (size_t i = 0; i < tmp_val.n_els; ++i) {
-		//see if we can cast to a vector and check for errors
-		value vec_cast = tmp_val.val.l[i].cast_to(VAL_3VEC, er);
-		if (er != E_SUCCESS) return er;
-		//convert to a meep vector and append
-		meep::vec tmp_vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z());
-		monitor_locs.push_back(tmp_vec);
-		cleanup_val(&vec_cast);
-	    }
+parse_ercode bound_geom::parse_monitors(value vl) {
+    if (vl.type == VAL_LIST) {
+	parse_ercode er = E_SUCCESS;
+	for (size_t i = 0; i < vl.n_els; ++i) {
+	    //see if we can cast to a vector and check for errors
+	    value vec_cast = vl.val.l[i].cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS) { cleanup_val(&vec_cast);return er; }
+	    //convert to a meep vector and append
+	    meep::vec tmp_vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z());
+	    monitor_locs.push_back(tmp_vec);
+	    cleanup_val(&vec_cast);
 	}
+	return er;
     }
-    return E_SUCCESS;
+    return E_BAD_TYPE;
 }
 
-double dummy_eps(const meep::vec& r) { return 1.0; }
+double dummy_eps(const meep::vec& r) { (void)r;return 1.0; }
 
 /**
  * This is a helper function for the bound_geom constructor. Meep doesn't implement copy or move constructors so we have to initialize the structure immediately so that the fields can be initialized in turn.
  */
-meep::structure* bound_geom::structure_from_settings(const parse_settings& s, scene& problem, parse_ercode* ercode) {
+meep::structure* bound_geom::structure_from_settings(const parse_settings& s, scene& problem) {
     pml_thickness = s.pml_thickness;
     len = s.len;
 
@@ -641,9 +556,13 @@ meep::structure* bound_geom::structure_from_settings(const parse_settings& s, sc
  */
 bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
     problem(s.geom_fname, context_from_settings(s), ercode),
-    strct(structure_from_settings(s, problem, ercode)),
+    strct(structure_from_settings(s, problem)),
     fields(strct)
 {
+    if (*ercode != E_SUCCESS) {
+        printf("Scene parsing failed, exiting.\n");
+        exit(1);
+    }
     //TODO: actually fix the memory issues
     for (size_t i = 0; i < FIELDS_PAD_SIZE; ++i) dummy_vals[i] = 0;
     um_scale = s.um_scale;
@@ -663,73 +582,65 @@ bound_geom::bound_geom(const parse_settings& s, parse_ercode* ercode) :
     post_source_t = s.post_source_t;
 
     //add fields specified in the problem
-    std::vector<composite_object*> data = problem.get_data();
-    for (size_t i = 0; i < data.size(); ++i) {
-	if (data[i]->has_metadata("type")) {
-        value type = data[i]->fetch_metadata("type");
-	    if (type.type == VAL_STR && strcmp(type.val.s, "field_source") == 0) {
-		//figure out the volume for the field source
-		const object* l_child = data[i]->get_child_l();
-		const object* r_child = data[i]->get_child_r();
-		object_type l_type = data[i]->get_child_type_l();
-		//WLOG fix the left child to be the one we care about
-		if (r_child && !l_child) {
-		    l_child = r_child;
-		    l_type = data[i]->get_child_type_r();
-		}
-		//make sure that the object is a box so that we can figure out the corner and the offset
-		if (l_type == CGS_BOX) {
-		    vec3 center = ((box*)l_child)->get_center();
-		    vec3 offset = ((box*)l_child)->get_offset();
-		    double x_0 = center.x() - offset.x();double x_1 = center.x() + offset.x();
-		    double y_0 = center.y() - offset.y();double y_1 = center.y() + offset.y();
-		    double z_0 = center.z() - offset.z();double z_1 = center.z() + offset.z();
+    context& c = problem.get_context();
+    for (size_t i = c.size(); i > 0; --i) {
+	parse_ercode tmp_er;
+	value inst = c.peek_val(i);
+	source_info cur_info(inst, tmp_er);
+	//only inspect instances
+	if (tmp_er == E_SUCCESS) {
+	    value reg = inst.val.c->lookup("region");
+	    parse_ercode tmp_er = E_BAD_TYPE;
+	    if (is_type(reg, "Box")) {
+		tmp_er = E_SUCCESS;
+		parse_ercode tmp_er2 = E_SUCCESS;
+		value p1 = reg.val.c->lookup("pt_1").cast_to(VAL_3VEC, tmp_er);
+		value p2 = reg.val.c->lookup("pt_2").cast_to(VAL_3VEC, tmp_er2);
+		if (tmp_er == E_SUCCESS && tmp_er2 == E_SUCCESS) {
+		    double x_0 = p1.val.v->x();double x_1 = p2.val.v->x();
+		    double y_0 = p1.val.v->y();double y_1 = p2.val.v->y();
+		    double z_0 = p1.val.v->z();double z_1 = p2.val.v->z();
 		    meep::volume source_vol(meep::vec(x_0, y_0, z_0), meep::vec(x_1, y_1, z_1));
-
-		    //only continue if a shape for the pulse was specified
-		    if (data[i]->has_metadata("envelope")) {
-			*ercode = E_SUCCESS;
-			source_info cur_info(data[i]->fetch_metadata("envelope"), ercode);
-			//create the EM-wave source at the specified location only if everything was read successfully
-			if (*ercode == E_SUCCESS) {
-			    double c_by_a = 0.299792458*s.um_scale;
-			    //We specify the width of the pulse in units of the oscillation period
-			    double frequency = 1 / (cur_info.wavelen*s.um_scale);
-			    double width = cur_info.width*c_by_a;
-			    double start_time = cur_info.start_time*c_by_a;
-			    double end_time = cur_info.end_time*c_by_a;
-			    if (cur_info.type == SRC_GAUSSIAN) {
-				printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
-					frequency, width, start_time, end_time);
-				gaussian_src_time_phase src(frequency, width, cur_info.phase, start_time, end_time);
-				fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
-			    } else if (cur_info.type == SRC_CONTINUOUS) { 
-				printf("Adding continuous wave: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
-					frequency, width, start_time, end_time);
-				meep::continuous_src_time src(frequency, width, start_time, end_time);
-				fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
-			    }
-#ifdef DEBUG_INFO
-			    sources.push_back(cur_info);
-#endif
-			}
+		    double c_by_a = 0.299792458*s.um_scale;
+		    //We specify the width of the pulse in units of the oscillation period
+		    double frequency = 1 / (cur_info.wavelen*s.um_scale);
+		    double width = cur_info.width*c_by_a;
+		    double start_time = cur_info.start_time*c_by_a;
+		    double end_time = cur_info.end_time*c_by_a;
+		    if (cur_info.type == SRC_GAUSSIAN) {
+			printf("Adding Gaussian envelope: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
+				frequency, width, start_time, end_time);
+			gaussian_src_time_phase src(frequency, width, cur_info.phase, start_time, end_time);
+			fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
+		    } else if (cur_info.type == SRC_CONTINUOUS) { 
+			printf("Adding continuous wave: f=%f, w=%f, t_0=%f, t_f=%f (meep units)\n",
+				frequency, width, start_time, end_time);
+			meep::continuous_src_time src(frequency, width, start_time, end_time);
+			fields.add_volume_source(cur_info.component, src, source_vol, cur_info.amplitude);
 		    }
-
+#ifdef DEBUG_INFO
+		    sources.push_back(cur_info);
+#endif
 		    //set the total timespan based on the added source
 		    ttot = fields.last_source_time() + post_source_t*0.299792458*s.um_scale;
-		} else {
-		    printf("Error: only boxes are currently supported for field volumes");
-		    if (ercode) *ercode = E_BAD_VALUE;
 		}
-	    } else if (type.type == VAL_STR && strcmp(type.val.s, "monitor") == 0) {
-		parse_ercode tmp_er = parse_monitors(data[i]);
-		if (tmp_er != E_SUCCESS) printf("warning: Invalid monitor location encountered! (all monitors must be vectors or lists with three elements)\n");
+		cleanup_val(&p1);
+		cleanup_val(&p2);
+	    }
+	} else {
+	    if (is_type(inst, "monitor")) {
+		value vl = inst.val.c->lookup("locations");
+		parse_ercode tmp_er = parse_monitors(vl);
+		if (tmp_er != E_SUCCESS)
+		    printf("warning: Invalid monitor location encountered! (all monitors must be vectors or lists with three elements)\n");
 		monitor_clusters.push_back(monitor_locs.size());
 	    }
 	}
     }
+
+    std::vector<composite_object*> data = problem.get_data();
     write_settings(stdout);
-    dump_span = s.field_dump_span;
+    save_span = s.save_span;
     dump_raw = s.dump_raw;
 }
 
@@ -785,15 +696,15 @@ void bound_geom::run(const char* fname_prefix) {
     fields.output_hdf5(meep::Dielectric, fields.total_volume());
 
     //avoid divisions by zero by defaulting to 1
-    if (dump_span == 0) dump_span = 1;
+    if (save_span == 0) save_span = 1;
 
     //make sure the time series corresponding to each monitor point is long enough to hold all of its information
     size_t n_locs = monitor_locs.size();
     field_times.resize(n_locs);
     n_t_pts = (_uint)( (ttot+fields.dt/2) / fields.dt );
     for (_uint j = 0; j < n_locs; ++j) {
-        field_times[j].reserve( 1+ (n_t_pts/dump_span) );
-        //make_data_arr(&(field_times[j]), n_t_pts/dump_span);
+        field_times[j].reserve( 1+ (n_t_pts/save_span) );
+        //make_data_arr(&(field_times[j]), n_t_pts/save_span);
     }
 
     //figure out the number of digits before the decimal and after
@@ -807,7 +718,7 @@ void bound_geom::run(const char* fname_prefix) {
     try {
         for (; i < n_t_pts; ++i) {
             //write each of the monitor locations, but only if we've reached a savepoint
-            if (i % dump_span == 0) {
+            if (i % save_span == 0) {
                 //fetch monitor points
                 for (_uint j = 0; j < n_locs; ++j) {
                     std::complex<double> val = fields.get_field(meep::Ex, monitor_locs[j]);
@@ -858,7 +769,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     if (ret_val < 0) return;
     //use the space of rank 1 tensors with a dimension of n_t_pts
     hsize_t t_dim[1];
-    t_dim[0] = {n_t_pts/dump_span};
+    t_dim[0] = {n_t_pts/save_span};
     hsize_t f_dim[1];
     H5::DataSpace t_space(1, t_dim);
 
@@ -897,17 +808,11 @@ void bound_geom::save_field_times(const char* fname_prefix) {
 
     //open the file which will store the fields as a function of time
     snprintf(out_name, BUF_SIZE, "%s/field_samples.h5", fname_prefix);
+    printf("saving field output to %s\n", out_name);
     H5::H5File file(out_name, H5F_ACC_TRUNC);
 
     //save metadata
     H5::Group info_group = file.createGroup("info");
-    //we need to convert meep vectors to sto_vecs
-    sto_vec* tmp_vecs = (sto_vec*)malloc(sizeof(sto_vec)*n_locs);
-    for (_uint i = 0; i < n_locs; ++i) {
-        tmp_vecs[i].x = (_ftype)(monitor_locs[i].x());
-        tmp_vecs[i].y = (_ftype)(monitor_locs[i].y());
-        tmp_vecs[i].z = (_ftype)(monitor_locs[i].z());
-    }
     //write the start and end times for each simulation
     hsize_t t_info_dim[1];
     t_info_dim[0] = {3};
@@ -916,7 +821,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     //set the start and end times for the simulation TODO: is the first boundary necessary or can it be left implicit?
     _ftype time_boundaries[3];
     time_boundaries[0] = 0.0;time_boundaries[1] = meep_time_to_fs(ttot);            //start and end of simulation times
-    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])*dump_span/n_t_pts;   //step size
+    time_boundaries[2] = (_ftype)(time_boundaries[1]-time_boundaries[0])*save_span/n_t_pts;   //step size
     t_info_dataset.write(time_boundaries, H5_float_type);
     //write the number of clusters
     hsize_t n_info_dim[1];
@@ -927,7 +832,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     n_c_info_dataset.write(&hsize_sto, H5::PredType::NATIVE_HSIZE);
     //write the number of time points
     H5::DataSet n_t_info_dataset(info_group.createDataSet("n_time_points", H5::PredType::NATIVE_HSIZE, n_info_space));
-    hsize_sto = n_t_pts/dump_span;
+    hsize_sto = n_t_pts/save_span;
     n_t_info_dataset.write(&hsize_sto, H5::PredType::NATIVE_HSIZE);
     //write information about sources
     size_t n_srcs = sources.size();
@@ -940,7 +845,29 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     for (_uint i = 0; i < n_srcs; ++i) tmp_srcs[i] = sources[i];
     src_dataset.write(tmp_srcs, srctype);
     free(tmp_srcs);
+    //save cgs parameters
+    H5::Group cgs_group = info_group.createGroup("cgs_params");
+    context& c = problem.get_context();
+    hsize_t c_info_dim[1];
+    c_info_dim[0] = {1};
+    H5::DataSpace c_info_space(1, c_info_dim);
+    for (size_t i = c.size(); i > 0; --i) {
+	name_val_pair nv = c.peek(i);
+	//only write numeric types
+	if (nv.get_val().type == VAL_NUM) {
+	    H5::DataSet c_info_dataset(cgs_group.createDataSet(nv.get_name(), H5_float_type, c_info_space));
+	    _ftype dval = nv.get_val().val.x;
+	    c_info_dataset.write(&dval, H5_float_type);
+	}
+    }
 
+    //we need to convert meep vectors to sto_vecs
+    sto_vec* tmp_vecs = (sto_vec*)malloc(sizeof(sto_vec)*n_locs);
+    for (_uint i = 0; i < n_locs; ++i) {
+        tmp_vecs[i].x = (_ftype)(monitor_locs[i].x());
+        tmp_vecs[i].y = (_ftype)(monitor_locs[i].y());
+        tmp_vecs[i].z = (_ftype)(monitor_locs[i].z());
+    }
     //iterate over each desired point and save its time series and fourier transform
     printf("found %lu monitor locations\n", n_locs);
     //iterate over monitor locations respecting groups, i will track monitor index, j will track group index

@@ -3,7 +3,8 @@ project('sim_geom', 'cpp',
 )
 
 #find dependencies
-sim_deps = [dependency('meep'), dependency('hdf5', language: 'cpp')]
+sim_deps = [dependency('hdf5', language: 'cpp'), dependency('meep')]
+#sim_deps = [dependency('hdf5'), dependency('openblas'), dependency('meep')]
 inc_dirs = [include_directories('/usr/include/doctest')]
 
 #set executable names
@@ -11,8 +12,8 @@ app_name = 'sim_geom'
 tst_name = 'tst'
 
 #source files
-app_srcs = files('src/cgs_read.cpp', 'src/cgs.cpp', 'src/data_utils.cpp', 'src/disp.cpp', 'src/main.cpp')
-tst_srcs = files('src/cgs_read.cpp', 'src/cgs.cpp', 'src/data_utils.cpp', 'src/disp.cpp', 'src/main_test.cpp')
+app_srcs = files('src/cgs_read.cpp', 'src/cgs_data.cpp', 'src/cgs.cpp', 'src/data_utils.cpp', 'src/disp.cpp', 'src/main.cpp')
+tst_srcs = files('src/cgs_read.cpp', 'src/cgs_data.cpp', 'src/cgs.cpp', 'src/data_utils.cpp', 'src/disp.cpp', 'src/main_test.cpp')
 
 #check whether 32 bit or 64 bit precision for saved fields is used
 app_args = []
@@ -27,11 +28,11 @@ executable(app_name, app_srcs, dependencies: sim_deps, include_directories : inc
 #copy the junction files
 src = join_paths(meson.source_root(), 'junctions', get_option('junction_type'), 'junc.geom')
 dst = join_paths(meson.build_root(), 'junc.geom')
-run_command('rm', dst, check: true)
+run_command('rm', dst, check: false)
 run_command('cp', '-s', src, dst, check: true)
 src = join_paths(meson.source_root(), 'junctions', get_option('junction_type'), 'params.conf')
 dst = join_paths(meson.build_root(), 'params.conf')
-run_command('rm', dst, check: true)
+run_command('rm', dst, check: false)
 run_command('cp', '-s', src, dst, check: true)
 
 #only build tests if debug is set
@@ -43,4 +44,18 @@ if get_option('buildtype') == 'debug' or get_option('buildtype') == 'debugoptimi
   dst = join_paths(meson.build_root(), 'tests')
   message('copying @0@ to @1@ ...'.format(src,dst))
   run_command('cp', '-rs', src, dst, check: false)
+endif
+
+if get_option('exclude_scripts') == false
+  src = join_paths(meson.source_root(), 'scripts')
+  run_command('cp', '@0@/run.sh'.format(src), '@0@/run.sh'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/utils.py'.format(src), '@0@/utils.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/phases.py'.format(src), '@0@/phases.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/phase_plot.py'.format(src), '@0@/phase_plot.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/time_space.py'.format(src), '@0@/time_space.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/check_enes.py'.format(src), '@0@/check_enes.py'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/params.conf'.format(src), '@0@/params.conf'.format(meson.build_root()), check: false)
+  src = join_paths(meson.source_root(), 'junctions')
+  run_command('cp', '@0@/Au_SiO2_box/junc.geom'.format(src), '@0@/junc_box.geom'.format(meson.build_root()), check: false)
+  run_command('cp', '@0@/Au_SiO2_bowtie/junc.geom'.format(src), '@0@/junc_bowtie.geom'.format(meson.build_root()), check: false)
 endif

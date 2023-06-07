@@ -33,6 +33,15 @@ typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_
 typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST} valtype;
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
 
+inline void* xrealloc(void* p, size_t nsize) {
+    void* tmp = realloc(p, nsize);
+    if (!tmp) {
+	fprintf(stderr, "Insufficient memory to allocate block of size %lu!\n", nsize);
+	exit(EXIT_FAILURE);
+    }
+    return tmp;
+}
+
 /** ======================================================== utility functions ======================================================== **/
 
 bool is_char_sep(char c);
@@ -40,7 +49,7 @@ bool is_token(const char* str, size_t i, size_t len);
 char* find_token_before(char* str, size_t i);
 char* strchr_block(char* str, char c);
 char* token_block(char* str, const char* comp);
-int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno);
+size_t read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno);
 char* CGS_trim_whitespace(char* str, size_t* len);
 
 /** ============================ line_buffer ============================ **/
@@ -59,23 +68,51 @@ public:
     parse_ercode type() { return er; }
 };*/
 
+//store a line number and an offset within that line to describe a position in a line_buffer
+struct line_buffer_ind {
+    size_t line;
+    size_t off;
+    line_buffer_ind() { line = 0;off = 0; }
+    line_buffer_ind(long pl, long po) { line = pl;off = po; }
+    //increase/decrease the line buffer by a specified amount while keeping line number the same
+    friend line_buffer_ind operator+(const line_buffer_ind& lhs, const size_t& rhs);
+    friend line_buffer_ind operator-(const line_buffer_ind& lhs, const size_t& rhs);
+};
+
 class line_buffer {
 private:
     char** lines;
     size_t* line_sizes;
     size_t n_lines;
+    //helper function for jmp_enclosed and get_enclosed. If the line at index 
+#ifndef DEBUG_INFO
+    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delimse, bool include_start) const;
 public:
-    line_buffer() { lines = NULL; line_sizes = NULL; n_lines = 0; }
-    line_buffer(char* p_fname);
+#else
+public:
+    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delimse, bool include_start) const;
+#endif
+    line_buffer();
+    line_buffer(const char* p_fname);
     line_buffer(const char** p_lines, size_t pn_lines);
     line_buffer(const char* line, char sep, const char* ignore_blocks = "\"\"()[]{}");
     line_buffer(const line_buffer& o);
+    line_buffer& operator=(line_buffer& o);
+    line_buffer& operator=(line_buffer&& o);
     line_buffer(line_buffer&& o);
     ~line_buffer();
-    line_buffer get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset = 0, bool include_delims=false);
-    char* get_line(size_t i) { return (i < n_lines) ? lines[i] : NULL; }
-    size_t get_n_lines() { return n_lines; }
-    char* flatten(char sep_char = 0);
+    void split(char split_delim);
+    line_buffer_ind jmp_enclosed(line_buffer_ind start, char start_delim, char end_delim, bool include_delims=false) const;
+    line_buffer get_enclosed(line_buffer_ind start, line_buffer_ind* end, char start_delim, char end_delim, bool include_delims=false, bool include_start=false) const;
+    char* get_line(line_buffer_ind p) const;
+    char* get_line(size_t i) const { line_buffer_ind p(i,0);return get_line(p); }
+    size_t get_line_size(size_t i) const { if (i >= n_lines) { return 0; }return line_sizes[i]; }
+    size_t get_n_lines() const { return n_lines; }
+    char* flatten(char sep_char = 0) const;
+    //increment or decrement the line_buffer_ind p and return whether the operation was successful
+    bool inc(line_buffer_ind& p) const;
+    bool dec(line_buffer_ind& p) const;
+    char get(line_buffer_ind p) const;
 };
 
 /** ============================ stack ============================ **/
@@ -112,7 +149,6 @@ protected:
 
 	return E_SUCCESS;
     }
-
 public:
     stack() {
 	stack_ptr = 0;
@@ -241,16 +277,7 @@ public:
 };
 
 class CompositeObject;
-/**
- * This acts similar to getline, but stops at a semicolon, newline (unless preceeded by a \), {, or }.
- * bufptr: a pointer to which the buffer is saved. If bufptr is NULL than a new buffer is allocated through malloc()
- * n: a pointer to a size_t with the number of characters in the buffer pointed to by bufptr. The call will return do nothing if n is null but *bufptr is not.
- * fp: file pointer to read from
- * linecount: a pointer to an integer specifying the number of new line characters read.
- * Returns: 0 if the end of the file was reached, 1 otherwise
- */
-int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* line);
-//
+
 class value;
 class context;
 class user_func;
@@ -281,6 +308,9 @@ struct value {
     int rep_string(char* sto, size_t n) const;
     value cast_to(valtype type, parse_ercode& er) const;
 };
+//check whether the value is of the specified type based on the type string
+inline bool is_type(value v, valtype t) { return v.type == t; }
+bool is_type(value v, const char* type);
 void cleanup_val(value* o);
 value copy_val(const value o);
 void swap_val(value* a, value* b);
@@ -328,6 +358,7 @@ public:
     name_val_pair& operator=(name_val_pair& o);
     name_val_pair& operator=(const name_val_pair& o);
     bool name_matches(const char* str) const;
+    const char* get_name() { return name; }
     value& get_val();
 };
 struct type_ind_pair {
@@ -342,25 +373,39 @@ public:
 /** ============================ context ============================ **/
 class context : public stack<name_val_pair> {
 private:
+    struct read_state {
+	const line_buffer& b;
+	line_buffer_ind pos;
+	stack<block_type> blk_stk;
+	size_t buf_size;
+	char* buf;
+	read_state(const line_buffer& pb) : b(pb), pos(0,0) {
+	    buf_size = BUF_SIZE;
+	    buf = (char*)calloc(buf_size, sizeof(char));
+	}
+	~read_state() { buf_size=0;free(buf); }
+    };
     context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
+    parse_ercode read_single_line(context::read_state& rs);
 public:
     context() : stack<name_val_pair>() { parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
     ~context() {}
-    //parse_ercode push(_uint side, CompositeObject* obj);
     void emplace(const char* p_name, value p_val) { name_val_pair inst(p_name, p_val);push(inst); }
     value lookup(const char* name) const;
     parse_ercode pop_n(size_t n);
     value parse_value(char* tok, parse_ercode& er);
+    value parse_value(const line_buffer& b, line_buffer_ind& pos, parse_ercode& er);
     cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
     void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }
     parse_ercode set_value(const char* name, value new_val);
-    parse_ercode read_from_lines(line_buffer b);
-
+    parse_ercode read_from_lines(const line_buffer& b);
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
+    value peek_val(size_t i=1);
 };
+
 /**
  * A class for functions defined by the user along with the implementation code
  */

@@ -33,7 +33,7 @@ if (${STO_PREC_32} MATCHES "^[Tt]rue")
     add_compile_definitions(STO_PREC_32=1)
 endif()
 #add targets for libraries
-add_executable( ${APP_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main.cpp )
+add_executable( ${APP_EXE} src/cgs_read.cpp src/cgs_data.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main.cpp )
 
 #linking
 target_link_libraries(${APP_EXE} PRIVATE meep png ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} ctlgeom)
@@ -43,7 +43,7 @@ target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
 #check if we need to build tests
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     #build and link the unit testing executable
-    add_executable( ${TEST_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
+    add_executable( ${TEST_EXE} src/cgs_read.cpp src/cgs_data.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
     target_link_libraries(${TEST_EXE} PRIVATE meep ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
     target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
@@ -62,12 +62,15 @@ endif()
 
 message(CHECK_START "Using junction type: ${JUNCTION_TYPE}")
 #copy the junction geometry files
-configure_file(junctions/${JUNCTION_TYPE}/junc.geom junc.geom COPYONLY)
-configure_file(junctions/${JUNCTION_TYPE}/params.conf params.conf COPYONLY)
+#configure_file(junctions/${JUNCTION_TYPE}/junc.geom junc.geom COPYONLY)
+#configure_file(junctions/${JUNCTION_TYPE}/params.conf params.conf COPYONLY)
 
 #copy utility scripts that are used
 if (NOT EXCLUDE_SCRIPTS)
     message(STATUS "copying scripts")
+    configure_file(junctions/Au_SiO2_box/junc.geom junc_box.geom COPYONLY)
+    configure_file(junctions/Au_SiO2_bowtie/junc.geom junc_bowtie.geom COPYONLY)
+    configure_file(scripts/params.conf params.conf COPYONLY)
     configure_file(scripts/run.sh run.sh COPYONLY)
     configure_file(scripts/utils.py utils.py COPYONLY)
     configure_file(scripts/phases.py phases.py COPYONLY)
