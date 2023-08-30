@@ -855,7 +855,7 @@ value make_linspace(cgs_func tmp_f, parse_ercode& er) {
         return sto;
     } else {
         if (tmp_f.args[0].type == VAL_NUM && tmp_f.args[1].type == VAL_NUM && tmp_f.args[2].type == VAL_NUM) {
-            sto.type = VAL_LIST;
+            sto.type = VAL_ARRAY;
             sto.n_els = (size_t)(tmp_f.args[2].val.x);
             //prevent divisions by zero
             if (sto.n_els < 2) {
@@ -865,11 +865,10 @@ value make_linspace(cgs_func tmp_f, parse_ercode& er) {
                 er = E_BAD_VALUE;
                 return sto;
             }
-            sto.val.l = (value*)malloc(sizeof(value)*sto.n_els);
+            sto.val.a = (double*)malloc(sizeof(double)*sto.n_els);
             double step = (tmp_f.args[1].val.x - tmp_f.args[0].val.x)/(sto.n_els - 1);
             for (size_t i = 0; i < sto.n_els; ++i) {
-                sto.val.l[i].type = VAL_NUM;
-                sto.val.l[i].val.x = step*i + tmp_f.args[0].val.x;
+                sto.val.a[i] = step*i + tmp_f.args[0].val.x;
             }
             er = E_SUCCESS;
             return sto;
@@ -990,6 +989,14 @@ value make_val_std_str(std::string s) {
     for (size_t i = 0; i < v.n_els; ++i) v.val.s[i] = s[i];
     return v;
 }
+value make_val_array(std::vector<double> a) {
+    value v;
+    v.type = VAL_ARRAY;
+    v.n_els = a.size();
+    v.val.a = (double*)malloc(sizeof(double)*v.n_els);
+    for (size_t i = 0; i < v.n_els; ++i) v.val.a[i] = a[i];
+    return v;
+}
 value make_val_list(const value* vs, size_t n_vs) {
     value v;
     v.type = VAL_LIST;
@@ -1042,6 +1049,8 @@ bool is_type(value v, const char* str) {
 	return (v.type == VAL_STR);
     } else if (strcmp(str, "numeric") == 0) {
 	return (v.type == VAL_NUM);
+    } else if (strcmp(str, "array") == 0) {
+	return (v.type == VAL_ARRAY);
     } else if (strcmp(str, "list") == 0) {
 	return (v.type == VAL_LIST);
     } else if (strcmp(str, "vec3") == 0) {
@@ -1057,7 +1066,7 @@ bool is_type(value v, const char* str) {
 }
 
 void cleanup_val(value* v) {
-    if (v->type == VAL_STR && v->val.s) {
+    if ((v->type == VAL_STR && v->val.s) || (v->type == VAL_ARRAY && v->val.a)) {
 	free(v->val.s);
     } else if (v->type == VAL_LIST && v->val.l) {
 	for (size_t i = 0; i < v->n_els; ++i) cleanup_val(v->val.l + i);
@@ -1082,6 +1091,9 @@ value copy_val(const value o) {
     if (o.type == VAL_STR) {
 	ret.val.s = (char*)malloc(sizeof(char)*o.n_els);
 	for (size_t i = 0; i < o.n_els; ++i) ret.val.s[i] = o.val.s[i];
+    } else if (o.type == VAL_ARRAY) {
+	ret.val.a = (double*)malloc(sizeof(double)*o.n_els);
+	for (size_t i = 0; i < o.n_els; ++i) ret.val.a[i] = o.val.a[i];
     } else if (o.type == VAL_LIST) {
 	if (o.val.l == NULL) {
 	    ret.n_els = 0;
@@ -1174,19 +1186,44 @@ double value::to_float() {
  * returns: the number of characters written excluding the null terminator
  */
 int value::rep_string(char* sto, size_t n) const {
-	if (type == VAL_STR) {
-	    char* end = stpncpy(sto, val.s, n-1);
-	    *end = 0;
-	    return end-sto;
-	} else if (type == VAL_NUM) {
-	    return snprintf(sto, n, "%f", val.x);
-	} else if (type == VAL_LIST) {
-	    //TODO
-	} else if (type == VAL_3VEC) {
-	    return val.v->to_str(sto, n);
-	} else if (type == VAL_MAT) {
-	    return val.m->to_str(sto, n);
+    //exit if there isn't enough space to write the null terminator
+    if (n <= 1) return 0;
+    if (type == VAL_STR) {
+	char* end = stpncpy(sto, val.s, n-1);
+	*end = 0;
+	return end-sto;
+    } else if (type == VAL_ARRAY) {
+	int ret = 1;
+	sto[0] = '{';//}
+	for (size_t i = 0; i < n_els; ++i) {
+	    size_t rem = n-ret;
+	    int tmp = write_numeric(sto+(size_t)ret, rem, val.a[i]);
+	    if (tmp < 0) {
+		sto[ret] = 0;
+		return ret;
+	    }
+	    if (tmp >= rem) {
+		sto[n-1] = 0;
+		return n-1;
+	    }
+	    ret += (size_t)tmp;
+	    if (i+1 < n_els)
+		sto[ret++] = ',';
 	}
+	if (ret < 0) return ret;
+	if ((size_t)ret < n)
+	    sto[ret++] = '}';
+	sto[ret] = 0;
+	return ret;
+    } else if (type == VAL_NUM) {
+	return write_numeric(sto, n, val.x);
+    } else if (type == VAL_LIST) {
+	//TODO
+    } else if (type == VAL_3VEC) {
+	return val.v->to_str(sto, n);
+    } else if (type == VAL_MAT) {
+	return val.m->to_str(sto, n);
+    }
     return 0;
 }
 /**
@@ -1201,6 +1238,7 @@ value value::cast_to(valtype t, parse_ercode& er) const {
     ret.n_els = n_els;
     if (t == VAL_3VEC) {
 	if (type == VAL_LIST) {
+	    //list -> vector3
 	    value* tmp_lst = val.l;
 	    //check that we have at least three numeric values
 	    if (n_els < 3) { er = E_LACK_TOKENS;return copy_val(*this); }
@@ -1212,6 +1250,7 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	}
     } else if (t == VAL_LIST) {
 	if (type == VAL_3VEC) {
+	    //vector3 -> list
 	    ret.n_els = 3;
 	    ret.val.l = (value*)malloc(sizeof(value)*ret.n_els);
 	    if (!ret.val.l) { ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;return ret; }
@@ -1222,8 +1261,10 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	    }
 	    return ret;
 	} else if (type == VAL_MAT) {
+	    //matrix -> list
 	    //TODO
 	} else if (type == VAL_INST) {
+	    //instance -> list
 	    ret.n_els = val.c->size();
 	    ret.val.l = (value*)calloc(ret.n_els, sizeof(value));
 	    if (!ret.val.l) { ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;return ret; }
@@ -1233,7 +1274,30 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	    ret.n_els = n_els;
 	    return ret;
 	}
+    } else if (t == VAL_ARRAY) {
+	if (type == VAL_3VEC) {
+	    //vector3 -> array
+	    ret.n_els = 3;
+	    ret.val.a = (double*)malloc(sizeof(double)*ret.n_els);
+	    if (!ret.val.a) { ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;return ret; }
+	    for (size_t i = 0; i < ret.n_els; ++i) {
+		ret.val.a[i] = val.v->el[i];
+	    }
+	    return ret;
+	} else if (type == VAL_LIST) {
+	    //list -> array
+	    ret.n_els = n_els;
+	    ret.val.a = (double*)malloc(sizeof(double)*ret.n_els);
+	    if (!ret.val.a) { ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;return ret; }
+	    parse_ercode tmp_er;
+	    for (size_t i = 0; i < ret.n_els; ++i) {
+		ret.val.a[i] = val.l[i].cast_to(VAL_NUM, tmp_er).val.x;
+		if (tmp_er != E_SUCCESS) { er = tmp_er; return ret; }
+	    }
+	    return ret;
+	}
     } else if (t == VAL_STR) {
+	//anything -> string
 	ret.val.s = (char*)malloc(sizeof(char)*BUF_SIZE);
 	int n_write = rep_string(ret.val.s, BUF_SIZE);
 	ret.val.s = (char*)xrealloc(ret.val.s, sizeof(char)*(n_write+1));
@@ -1587,19 +1651,26 @@ value context::parse_list(char* str, parse_ercode& er) {
 	char* list_expr = strdup(in_start+KEY_IN_LEN);
 	value it_list = parse_value(list_expr, er);
 	free(list_expr);
-	if (er != E_SUCCESS || it_list.type != VAL_LIST) { er = E_BAD_VALUE;return sto; }
-	//we now iterate through the list specified, substituting VAL in the expression with the current value
+	if (er != E_SUCCESS) return sto;
+	if (it_list.type != VAL_ARRAY && it_list.type != VAL_LIST) { er = E_BAD_TYPE;return sto; }
+	//the prototype expression needs to be null terminated
 	for_start[0] = 0;
+	//we need to add a variable with the appropriate name to loop over
 	emplace(var_name, sto);
 	n_els = it_list.n_els;
 	lbuf = (value*)calloc(n_els, sizeof(value));
+	//we now iterate through the list specified, substituting VAL in the expression with the current value
 	for (size_t i = 0; i < it_list.n_els; ++i) {
-	    set_value(var_name, it_list.val.l[i]);
+	    if (it_list.type == VAL_LIST)
+		set_value(var_name, it_list.val.l[i]);
+	    else
+		set_value(var_name, make_val_num(it_list.val.a[i]));
 	    char* expr_name = strndup(start+1, expr_len);
 	    lbuf[i] = parse_value(expr_name, er);
 	    free(expr_name);
 	    if (er != E_SUCCESS) { n_els = i;return sto; }
 	}
+	//we need to remove the the variable we loop over
 	name_val_pair tmp;
 	pop(&tmp);
 	//reset the string so that it can be parsed again

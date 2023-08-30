@@ -30,7 +30,7 @@ typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
 typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED, E_OUT_OF_RANGE, E_BAD_FLOAT } parse_ercode;
-typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST} valtype;
+typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_ARRAY, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST} valtype;
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
 
 inline void* xrealloc(void* p, size_t nsize) {
@@ -128,6 +128,7 @@ protected:
 	buf_len = new_size;
 
 	T* tmp_buf = (T*)malloc(sizeof(T)*buf_len);
+	//copy memory to new block if allocation was successful or return nomem error
 	if (tmp_buf) {
 	    for (size_t i = 0; i < stack_ptr; ++i) {
 		new(tmp_buf+i) T(std::move(buf[i]));
@@ -281,6 +282,7 @@ class user_func;
 union V {
     char* s;
     double x;
+    double* a;
     value* l;
     vec3* v;
     context* c;
@@ -323,6 +325,7 @@ value make_val_undef();
 value make_val_num(double x);
 value make_val_str(const char* s);
 value make_val_std_str(std::string s);
+value make_val_array(std::vector<double> a);
 value make_val_list(const value* vs, size_t n_vs);
 value make_val_mat(mat3x3 m);
 value make_val_vec3(vec3 vec);

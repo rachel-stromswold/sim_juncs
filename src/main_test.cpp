@@ -406,21 +406,19 @@ TEST_CASE("Test builtin functions") {
         strncpy(buf, "linspace(1,2,5)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
         tmp_val = sc.parse_value(buf, er);
         CHECK(er == E_SUCCESS);
-        CHECK(tmp_val.type == VAL_LIST);
+        CHECK(tmp_val.type == VAL_ARRAY);
         CHECK(tmp_val.n_els == 5);
         for (size_t i = 0; i < 4; ++i) {
-            CHECK(tmp_val.val.l[i].type == VAL_NUM);
-            CHECK(tmp_val.val.l[i].val.x == 1.0+0.25*i);
+            CHECK(tmp_val.val.a[i] == 1.0+0.25*i);
         }
         cleanup_val(&tmp_val);
         strncpy(buf, "linspace(2,1,5)", BUF_SIZE);buf[BUF_SIZE-1] = 0;
         tmp_val = sc.parse_value(buf, er);
         CHECK(er == E_SUCCESS);
-        CHECK(tmp_val.type == VAL_LIST);
+        CHECK(tmp_val.type == VAL_ARRAY);
         CHECK(tmp_val.n_els == 5);
         for (size_t i = 0; i < 4; ++i) {
-            CHECK(tmp_val.val.l[i].type == VAL_NUM);
-            CHECK(tmp_val.val.l[i].val.x == 2.0-0.25*i);
+            CHECK(tmp_val.val.a[i] == 2.0-0.25*i);
         }
         cleanup_val(&tmp_val);
         //graceful failure cases
@@ -561,6 +559,11 @@ TEST_CASE("Test value makers") {
     //try making a list
     value val_bufs[SMALL_TEST_N];
     std::string tmp_str("foo");
+    std::vector<double> tmp_darr(SMALL_TEST_N-VAL_TEST_S);
+    for (size_t i = VAL_TEST_S; i < SMALL_TEST_N; ++i) {
+	val_bufs[i] = make_val_num((double)i/2);
+	tmp_darr[i-VAL_TEST_S] = (double)i/2;
+    }
     val_bufs[0] = make_val_str(tmp_str.c_str());
     val_bufs[1] = make_val_std_str(tmp_str);
     val_bufs[2].type = VAL_LIST;
@@ -568,10 +571,7 @@ TEST_CASE("Test value makers") {
     val_bufs[2].n_els = 0;
     val_bufs[3] = make_val_mat(mat3x3::id());
     val_bufs[4] = make_val_vec3(vec3(0,1,2));
-    for (size_t i = 5; i < SMALL_TEST_N; ++i) {
-	val_bufs[i] = make_val_num((double)i/2);
-    }
-
+    val_bufs[5] = make_val_array(tmp_darr);
     value lst_val = make_val_list(val_bufs, SMALL_TEST_N);
     //make sure no element is undefined
     value tmp_u = make_val_undef();
@@ -586,12 +586,14 @@ TEST_CASE("Test value makers") {
     CHECK(lst_val.val.l[2].n_els == 0);
     CHECK(lst_val.val.l[3].type == VAL_MAT);
     CHECK(lst_val.val.l[4].type == VAL_3VEC);
-    for (size_t i = 5; i < lst_val.n_els; ++i) {
+    CHECK(lst_val.val.l[5].type == VAL_ARRAY);
+    CHECK(lst_val.val.l[5].n_els == SMALL_TEST_N-VAL_TEST_S);
+    for (size_t i = VAL_TEST_S; i < lst_val.n_els; ++i) {
 	CHECK(lst_val.val.l[i].type == VAL_NUM);
 	CHECK(lst_val.val.l[i].val.x == (double)i/2);
+	CHECK(lst_val.val.l[5].val.a[i-VAL_TEST_S] == (double)i/2);
     }
-    for (size_t i = 0; i < SMALL_TEST_N; ++i)
-	cleanup_val(val_bufs+i);
+    for (size_t i = 0; i < SMALL_TEST_N; ++i) cleanup_val(val_bufs+i);
     cleanup_val(&lst_val);
 }
 
@@ -803,6 +805,47 @@ TEST_CASE("Test value parsing") {
 	CHECK(tmp_val.val.v->z() == doctest::Approx(56.7));
 	cleanup_val(&tmp_val);
     }
+}
+
+TEST_CASE("Test string castings") {
+    char buf[BUF_SIZE];
+    //test strings
+    value v = make_val_std_str("test val");
+    int write_n = v.rep_string(buf, BUF_SIZE);
+    CHECK((size_t)write_n == strlen("test val"));
+    CHECK(strcmp(buf, "test val") == 0);
+    cleanup_val(&v);
+    //test numbers
+    v = make_val_num(1);
+    write_n = v.rep_string(buf, BUF_SIZE);
+    CHECK(write_n == 1);
+    CHECK(strcmp(buf, "1") == 0);
+    //test vectors
+    v = make_val_vec3(vec3(0.0, 1.0, 20.0));
+    write_n = v.rep_string(buf, BUF_SIZE);
+    CHECK(write_n == strlen("[0,1,20]"));
+    CHECK(strcmp(buf, "[0,1,20]") == 0);
+    write_n = v.rep_string(buf, REP_TEST_N);
+    CHECK(write_n < REP_TEST_N);
+    cleanup_val(&v);
+    //test matrices
+    mat3x3 tmp_mat;
+    v = make_val_mat(tmp_mat);
+    write_n = v.rep_string(buf, BUF_SIZE);
+    CHECK(write_n == strlen("[[0,0,0],[0,0,0],[0,0,0]]"));
+    CHECK(strcmp(buf, "[[0,0,0],[0,0,0],[0,0,0]]") == 0);
+    write_n = v.rep_string(buf, REP_TEST_N);
+    CHECK(write_n < REP_TEST_N);
+    cleanup_val(&v);
+    //test arrays
+    std::vector<double> sd(2);sd[0] = 0;sd[1] = 1;
+    v = make_val_array(sd);
+    write_n = v.rep_string(buf, BUF_SIZE);
+    CHECK(write_n == strlen("{0,1}"));
+    CHECK(strcmp(buf, "{0,1}") == 0);
+    write_n = v.rep_string(buf, REP_TEST_N);
+    CHECK(write_n < REP_TEST_N);
+    cleanup_val(&v);
 }
 
 TEST_CASE("Test function parsing") {

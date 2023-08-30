@@ -8,6 +8,17 @@ typedef float _ftype;
 typedef double _ftype;
 #endif
 
+/**
+ * write at most n bytes of the double valued x to str
+ */
+inline int write_numeric(char* str, size_t n, double x) {
+    if (std::trunc(x) == x)
+	return snprintf(str, n, "%d", (int)x);
+    else if (x >= 1000000)
+	return snprintf(str, n, "%e", x);
+    return snprintf(str, n, "%f", x);
+}
+
 // ================================ matrix struct ================================
 
 template <size_t M, size_t N>
@@ -118,11 +129,13 @@ public:
     size_t to_str(char* str, size_t n) {
 	//we subtract 2*M characters for the open and close brackets for each row, M-1 for the commas separating rows, and M*(N-1) for the commas in columns
 	//(n/MN) - 2M - (M-1) - M(N-1) - 2 = (n/MN) - 2M - MN -1
-	size_t c_per_el = (n / (M*N)) - 2*M - M*N - 1;
+	int c_per_el = (n / (M*N)) - 2*M - M*N - 1;
 	if (str && c_per_el > 0 && n > 2) {
-	    str[0] = '[';str[1] = '[';//]]
-	    size_t off = 2;
+	    str[0] = '[';//]
+	    size_t off = 1;
 	    for (size_t i = 0; i < M; ++i) {
+		if (off >= n) return off;
+		str[off++] = '[';
 		for (size_t j = 0; j < N; ++j) {
 		    //make sure we don't go past the end
 		    if (off >= n-2) {
@@ -130,13 +143,22 @@ public:
 			return off;
 		    }
 		    //write the row with a terminating ',' or not depending on whether we're at the end
+		    int tmp = write_numeric(str+off, (size_t)c_per_el, el[N*i+j]);
+		    if (tmp >= c_per_el || tmp < 0) return off;
+		    off += tmp;
 		    if (j < N-1)
-			off += snprintf(str+off, c_per_el, "%f,", el[N*i+j]);
+			str[off++] = ',';
 		    else
-			off += snprintf(str+off, c_per_el, "%f", el[N*i+j]);
+			str[off++] = ']';
 		}
-		if (i < M-1) str[off++] = ',';
+		if (off >= n) return off;
+		if (i < M-1)
+		    str[off++] = ',';
+		else
+		    str[off++] = /*[*/']';
 	    }
+	    if (off >= n)
+		return off;
 	    return off;
 	}
 	if (str && n > 0) str[0] = 0;
@@ -184,6 +206,28 @@ struct rvector : public matrix<N,1> {
 	_ftype n = norm();
 	for (size_t i = 0; i < N; ++i) ret.el[i] = this->el[i]/n;
 	return ret;
+    }
+    size_t to_str(char* str, size_t n) {
+	//we subtract 2*M characters for the open and close brackets for each row, M-1 for the commas separating rows, and M*(N-1) for the commas in columns
+	//(n/MN) - 2M - (M-1) - M(N-1) - 2 = (n/MN) - 2M - MN -1
+	int c_per_el = (n / N) - N - 1;
+	if (str && c_per_el > 0) {
+	    str[0] = '[';//]
+	    size_t off = 1;
+	    for (size_t i = 0; i < N; ++i) {
+		int tmp = write_numeric(str+off, (size_t)c_per_el, this->el[i]);
+		if (tmp >= c_per_el || tmp < 0) return off;
+		off += tmp;
+		if (off >= n) return off;
+		if (i < N-1)
+		    str[off++] = ',';
+		else
+		    str[off++] = ']';
+	    }
+	    return off;
+	}
+	if (str && n > 0) str[0] = 0;
+	return 0;
     }
 };
 template <size_t N> inline rvector<N> operator*(_ftype s, const rvector<N>& m) { return m*s; }

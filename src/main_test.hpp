@@ -11,6 +11,8 @@
 #define POW_N 4
 
 #define EPSILON 0.01
+#define REP_TEST_N 3
+#define VAL_TEST_S  6
 #define SMALL_TEST_N 10
 #define TEST_N	10000
 
