@@ -26,11 +26,11 @@ endif
 executable(app_name, app_srcs, dependencies: sim_deps, include_directories : inc_dirs, c_args: app_args)
 
 #copy the junction files
-src = join_paths(meson.source_root(), 'junctions', get_option('JUNCTION_TYPE'), 'junc.geom')
+src = join_paths(meson.source_root(), 'junctions', get_option('junction_type'), 'junc.geom')
 dst = join_paths(meson.build_root(), 'junc.geom')
 run_command('rm', dst, check: false)
 run_command('cp', '-s', src, dst, check: true)
-src = join_paths(meson.source_root(), 'junctions', get_option('JUNCTION_TYPE'), 'params.conf')
+src = join_paths(meson.source_root(), 'junctions', get_option('junction_type'), 'params.conf')
 dst = join_paths(meson.build_root(), 'params.conf')
 run_command('rm', dst, check: false)
 run_command('cp', '-s', src, dst, check: true)

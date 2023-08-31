@@ -11,6 +11,7 @@ value um_to_l(context& c, cgs_func f, parse_ercode& er) {
     if (l_per_um.type != VAL_NUM) { er = E_NOT_DEFINED;return ret; }
     return make_val_num( (l_per_um.val.x)*(f.args[0].val.x) );
 }
+
 value fs_to_t(context& c, cgs_func f, parse_ercode& er) {
     value ret;
     if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
@@ -49,8 +50,6 @@ context context_from_settings(const parse_settings& args) {
     }
     return con;
 }
-
-
 
 /**
  * Helper function which initializes an array of smooth points
