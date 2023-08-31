@@ -1303,6 +1303,14 @@ value test_fun_call(context& c, cgs_func f, parse_ercode& er) {
     return f.args[0];
 }
 
+value test_fun_gamma(context& c, cgs_func f, parse_ercode& er) {
+    value ret;
+    if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
+    double a = f.args[0].val.x;
+    return make_val_num(sqrt(1 - a*a));
+}
+
 TEST_CASE("context parsing") {
     SUBCASE ("without nesting") {
 	const char* lines[] = { "a = 1", "\"b\"", "c = [\"d\", \"e\"]" }; 
@@ -1388,13 +1396,21 @@ TEST_CASE("context parsing") {
     }
     SUBCASE ("stress test") {
 	//first we add a bunch of arbitrary variables to make searching harder for the parser
-	const char* lines[] = {
+	const char* lines1[] = {
 	    "Vodkis=1","Pagne=2","Meadaj=3","whis=4","nac4=5","RaKi=6","gyn=7","cid=8","Daiqui=9","Mooshi=10","Magnac=2","manChe=3","tes=4","Bourbu=5","magna=6","sak=7","Para=8","Keffi=9","Guino=10",
-	    "y = 2.0", "xs = linspace(0, y, 10000)", "arr1 = [sin(6*x/y) for x in xs]", "arr2 = [sqrt(x^2 + y^2) for x in xs]" };
-	size_t n_lines = sizeof(lines)/sizeof(char*);
-	line_buffer b_1(lines, n_lines);
+	    "y = 2.0", "xs = linspace(0, y, 10000)", "arr1 = [sin(6*x/y) for x in xs]" };
+	size_t n_lines1 = sizeof(lines1)/sizeof(char*);
+	line_buffer b_1(lines1, n_lines1);
+	const char* lines2[] = { "arr2 = [gam(x/y) for x in xs]" };
+	size_t n_lines2 = sizeof(lines2)/sizeof(char*);
+	line_buffer b_2(lines2, n_lines2);
 	context c;
 	parse_ercode er = c.read_from_lines(b_1);
+	CHECK(er == E_SUCCESS);
+	value tmp_f = make_val_func("gam", 1, &test_fun_gamma);
+	c.emplace("gam", tmp_f);
+	cleanup_val(&tmp_f);
+	er = c.read_from_lines(b_2);
 	CHECK(er == E_SUCCESS);
     }
 }
