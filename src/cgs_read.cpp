@@ -762,7 +762,7 @@ char line_buffer::get(line_buffer_ind pos) const {
 /**
  * Make a vector argument with the x,y, and z coordinates supplied
  */
-value make_vec(cgs_func tmp_f, parse_ercode& er) {
+value make_vec(context& c, cgs_func tmp_f, parse_ercode& er) {
     value sto;sto.type = VAL_UNDEF;
     if (tmp_f.n_args < 3) { er = E_LACK_TOKENS;return sto; }
     if (tmp_f.args[0].type != VAL_NUM || tmp_f.args[1].type != VAL_NUM || tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return sto; }
@@ -775,7 +775,7 @@ value make_vec(cgs_func tmp_f, parse_ercode& er) {
 /**
  * Make a range following python syntax. If one argument is supplied then a list with tmp_f.args[0] elements is created starting at index 0 and going up to (but not including) tmp_f.args[0]. If two arguments are supplied then the range is from (tmp_f.args[0], tmp_f.args[1]). If three arguments are supplied then the range (tmp_f.args[0], tmp_f.args[1]) is still returned, but now the spacing between successive elements is tmp_f.args[2].
  */
-value make_range(cgs_func tmp_f, parse_ercode& er) {
+value make_range(context& c, cgs_func tmp_f, parse_ercode& er) {
     value sto;sto.type = VAL_UNDEF;
     if (tmp_f.n_args == 0) {
 	er = E_LACK_TOKENS;
@@ -848,7 +848,7 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 /**
  * linspace(a, b, n) Create a list of n equally spaced real numbers starting at a and ending at b. This function must be called with three aguments unlike np.linspace. Note that the value b is included in the list
  */
-value make_linspace(cgs_func tmp_f, parse_ercode& er) {
+value make_linspace(context& c, cgs_func tmp_f, parse_ercode& er) {
     value sto;
     if (tmp_f.n_args < 3) {
         er = E_LACK_TOKENS;
@@ -883,7 +883,7 @@ value make_linspace(cgs_func tmp_f, parse_ercode& er) {
  * Take a list value and flatten it so that it has numpy dimensions (n) where n is the sum of the length of each list in the base list. values are copied in order e.g flatten([0,1],[2,3]) -> [0,1,2,3]
  * cgs_func: the function with arguments passed
  */
-value flatten_list(cgs_func tmp_f, parse_ercode& er) {
+value flatten_list(context& c, cgs_func tmp_f, parse_ercode& er) {
     value sto;sto.type = VAL_UNDEF;
     if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
     if (tmp_f.args[0].type != VAL_LIST) { er = E_BAD_VALUE;return sto; }
@@ -942,7 +942,7 @@ value flatten_list(cgs_func tmp_f, parse_ercode& er) {
 /**
  * print the elements to the console
  */
-value print(cgs_func tmp_f, parse_ercode& er) {
+value print(context& c, cgs_func tmp_f, parse_ercode& er) {
     value ret;ret.type = VAL_UNDEF;ret.val.x = 0;ret.n_els = 0;
     for (size_t i = 0; i < tmp_f.n_args; ++i) {
 	if (tmp_f.args[i].type == VAL_NUM) {
@@ -958,6 +958,34 @@ value print(cgs_func tmp_f, parse_ercode& er) {
     printf("\n");
     return ret;
 }
+
+//math functions
+value fun_sin(context& c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for sin()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("sin() only accept numbers");return make_val_undef(); }
+    return make_val_num( sin(f.args[0].val.x) );
+}
+value fun_cos(context& c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for cos()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("cos() only accept numbers");return make_val_undef(); }
+    return make_val_num( cos(f.args[0].val.x) );
+}
+value fun_tan(context& c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for tan()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("tan() only accept numbers");return make_val_undef(); }
+    return make_val_num( tan(f.args[0].val.x) );
+}
+value fun_exp(context& c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for tan()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("tan() only accept numbers");return make_val_undef(); }
+    return make_val_num( exp(f.args[0].val.x) );
+}
+value fun_sqrt(context& c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for tan()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("tan() only accept numbers");return make_val_undef(); }
+    return make_val_num( sqrt(f.args[0].val.x) );
+}
+
 /** ======================================================== value ======================================================== **/
 value make_val_undef() {
     value v;
@@ -1552,6 +1580,44 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
 /** ======================================================== context ======================================================== **/
 
 /**
+ * setup pointers to all the builtin functions
+ */
+void context::setup_builtins() {
+#ifndef BRANCH_CALL
+    value tmp_f = make_val_func("vec", 3, &make_vec);
+    emplace("vec", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("range", 1, &make_range);
+    emplace("range", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("linspace", 3, &make_linspace);
+    emplace("linspace", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("flatten", 1, &flatten_list);
+    emplace("flatten", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("print", 1, &print);
+    emplace("print", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("sin", 1, &fun_sin);
+    emplace("sin", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("cos", 1, &fun_cos);
+    emplace("cos", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("tan", 1, &fun_tan);
+    emplace("tan", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("exp", 1, &fun_exp);
+    emplace("exp", tmp_f);
+    cleanup_val(&tmp_f);
+    tmp_f = make_val_func("sqrt", 1, &fun_sqrt);
+    emplace("sqrt", tmp_f);
+    cleanup_val(&tmp_f);
+#endif
+}
+
+/**
  * Iterate through the context and return a value to the variable with the matching name.
  * name: the name of the variable to set
  * returns: the matching value, no deep copies are performed
@@ -2045,18 +2111,17 @@ value context::parse_value(char* str, parse_ercode& er) {
 		    char* f_end;
 		    tmp_f = parse_func(str, first_open_ind, er, &f_end);
 		    if (er != E_SUCCESS) { return sto; }
-		    //TODO: allow user defined functions
-		    //er = E_BAD_TOKEN;
+#ifdef BRANCH_CALL
 		    if (strcmp(tmp_f.name, "vec") == 0) {
-			sto = make_vec(tmp_f, er);
+			sto = make_vec(*this, tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "range") == 0) {
-			sto = make_range(tmp_f, er);
+			sto = make_range(*this, tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "linspace") == 0) {
-			sto = make_linspace(tmp_f, er);
+			sto = make_linspace(*this, tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "flatten") == 0) {
-			sto = flatten_list(tmp_f, er);
+			sto = flatten_list(*this, tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "print") == 0) {
-			sto = print(tmp_f, er);
+			sto = print(*this, tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "sin") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;goto clean_paren; }
 			if (tmp_f.args[0].type != VAL_NUM) {
@@ -2109,7 +2174,25 @@ clean_paren:
 		    str[last_close_ind+1] = term_char;
 		    cleanup_func(&tmp_f);
 		    return sto;
+#else
+		    //otherwise lookup the function
+		    value func_val = lookup(tmp_f.name);
+		    if (func_val.type == VAL_FUNC) {
+			//make sure that the function was found and that sufficient arguments were provided
+			if (func_val.n_els <= tmp_f.n_args) {
+			    sto = func_val.val.f->eval(*this, tmp_f, er);
+			} else {
+			    printf("Error: unrecognized function name %s\n", tmp_f.name);
+			    er = E_LACK_TOKENS;
+			}
+		    } else {
+			printf("Error: unrecognized function name %s\n", tmp_f.name);
+			er = E_BAD_TYPE;
+		    }
+		    return sto;
+#endif
 		}
+
 	    }
 	    //otherwise interpret this as a parenthetical expression
 	    str[last_close_ind] = 0;

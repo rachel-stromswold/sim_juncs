@@ -389,8 +389,9 @@ private:
     value do_op(char* tok, size_t ind, parse_ercode& er);
     //parse_ercode read_single_line(char* line, read_state& b);
     parse_ercode read_single_line(const char* line, context::read_state& rs);
+    void setup_builtins();
 public:
-    context() : stack<name_val_pair>() { parent = NULL; }
+    context() : stack<name_val_pair>() { setup_builtins();parent = NULL; }
     context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
     //context(const context& o);
     //context(context&& o);
@@ -408,6 +409,10 @@ public:
     parse_ercode read_from_lines(const line_buffer& b);
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
     value peek_val(size_t i=1);
+    void error(const char* msg) {
+	//TODO: something that isn't dumb
+	printf("Error: %s\n", msg);
+    }
 };
 
 /**
