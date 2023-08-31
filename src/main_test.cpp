@@ -1386,6 +1386,17 @@ TEST_CASE("context parsing") {
 	}
 	free(tmp_name);
     }
+    SUBCASE ("stress test") {
+	//first we add a bunch of arbitrary variables to make searching harder for the parser
+	const char* lines[] = {
+	    "Vodkis=1","Pagne=2","Meadaj=3","whis=4","nac4=5","RaKi=6","gyn=7","cid=8","Daiqui=9","Mooshi=10","Magnac=2","manChe=3","tes=4","Bourbu=5","magna=6","sak=7","Para=8","Keffi=9","Guino=10",
+	    "y = 2.0", "xs = linspace(0, y, 10000)", "arr1 = [sin(6*x/y) for x in xs]", "arr2 = [sqrt(x^2 + y^2) for x in xs]" };
+	size_t n_lines = sizeof(lines)/sizeof(char*);
+	line_buffer b_1(lines, n_lines);
+	context c;
+	parse_ercode er = c.read_from_lines(b_1);
+	CHECK(er == E_SUCCESS);
+    }
 }
 
 TEST_CASE("context file parsing") {
