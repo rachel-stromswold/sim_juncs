@@ -31,16 +31,16 @@ value cgs_gen_gaussian_source(context& c, cgs_func f, parse_ercode& er) {
     if (f.args[4].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Gaussian_source");
-    ret.val.c->emplace( "__type__",  tmp);
+    ret.val.c->set_value( "__type__",  tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace( "component", make_val_num((double)read_component_string(f.args[0].val.s)) );
-    ret.val.c->emplace("wavelength", f.args[1]);
-    ret.val.c->emplace("amplitude", f.args[2]);
-    ret.val.c->emplace("width", f.args[3]);
-    ret.val.c->emplace("phase", f.args[4]);
+    ret.val.c->set_value( "component", make_val_num((double)read_component_string(f.args[0].val.s)) );
+    ret.val.c->set_value("wavelength", f.args[1]);
+    ret.val.c->set_value("amplitude", f.args[2]);
+    ret.val.c->set_value("width", f.args[3]);
+    ret.val.c->set_value("phase", f.args[4]);
     //read additional parameters
-    ret.val.c->emplace("cutoff", make_val_num(5));
-    ret.val.c->emplace("start_time", make_val_num(5));
+    ret.val.c->set_value("cutoff", make_val_num(5));
+    ret.val.c->set_value("start_time", make_val_num(5));
     for (size_t i = 5; i < f.n_args; ++i) {
 	if (f.arg_names[i]) {
 	    if (strcmp(f.arg_names[i], "cutoff") == 0) ret.val.c->set_value("cutoff", f.args[i]);
@@ -48,7 +48,7 @@ value cgs_gen_gaussian_source(context& c, cgs_func f, parse_ercode& er) {
 	}
     }
     //the last argument is always the region
-    ret.val.c->emplace("region", f.args[f.n_args-1]);
+    ret.val.c->set_value("region", f.args[f.n_args-1]);
     return ret;
 }
 value cgs_gen_continuous_source(context& c, cgs_func f, parse_ercode& er) {
@@ -61,19 +61,19 @@ value cgs_gen_continuous_source(context& c, cgs_func f, parse_ercode& er) {
     if (f.args[3].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("CW_source");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace( "component", make_val_num((double)read_component_string(f.args[0].val.s)) );
-    ret.val.c->emplace("wavelength", f.args[1]);
-    ret.val.c->emplace("amplitude", f.args[2]);
-    ret.val.c->emplace("start_time", f.args[3]);
+    ret.val.c->set_value( "component", make_val_num((double)read_component_string(f.args[0].val.s)) );
+    ret.val.c->set_value("wavelength", f.args[1]);
+    ret.val.c->set_value("amplitude", f.args[2]);
+    ret.val.c->set_value("start_time", f.args[3]);
     //read additional parameters
-    ret.val.c->emplace("slowness", make_val_num(5));
+    ret.val.c->set_value("slowness", make_val_num(5));
     //use the fourth positional argument or set the end time to infinity
     if (f.n_args > 4 && f.args[4].type == VAL_NUM)
-	ret.val.c->emplace("end_time", f.args[4]);
+	ret.val.c->set_value("end_time", f.args[4]);
     else
-	ret.val.c->emplace("end_time", make_val_num(std::numeric_limits<double>::max()));
+	ret.val.c->set_value("end_time", make_val_num(std::numeric_limits<double>::max()));
     //read named parameters
     for (size_t i = 5; i < f.n_args; ++i) {
 	if (f.arg_names[i]) {
@@ -81,7 +81,7 @@ value cgs_gen_continuous_source(context& c, cgs_func f, parse_ercode& er) {
 	}
     }
     //the last argument is always the region
-    ret.val.c->emplace("region", f.args[f.n_args-1]);
+    ret.val.c->set_value("region", f.args[f.n_args-1]);
     return ret;
 }
 value cgs_gen_box(context& c, cgs_func f, parse_ercode& er) {
@@ -93,10 +93,10 @@ value cgs_gen_box(context& c, cgs_func f, parse_ercode& er) {
     if (er != E_SUCCESS) return ret;
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Box");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("pt_1", corn_1);
-    ret.val.c->emplace("pt_2", corn_2);
+    ret.val.c->set_value("pt_1", corn_1);
+    ret.val.c->set_value("pt_2", corn_2);
     cleanup_val(&corn_1);
     cleanup_val(&corn_2);
     return ret;
@@ -130,10 +130,10 @@ value cgs_gen_plane(context& c, cgs_func f, parse_ercode& er) {
     }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Plane");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("normal", normal);
-    ret.val.c->emplace("offset", make_val_num(offset));
+    ret.val.c->set_value("normal", normal);
+    ret.val.c->set_value("offset", make_val_num(offset));
     cleanup_val(&normal);
     return ret;
 }
@@ -146,10 +146,10 @@ value cgs_gen_sphere(context& c, cgs_func f, parse_ercode& er) {
     if (f.args[1].type != VAL_NUM) { er = E_BAD_VALUE;return ret; }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Sphere");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("center", cent);
-    ret.val.c->emplace("radius", f.args[1]);
+    ret.val.c->set_value("center", cent);
+    ret.val.c->set_value("radius", f.args[1]);
     //cleanup
     cleanup_val(&cent);
     return ret;
@@ -165,12 +165,12 @@ value cgs_gen_cylinder(context& c, cgs_func f, parse_ercode& er) {
     if (f.n_args > 3 && f.args[3].type == VAL_NUM) r2 = f.args[3];
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Cylinder");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("center", cent);
-    ret.val.c->emplace("h", f.args[1]);
-    ret.val.c->emplace("r1", f.args[2]);
-    ret.val.c->emplace("r2", r2);
+    ret.val.c->set_value("center", cent);
+    ret.val.c->set_value("h", f.args[1]);
+    ret.val.c->set_value("r1", f.args[2]);
+    ret.val.c->set_value("r2", r2);
     cleanup_val(&cent);
     return ret;
 }
@@ -184,12 +184,12 @@ value cgs_gen_composite(context& c, cgs_func f, parse_ercode& er) {
     }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Composite");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
     for (size_t i = 0; i < f.n_args-1; ++i) {
-	if (f.arg_names[i]) ret.val.c->emplace(f.arg_names[i], f.args[i]);
+	if (f.arg_names[i]) ret.val.c->set_value(f.arg_names[i], f.args[i]);
     }
-    ret.val.c->emplace("geometry", vl);
+    ret.val.c->set_value("geometry", vl);
     cleanup_val(&vl);
     return ret;
 }
@@ -206,9 +206,9 @@ value cgs_gen_union(context& c, cgs_func f, parse_ercode& er) {
     }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Union");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("geometry", vl);
+    ret.val.c->set_value("geometry", vl);
     cleanup_val(&vl);
     return ret;
 }
@@ -223,9 +223,9 @@ value cgs_gen_intersect(context& c, cgs_func f, parse_ercode& er) {
     }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Intersect");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("geometry", vl);
+    ret.val.c->set_value("geometry", vl);
     cleanup_val(&vl);
     return ret;
 }
@@ -240,9 +240,9 @@ value cgs_gen_complement(context& c, cgs_func f, parse_ercode& er) {
     }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Complement");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("geometry", vl);
+    ret.val.c->set_value("geometry", vl);
     cleanup_val(&vl);
     return ret;
 }
@@ -276,19 +276,19 @@ value cgs_gen_difference(context& c, cgs_func f, parse_ercode& er) {
     contents[1].type = VAL_INST;
     contents[1].val.c = new context(&c);
     value tmp = make_val_str("Complement");
-    contents[1].val.c->emplace("__type__", tmp);
+    contents[1].val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
     tmp = make_val_list(complement_contents, vl.n_els-1);
-    contents[1].val.c->emplace("geometry", tmp);
+    contents[1].val.c->set_value("geometry", tmp);
     cleanup_val(&tmp);
     //actually put the difference in the instance
     tmp = make_val_str("Intersect");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
     tmp.type = VAL_LIST;
     tmp.n_els = 2;
     tmp.val.l = contents;
-    ret.val.c->emplace("geometry", tmp);
+    ret.val.c->set_value("geometry", tmp);
     cleanup_val(&contents[1]);
     cleanup_val(&vl);
     free(complement_contents);
@@ -309,11 +309,11 @@ value cgs_gen_rotate(context& c, cgs_func f, parse_ercode& er) {
     if (er != E_SUCCESS) { cleanup_val(&va);return ret; }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("Rotate");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("axis", va);
-    ret.val.c->emplace("theta", vt);
-    ret.val.c->emplace("geometry", vg);
+    ret.val.c->set_value("axis", va);
+    ret.val.c->set_value("theta", vt);
+    ret.val.c->set_value("geometry", vg);
     cleanup_val(&va);
     cleanup_val(&vg);
     return ret;
@@ -354,16 +354,16 @@ value cgs_gen_snapshot(context& c, cgs_func f, parse_ercode& er) {
     //setup the snapshot object struct
     ret.type = VAL_INST;ret.val.c = new context(&c);
     tmp = make_val_str("snapshot");
-    ret.val.c->emplace("__type__", tmp);
+    ret.val.c->set_value("__type__", tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace("fname", f.args[0]);
-    ret.val.c->emplace("cam_v", viewpoint);
-    ret.val.c->emplace("look_v", cam_look);
-    ret.val.c->emplace("up_v", cam_up);
-    ret.val.c->emplace("res", res);
-    ret.val.c->emplace("n_samples", n_samples);
-    ret.val.c->emplace("step", step);
-    ret.val.c->emplace("scale", scale);
+    ret.val.c->set_value("fname", f.args[0]);
+    ret.val.c->set_value("cam_v", viewpoint);
+    ret.val.c->set_value("look_v", cam_look);
+    ret.val.c->set_value("up_v", cam_up);
+    ret.val.c->set_value("res", res);
+    ret.val.c->set_value("n_samples", n_samples);
+    ret.val.c->set_value("step", step);
+    ret.val.c->set_value("scale", scale);
     cleanup_val(&viewpoint);
     cleanup_val(&cam_look);
     cleanup_val(&cam_up);
@@ -377,9 +377,9 @@ value cgs_gen_monitor(context& c, cgs_func f, parse_ercode& er) {
     if (f.args[0].type != VAL_LIST) { er = E_BAD_TYPE;return ret; }
     ret.type = VAL_INST;ret.val.c = new context(&c);
     value tmp = make_val_str("monitor");
-    ret.val.c->emplace( "__type__",  tmp);
+    ret.val.c->set_value( "__type__",  tmp);
     cleanup_val(&tmp);
-    ret.val.c->emplace( "locations", f.args[0] );
+    ret.val.c->set_value( "locations", f.args[0] );
     //read the filename and the viewpoint
    return ret;
 }
@@ -387,45 +387,45 @@ value cgs_gen_monitor(context& c, cgs_func f, parse_ercode& er) {
 void setup_geometry_context(context& con) {
     //we have to set up the context with all of our functions
     value tmp_f = make_val_func("Gaussian_source", 6, &cgs_gen_gaussian_source);
-    con.emplace("Gaussian_source", tmp_f);
+    con.set_value("Gaussian_source", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("CW_source", 5, &cgs_gen_continuous_source);
-    con.emplace("CW_source", tmp_f);
+    con.set_value("CW_source", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Box", 2, &cgs_gen_box);
-    con.emplace("Box", tmp_f);
+    con.set_value("Box", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Plane", 2, &cgs_gen_plane);
-    con.emplace("Plane", tmp_f);
+    con.set_value("Plane", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Sphere", 2, &cgs_gen_sphere);
-    con.emplace("Sphere", tmp_f);
+    con.set_value("Sphere", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Cylinder", 2, &cgs_gen_cylinder);
-    con.emplace("Cylinder", tmp_f);
+    con.set_value("Cylinder", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Composite", 1, &cgs_gen_composite);
-    con.emplace("Composite", tmp_f);
+    con.set_value("Composite", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Union", 1, &cgs_gen_union);
-    con.emplace("Union", tmp_f);
+    con.set_value("Union", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Intersect", 1, &cgs_gen_intersect);
-    con.emplace("Intersect", tmp_f);
+    con.set_value("Intersect", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Complement", 1, &cgs_gen_complement);
-    con.emplace("Complement", tmp_f);
+    con.set_value("Complement", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Rotate", 1, &cgs_gen_rotate);
-    con.emplace("Rotate", tmp_f);
+    con.set_value("Rotate", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("Difference", 1, &cgs_gen_difference);
-    con.emplace("Difference", tmp_f);
+    con.set_value("Difference", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("snapshot", 2, &cgs_gen_snapshot);
-    con.emplace("snapshot", tmp_f);
+    con.set_value("snapshot", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("monitors", 1, &cgs_gen_monitor);
-    con.emplace("monitors", tmp_f);
+    con.set_value("monitors", tmp_f);
     cleanup_val(&tmp_f);
 }

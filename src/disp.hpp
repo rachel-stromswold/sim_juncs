@@ -161,7 +161,7 @@ public:
 
 #ifdef DEBUG_INFO
     std::vector<drude_suscept> parse_susceptibilities(value val, int* er);
-    meep::structure* structure_from_settings(const parse_settings& s, scene& problem, parse_ercode* ercode);
+    meep::structure* structure_from_settings(const parse_settings& s, scene& problem);
     parse_ercode parse_monitors(value vl);
 #endif
 
@@ -189,7 +189,7 @@ private:
     double len;
     double z_center;
     double eps_scale;
-    _uint dump_span = 20;
+    _uint save_span = 20;
     bool dump_raw = false;
 
 #ifndef DEBUG_INFO

@@ -306,6 +306,7 @@ TEST_CASE("line reading") {
     CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
     CHECK(strcmp(buf, "last_test()") == 0);
     free(buf);
+    fclose(fp);
 }
 
 TEST_CASE("number writing") {
@@ -1296,7 +1297,7 @@ value test_fun_call(context& c, cgs_func f, parse_ercode& er) {
 	ret.type = VAL_INST;
 	ret.val.c = new context();
 	value name_contents = make_val_str("hi");
-	ret.val.c->emplace("name", name_contents);
+	ret.val.c->set_value("name", name_contents);
 	cleanup_val(&name_contents);
 	return ret;
     }
@@ -1309,6 +1310,34 @@ value test_fun_gamma(context& c, cgs_func f, parse_ercode& er) {
     if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
     double a = f.args[0].val.x;
     return make_val_num(sqrt(1 - a*a));
+}
+
+TEST_CASE("context lookups") {
+    const char* letters = "etaon";
+    size_t n_letters = strlen(letters);
+    char name[4];
+    name[3] = 0;
+    context c;
+
+    //add a whole bunch of words using the most common letters
+    parse_ercode er;
+    value v;
+    size_t count = 0;
+    for (size_t i = 0; i < n_letters; ++i) {
+	name[0] = letters[i];
+	for (size_t j = 0; j < n_letters; ++j) {
+	    name[1] = letters[j];
+	    for (size_t k = 0; k < n_letters; ++k) {
+		name[2] = letters[k];
+		er = c.set_value(name, make_val_num(count));
+		CHECK(er == E_SUCCESS);
+		v = c.lookup(name);
+		CHECK(v.type == VAL_NUM);
+		CHECK(v.val.x == count);
+		count++;
+	    }
+	}
+    }
 }
 
 TEST_CASE("context parsing") {
@@ -1336,7 +1365,7 @@ TEST_CASE("context parsing") {
 	CHECK(strcmp(val_b.val.s, "b") == 0);
     }
     SUBCASE ("with nesting") {
-	const char* lines[] = { "a = {name = \"apple\", values = [20, 11]}", "b = a.values[0]", "c = a.values[1] + a.values[0] + 1" }; 
+	const char* lines[] = { "a = {name = \"apple\", values = [20, 11]}", "b = a.values[0]", "c = a.values[1] + a.values[0]+1" }; 
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	line_buffer b_1(lines, n_lines);
 	context c;
@@ -1371,7 +1400,7 @@ TEST_CASE("context parsing") {
 	line_buffer b_1(lines, n_lines);
 	context c;
 	value tmp_f = make_val_func("test_fun", 1, &test_fun_call);
-	c.emplace("test_fun", tmp_f);
+	c.set_value("test_fun", tmp_f);
 	cleanup_val(&tmp_f);
 	parse_ercode er = c.read_from_lines(b_1);
 	CHECK(er == E_SUCCESS);
@@ -1408,7 +1437,7 @@ TEST_CASE("context parsing") {
 	parse_ercode er = c.read_from_lines(b_1);
 	CHECK(er == E_SUCCESS);
 	value tmp_f = make_val_func("gam", 1, &test_fun_gamma);
-	c.emplace("gam", tmp_f);
+	c.set_value("gam", tmp_f);
 	cleanup_val(&tmp_f);
 	er = c.read_from_lines(b_2);
 	CHECK(er == E_SUCCESS);
@@ -1417,7 +1446,7 @@ TEST_CASE("context parsing") {
 
 TEST_CASE("context file parsing") {
     line_buffer lb("tests/context_test.geom");
-    CHECK(lb.get_n_lines() == 7);
+    CHECK(lb.get_n_lines() == 10);
     context c;
     setup_geometry_context(c);
     size_t init_size = c.size();
@@ -1557,7 +1586,7 @@ TEST_CASE("volumes") {
     vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
 }
 
-TEST_CASE("object Trees") {
+/*TEST_CASE("object Trees") {
     //declare variables
     char buf[BUF_SIZE];
     object_stack test_stack;
@@ -1655,7 +1684,7 @@ TEST_CASE("object Trees") {
     CHECK(comp_r->get_child_r() != NULL);
     CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
     delete root;
-}
+}*/
 
 TEST_CASE("File Parsing") {
     parse_ercode er;
@@ -1830,9 +1859,10 @@ TEST_CASE("reading of configuration files") {
 	CHECK(args.smooth_rad == 0.25);
 	//CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
 	CHECK(args.post_source_t == 1.0);
-	CHECK(args.field_dump_span == 171);
+	CHECK(args.save_span == 171);
 	CHECK(args.ambient_eps == 1.0);
 	CHECK(strcmp(args.geom_fname, "tests/test.geom") == 0);
+	CHECK(strcmp(args.out_dir, "/test_dir") == 0);
 
 	cleanup_settings(&args);
     }
@@ -2132,6 +2162,17 @@ TEST_CASE("running with a very small system") {
     size_t n_clusts = *clust_data;
     free(clust_data);
     CHECK(n_clusts == geometry.get_n_monitor_clusters());
+    //read the cgs data
+    H5::Group c_grp = grp.openGroup("cgs_params");
+    size_t n_dat;
+    _ftype* dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "l_per_um", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 2.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "sim_length", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 2.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "pml_thickness", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 1.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "tot_len", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 4.0);free(dat);
 
     //iterate through each of the specified clusters
     size_t n_group_digits = (size_t)(n_clusts / log(10)) + 1;

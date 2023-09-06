@@ -62,12 +62,15 @@ endif()
 
 message(CHECK_START "Using junction type: ${JUNCTION_TYPE}")
 #copy the junction geometry files
-configure_file(junctions/${JUNCTION_TYPE}/junc.geom junc.geom COPYONLY)
-configure_file(junctions/${JUNCTION_TYPE}/params.conf params.conf COPYONLY)
+#configure_file(junctions/${JUNCTION_TYPE}/junc.geom junc.geom COPYONLY)
+#configure_file(junctions/${JUNCTION_TYPE}/params.conf params.conf COPYONLY)
 
 #copy utility scripts that are used
 if (NOT EXCLUDE_SCRIPTS)
     message(STATUS "copying scripts")
+    configure_file(junctions/Au_SiO2_box/junc.geom junc_box.geom COPYONLY)
+    configure_file(junctions/Au_SiO2_bowtie/junc.geom junc_bowtie.geom COPYONLY)
+    configure_file(scripts/params.conf params.conf COPYONLY)
     configure_file(scripts/run.sh run.sh COPYONLY)
     configure_file(scripts/utils.py utils.py COPYONLY)
     configure_file(scripts/phases.py phases.py COPYONLY)

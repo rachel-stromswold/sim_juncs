@@ -24,6 +24,13 @@
 #define KEY_IN_LEN	2
 #define KEY_IF_LEN	2
 
+//hash params
+#define FNV_PRIME	16777619
+#define FNV_OFFSET	2166136261
+#define TABLE_BITS	8
+#define TABLE_MASK(n)	(((u_int32_t)1<<(n))-1)
+#define TABLE_SIZE(n)	((u_int32_t)1<<(n))
+
 typedef matrix<3,3> mat3x3;
 
 typedef unsigned int _uint;
@@ -74,6 +81,9 @@ struct line_buffer_ind {
     size_t off;
     line_buffer_ind() { line = 0;off = 0; }
     line_buffer_ind(long pl, long po) { line = pl;off = po; }
+    //increase/decrease the line buffer by a specified amount while keeping line number the same
+    friend line_buffer_ind operator+(const line_buffer_ind& lhs, const size_t& rhs);
+    friend line_buffer_ind operator-(const line_buffer_ind& lhs, const size_t& rhs);
 };
 
 class line_buffer {
@@ -371,8 +381,17 @@ public:
 };
 
 /** ============================ context ============================ **/
+struct name_ind {
+    size_t ind;
+    name_ind* next;
+    name_ind(size_t i, name_ind* ptr=NULL) { ind = i;next=ptr; }
+};
 class context : public stack<name_val_pair> {
 private:
+    //members
+    context* parent;
+    name_ind* table[TABLE_SIZE(TABLE_BITS)];
+    //helpers
     struct read_state {
 	const line_buffer& b;
 	line_buffer_ind pos;
@@ -385,27 +404,27 @@ private:
 	}
 	~read_state() { buf_size=0;free(buf); }
     };
-    context* parent;
     value do_op(char* tok, size_t ind, parse_ercode& er);
-    //parse_ercode read_single_line(char* line, read_state& b);
-    parse_ercode read_single_line(const char* line, context::read_state& rs);
+    parse_ercode read_single_line(context::read_state& rs);
+    void init() {
+	for(size_t i = 0; i < TABLE_SIZE(TABLE_BITS); ++i) { table[i] = NULL; }
+    }
     void setup_builtins();
+
 public:
-    context() : stack<name_val_pair>() { setup_builtins();parent = NULL; }
-    context(context* p_parent) : stack<name_val_pair>() { parent = p_parent; }
-    //context(const context& o);
-    //context(context&& o);
-    ~context() {}
-    //parse_ercode push(_uint side, CompositeObject* obj);
-    void emplace(const char* p_name, value p_val) { name_val_pair inst(p_name, p_val);push(inst); }
+    context() : stack<name_val_pair>() { init();setup_builtins();parent = NULL; }
+    context(context* p_parent) : stack<name_val_pair>() { init();parent = p_parent; }
+    ~context();
+    //void emplace(const char* p_name, value p_val); { name_val_pair inst(p_name, p_val);push(inst); }
     value lookup(const char* name) const;
+    parse_ercode pop(name_val_pair* ptr=NULL);
     parse_ercode pop_n(size_t n);
     value parse_value(char* tok, parse_ercode& er);
     value parse_value(const line_buffer& b, line_buffer_ind& pos, parse_ercode& er);
     cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
     void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }
-    parse_ercode set_value(const char* name, value new_val);
+    parse_ercode set_value(const char* name, value new_val, bool force_push=false);
     parse_ercode read_from_lines(const line_buffer& b);
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
     value peek_val(size_t i=1);

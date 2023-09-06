@@ -321,6 +321,19 @@ char* CGS_trim_whitespace(char* str, size_t* len) {
 
 /** ============================ line_buffer ============================ **/
 
+
+line_buffer_ind operator+(const line_buffer_ind& lhs, const size_t& rhs) {
+    return line_buffer_ind(lhs.line, lhs.off+rhs);
+}
+line_buffer_ind operator-(const line_buffer_ind& lhs, const size_t& rhs) {
+    line_buffer_ind ret(lhs.line, lhs.off);
+    if (rhs > ret.off)
+	ret.off = 0;
+    else
+	ret.off -= rhs;
+    return ret;
+}
+
 line_buffer::line_buffer() {
     lines = NULL;
     line_sizes = NULL;
@@ -348,9 +361,6 @@ line_buffer::line_buffer(const char* p_fname) {
 		lines = (char**)xrealloc(lines, sizeof(char*)*buf_size);
 		line_sizes = (size_t*)xrealloc(line_sizes, sizeof(size_t)*buf_size);
 	    }
-	    //these need to be set to zero so that read_cgs_line() will allocate a buffer for us
-	    /*char* this_buf = NULL;
-	    line_len = read_cgs_line(&this_buf, &line_len, fp, &lineno);*/
 	    //read the line until a semicolon, newline or EOF is found
 	    size_t this_size = BUF_SIZE;
 	    char* this_buf = (char*)malloc(this_size);
@@ -383,6 +393,7 @@ line_buffer::line_buffer(const char* p_fname) {
 	} while (go_again);
 	lines = (char**)xrealloc(lines, sizeof(char*)*n_lines);
 	line_sizes = (size_t*)xrealloc(line_sizes, sizeof(size_t)*n_lines);
+	fclose(fp);
     } else {
         printf("Error: couldn't open file %s for reading!\n", p_fname);
 	free(lines);
@@ -1535,7 +1546,7 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
     *term_ptr = 0;
     if (end) *end = term_ptr+1;
  
-    //read the coordinates separated by spaces
+    //read the arguments separated by spaces
     char** list_els = csv_to_list(arg_str, ',', &(f.n_args), er);
     if (er != E_SUCCESS) { free(list_els);return f; }
     //make sure that we don't go out of bounds, TODO: let functions accept arbitrarily many arguments?
@@ -1563,16 +1574,9 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
 		f.arg_names[i] = NULL;
 	    }
 	    f.args[i] = parse_value(list_els[i], er);
-	    //if the evaluation of the name failed, then use it as a variable name instead
-	    /*if (er != E_SUCCESS) {
-		f.args[i].type = VAL_UNDEF;
-		f.arg_names[i] = list_els[i];
-		er = E_SUCCESS;
-	    }*/
 	}
     }
     //cleanup and reset the string
-    //*term_ptr = /*(*/')';
     free(list_els);
     return f;
 }
@@ -1585,36 +1589,103 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
 void context::setup_builtins() {
 #ifndef BRANCH_CALL
     value tmp_f = make_val_func("vec", 3, &make_vec);
-    emplace("vec", tmp_f);
+    set_value("vec", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("range", 1, &make_range);
-    emplace("range", tmp_f);
+    set_value("range", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("linspace", 3, &make_linspace);
-    emplace("linspace", tmp_f);
+    set_value("linspace", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("flatten", 1, &flatten_list);
-    emplace("flatten", tmp_f);
+    set_value("flatten", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("print", 1, &print);
-    emplace("print", tmp_f);
+    set_value("print", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("sin", 1, &fun_sin);
-    emplace("sin", tmp_f);
+    set_value("sin", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("cos", 1, &fun_cos);
-    emplace("cos", tmp_f);
+    set_value("cos", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("tan", 1, &fun_tan);
-    emplace("tan", tmp_f);
+    set_value("tan", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("exp", 1, &fun_exp);
-    emplace("exp", tmp_f);
+    set_value("exp", tmp_f);
     cleanup_val(&tmp_f);
     tmp_f = make_val_func("sqrt", 1, &fun_sqrt);
-    emplace("sqrt", tmp_f);
+    set_value("sqrt", tmp_f);
     cleanup_val(&tmp_f);
 #endif
+}
+
+/**
+ * cleanup
+ */
+context::~context() {
+    //erase the hash table
+    /*for (size_t i = 0; i < TABLE_SIZE(TABLE_BITS); ++i) {
+	name_ind* cur = table[i];
+	table[i] = NULL;
+	while (cur) {
+	    name_ind* next = cur->next;
+	    delete cur;
+	    cur = next;
+	}
+    }*/
+}
+
+//non-cryptographically hash the string str
+size_t fnv_1(const char* str) {
+    if (str == NULL)
+	return 0;
+    size_t ret = FNV_OFFSET;
+    for (size_t i = 0; str[i]; ++i) {
+	ret = ret^str[i];
+	ret = ret*FNV_PRIME;
+    }
+#if TABLE_BITS > 15
+    return (ret >> TABLE_BITS) ^ (ret & TABLE_MASK(TABLE_BITS));
+#else
+    return ((ret >> TABLE_BITS) ^ ret) & TABLE_MASK(TABLE_BITS);
+#endif
+}
+
+/**
+ * Iterate through the context and assign a new value to the variable with the matching name.
+ * name: the name of the variable to set
+ * new_val: the value to set the variable to
+ * force_push: If set to true, then set_value is guaranteed to increase the stack size by one, even if there is already an element named p_name. This element is guaranteed to receive priority over the existing element, so this may be used to simulate scoped variables.
+ * returns: E_SUCCESS if the variable with a matching name was found or E_NOT_DEFINED otherwise
+ */
+parse_ercode context::set_value(const char* p_name, value p_val, bool force_push) {
+    //generate a fake name if none was provided
+    if (!p_name || p_name[0] == 0) {
+	char tmp[BUF_SIZE];
+	snprintf(tmp, BUF_SIZE, "0_%lu", stack_ptr);
+	set_value(tmp, p_val);
+	return E_SUCCESS;
+    }
+    size_t ti = fnv_1(p_name);
+    //now add it to the hash table
+    name_ind* cur = table[ti];
+    //iterate through the linked list until we find a matching name
+    while(cur && !force_push) {
+	if (strcmp(p_name, buf[cur->ind].get_name()) == 0) {
+	    buf[cur->ind].get_val() = copy_val(p_val);
+	    return E_SUCCESS;
+	}
+	cur = cur->next;
+    }
+    //if we reach this point then no entry with the matching name was found, add it
+    table[ti] = new name_ind(stack_ptr, table[ti]);
+    if (force_push)
+	table[ti]->next = cur;
+    name_val_pair inst(p_name, p_val);
+    push(inst);
+    return E_SUCCESS;
 }
 
 /**
@@ -1624,24 +1695,19 @@ void context::setup_builtins() {
  */
 value context::lookup(const char* str) const {
     value ret;
+    //lookup
+    name_ind* cur = table[fnv_1(str)];
+    while(cur) {
+	if (strcmp(str, buf[cur->ind].get_name()) == 0)
+	    return buf[cur->ind].get_val();
+	cur = cur->next;
+    }
+    //try searching through the parent if that didn't work
+    if (parent)
+	return parent->lookup(str);
+    //reaching this point in execution means the matching entry wasn't found
     ret.type = VAL_UNDEF;
     ret.val.x = 0;
-    //avoid overflows
-    if (stack_ptr == 0) {
-	if (parent) return parent->lookup(str);
-	return ret;
-    }
-    //iterate to find the item highest on the stack with a matching name
-    for (size_t i = stack_ptr-1;; --i) {
-	if (buf[i].name_matches(str)) return buf[i].get_val();
-	if (i == 0)
-	    break;
-    }
-    //if that didn't work try performing a lookup in the parent
-    if (parent) {
-	return parent->lookup(str);
-    }
-    //return a default undefined value if nothing was found
     return ret;
 }
 
@@ -1652,31 +1718,37 @@ value context::peek_val(size_t i) {
     return ret;
 }
 
-/**
- * Iterate through the context and assign a new value to the variable with the matching name. NOTE: this function only performs a shallow copy.
- * name: the name of the variable to set
- * new_val: the value to set the variable to
- * returns: E_SUCCESS if the variable with a matching name was found or E_NOT_DEFINED otherwise
- */
-parse_ercode context::set_value(const char* str, value new_val) {
-    for (long i = stack_ptr-1; i >= 0; --i) {
-	if (buf[i].name_matches(str)) {
-	    buf[i].get_val() = copy_val(new_val);
-	    return E_SUCCESS;
+parse_ercode context::pop(name_val_pair* ptr) {
+    if (stack_ptr == 0)
+	return E_EMPTY_STACK;
+    //find the name of the item on top of the stack and look up the current index
+    const char* p_name = buf[stack_ptr-1].get_name();
+    size_t ti = fnv_1(p_name);
+    name_ind* cur = table[ti];
+    name_ind* prev = NULL;
+    while (cur) {
+	if (strcmp(p_name, buf[cur->ind].get_name()) == 0) {
+	    if (prev)
+		prev->next = cur->next;
+	    else
+		table[ti] = cur->next;
+	    if (ptr)
+		*ptr = buf[--stack_ptr];
+	    break;
 	}
     }
-    //if we didn't find the value with the matching name then define it
-    emplace(str, new_val);
     return E_SUCCESS;
 }
 
 /**
- * remove the top n items from the stack
+ * remove the top n items from the stack. If n is too large then no action is taken and an E_EMPTY_STACK error is returned
  */
 parse_ercode context::pop_n(size_t n) {
     if (n > stack_ptr)
 	return E_EMPTY_STACK;
-    stack_ptr -= n;
+    for (size_t i = 0; i < n; ++i) {
+	pop(NULL);
+    }
     return E_SUCCESS;
 }
 
@@ -1721,8 +1793,8 @@ value context::parse_list(char* str, parse_ercode& er) {
 	if (it_list.type != VAL_ARRAY && it_list.type != VAL_LIST) { er = E_BAD_TYPE;return sto; }
 	//the prototype expression needs to be null terminated
 	for_start[0] = 0;
-	//we need to add a variable with the appropriate name to loop over
-	emplace(var_name, sto);
+	//we need to add a variable with the appropriate name to loop over, we force push because we pop later
+	set_value(var_name, sto, true);
 	n_els = it_list.n_els;
 	lbuf = (value*)calloc(n_els, sizeof(value));
 	//we now iterate through the list specified, substituting VAL in the expression with the current value
@@ -1879,7 +1951,13 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.m = new mat3x3((*tmp_l.val.m) * (*tmp_r.val.m));
 	}
     } else if (term_char == '/') {
-	if (tmp_r.val.x == 0) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_NAN;return sto; }//TODO: return a nan?
+	if (tmp_r.val.x == 0) {
+	    printf("Error: division by zero.\n");
+	    cleanup_val(&tmp_l);
+	    cleanup_val(&tmp_r);
+	    er = E_NAN;
+	    return sto;
+	}//TODO: return a nan?
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
 	    sto.val.x = tmp_l.val.x / tmp_r.val.x;
 	} else if (tmp_r.type == VAL_NUM && tmp_l.type == VAL_MAT) {	
@@ -1887,7 +1965,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.m = new mat3x3(*tmp_r.val.m / tmp_r.val.x);
 	}
     } else if (term_char == '^') {
-	if (tmp_r.val.x == 0 || tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_NAN;return sto; }//TODO: return a nan?
+	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_NAN;return sto; }//TODO: return a nan?
 	sto.type = VAL_NUM;
 	sto.val.x = pow(tmp_l.val.x, tmp_r.val.x);
     }
@@ -2068,9 +2146,17 @@ value context::parse_value(char* str, parse_ercode& er) {
 		//now figure out the index
 		long tmp = (long)(contents.val.x);
 		if (tmp < 0) tmp = tmp_lst.n_els+tmp;
-		if (tmp < 0) { er = E_OUT_OF_RANGE;return sto; }
+		if (tmp < 0) {
+		    printf("Error: index %d is out of range for list of size %lu.\n", tmp, tmp_lst.n_els);
+		    er = E_OUT_OF_RANGE;
+		    return sto;
+		}
 		size_t ind = (size_t)tmp;
-		if (ind >= tmp_lst.n_els) { er = E_OUT_OF_RANGE;return sto; }
+		if (ind >= tmp_lst.n_els) {
+		    printf("Error: index %d is out of range for list of size %lu.\n", tmp, tmp_lst.n_els);
+		    er = E_OUT_OF_RANGE;
+		    return sto;
+		}
 		return copy_val(tmp_lst.val.l[ind]);
 	    }
 	} else if (str[first_open_ind] == '{' && str[last_close_ind] == '}') {
@@ -2094,7 +2180,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 		}
 		value tmp = sto.val.c->parse_value(rval, er);
 		if (er != E_SUCCESS) { free(list_els);sto.type=VAL_UNDEF;cleanup_val(&sto);return sto; }
-		sto.val.c->emplace(cur_name, tmp);
+		sto.val.c->set_value(cur_name, tmp);
 		cleanup_val(&tmp);
 	    }
 	    free(list_els);
@@ -2189,6 +2275,7 @@ clean_paren:
 			printf("Error: unrecognized function name %s\n", tmp_f.name);
 			er = E_BAD_TYPE;
 		    }
+		    cleanup_func(&tmp_f);
 		    return sto;
 #endif
 		}
@@ -2238,119 +2325,104 @@ char* append_to_line(char* line, size_t* line_off, size_t* line_size, const char
     return line;
 }
 
-value context::parse_value(const line_buffer& b, line_buffer_ind& p, parse_ercode& er) {
-    value ret;ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;
-    //test incrementing, if that doesnt work return undefined
-    if (!b.inc(p)) return ret;
-    b.dec(p);
-    //local variables
-    line_buffer lines_enc;
-    char* line = NULL;
-    size_t line_off = 0;
-    size_t line_size = 0;
-    //iterate until we find a scope character delimiter
-    line_buffer_ind init = p;
-    size_t len = b.get_line_size(p.line);
-    bool found = false;
-    bool hit_end = false;
-    for (;p.off < len; ++p.off) {
-	char match_tok = 0;
-	switch(b.get(p)) {
-	    case '(': match_tok = ')';break;
-	    case '[': match_tok = ']';break;
-	    case '{': match_tok = '}';break;
-	    case '\"': match_tok = '\"';break;
-	    case '\'': match_tok = '\'';break;
-	    default: break;
-	}
-	if (match_tok) {
-	    line_buffer_ind end;
-	    line_buffer enc = b.get_enclosed(init, &end, b.get(p), match_tok, true, true);
-	    char* tmp = enc.flatten(' ');
-	    found = true;
-	    //if we're still on the same line, then we need to continue until we reach the end. Otherwise, terminate
-	    if (end.line == init.line && end.off < len) {
-		line = append_to_line(line, &line_off, &line_size, tmp, end.off - init.off);
-		p = end;
-		init = p;
-		free(tmp);
-	    } else {
-		line = append_to_line(line, &line_off, &line_size, tmp, strlen(tmp)+1);
-		free(tmp);
-		p = end;
-		hit_end = true;
-		break;
-	    }
-	}
-    }
-    if (!found) {
-	line = b.get_line(init);
-    } else if (!hit_end) {
-	//this indicates that we reached the end of a block, but not the end of the line
-	char* in_line = b.get_line(init);
-	line = append_to_line(line, &line_off, &line_size, in_line, b.get_line_size(init.line) - init.off + 1);
-	free(in_line);
-	line[line_off-1] = 0;
-    }
-    ret = parse_value(line, er);
-    free(line);
-    return ret;
-}
-
 /**helper function for read_from lines that reads a single line
  */
-parse_ercode context::read_single_line(const char* line, context::read_state& rs) {
+parse_ercode context::read_single_line(context::read_state& rs) {
     parse_ercode er = E_SUCCESS;
     //tracking variables
+    size_t buf_off = 0;
+    size_t len = rs.b.get_line_size(rs.pos.line);
     size_t k = 0;
     bool started = false;
     char* lval = NULL;
-    line_buffer_ind start_pos = rs.pos;
-    for (rs.pos.off = 0; line[rs.pos.off]; ++rs.pos.off) {
-	//handle comments
-	if (line[rs.pos.off] == '/') {
-	    if (line[rs.pos.off+1] == '/') {
-		break;
-	    } else if (line[rs.pos.off+1] == '*') {
-		rs.blk_stk.push(BLK_COMMENT);
-	    } else if (rs.pos.off > 0 && line[rs.pos.off-1] == '*') {
-		block_type tmp = BLK_UNDEF;
-		er = rs.blk_stk.pop(&tmp);
-		if (er != E_SUCCESS) { return er; }
-		if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
-	    }
+    size_t rval_ind = 0;
+    line_buffer_ind init = rs.pos;
+    for (rs.pos.off = 0;; ++rs.pos.off) {
+	//make sure the buffer is large enough
+	if (k >= rs.buf_size) {
+	    rs.buf_size *= 2;
+	    rs.buf = (char*)xrealloc(rs.buf, sizeof(char)*rs.buf_size);
 	}
-	block_type cur_blkt = BLK_UNDEF;
-	if (rs.blk_stk.size() > 0) cur_blkt = rs.blk_stk.peek();
-	if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
-	    if (k >= rs.buf_size) {
-		rs.buf_size *= 2;
-		rs.buf = (char*)xrealloc(rs.buf, sizeof(char)*rs.buf_size);
-	    }
-	    //ignore preceeding whitespace
-	    if (line[rs.pos.off] != ' ' || line[rs.pos.off] != '\t' || line[rs.pos.off] != '\n') started = true;
-	    if (started) rs.buf[k++] = line[rs.pos.off];
-	    //check for assignment, otherwise handle blocks
-	    char match_tok = 0;
-	    char sep_tok = 0;
-	    if (line[rs.pos.off] == '('/*)*/ || line[rs.pos.off] == '['/*]*/ || line[rs.pos.off] == '{'/*}*/) {
+	//exit the loop when we reach the end, but make sure to include whatever parts haven't already been included
+	if (rs.pos.off >= len || rs.b.get(rs.pos) == 0) {
+	    rs.buf[k] = 0;
+	    break;
+	}
+	//ignore preceeding whitespace
+	if (rs.b.get(rs.pos) != ' ' || rs.b.get(rs.pos) != '\t' || rs.b.get(rs.pos) != '\n')
+	    started = true;
+	if (started) {
+	    //handle comments
+	    if (rs.b.get(rs.pos) == '/' && rs.pos.off > 0 && rs.b.get(rs.pos-1) == '/') {
+		//we don't care about lines that only contain comments, so we should skip over them, but in the other event we need to skip to the end of the line
+		if (k == 1)
+		    started = false;
+		else
+		    rs.pos.off = rs.b.get_line_size(rs.pos.line);
+		//terminate the expression and move to the next line
+		rs.buf[--k] = 0;
 		break;
-	    } else if (line[rs.pos.off] == '=') {
-		rs.buf[k-1] = 0;
+	    } else if (rs.b.get(rs.pos) == '*' && rs.pos.off > 0 && rs.b.get(rs.pos-1) == '/') {
+		if (k == 1)
+		    started = false;
+		rs.buf[--k] = 0;//set the slash to be a null terminator
+		while (rs.b.inc(rs.pos)) {
+		    if (rs.b.get(rs.pos) == '*' && rs.b.get(rs.pos+1) == '/') {
+			rs.pos = rs.pos+2;
+			break;
+		    }
+		}
+	    }
+	    //handle assignments
+	    if (rs.b.get(rs.pos) == '=') {
+		rs.buf[k++] = 0;
 		lval = CGS_trim_whitespace(rs.buf, NULL);
-		start_pos.off = k;
-		//make sure we aren't at the end of the file
-		break;
+		init.off = k;
+		//buf_off = k;
+		rval_ind = k;
+		continue;//don't copy the value into rs.buf
 	    }
+	    //if we encounter a block, then we need to make sure we include all of its contents, even if that block ends on another line
+	    char match_tok = 0;
+	    switch(rs.b.get(rs.pos)) {
+		case '(': match_tok = ')';break;
+		case '[': match_tok = ']';break;
+		case '{': match_tok = '}';break;
+		case '\"': match_tok = '\"';break;
+		case '\'': match_tok = '\'';break;
+		default: break;
+	    }
+	    if (match_tok) {
+		line_buffer_ind end;
+		line_buffer enc = rs.b.get_enclosed(rs.pos, &end, rs.b.get(rs.pos), match_tok, true, true);
+		char* tmp = enc.flatten(' ');
+		//if we're still on the same line, then we need to continue until we reach the end. Otherwise, save everything inclosed and terminate
+		if (end.line == init.line && end.off < len) {
+		    rs.buf = append_to_line(rs.buf, &k, &rs.buf_size, tmp, end.off - rs.pos.off);
+		    rs.pos = end;
+		    init = rs.pos;
+		    free(tmp);
+		    //continue;//don't copy the value into rs.buf
+		} else {
+		    rs.buf = append_to_line(rs.buf, &k, &rs.buf_size, tmp, strlen(tmp)+1);
+		    free(tmp);
+		    rs.pos = end;
+		    break;//we're done reading this line since we jumped across a line
+		}
+	    }
+	    //handle everything else
+	    rs.buf[k++] = rs.b.get(rs.pos);
 	}
     }
     //only set the rval if we haven't done so already
     if (started) {
-	value tmp_val = parse_value(rs.b, start_pos, er);
-	rs.pos = start_pos;
+	value tmp_val = parse_value(rs.buf+rval_ind, er);
 	if (er != E_SUCCESS) return er;
-	emplace(lval, tmp_val);
-	cleanup_val(&tmp_val);
+	set_value(lval, tmp_val);
+	//cleanup_val(&tmp_val);
+    } else {
+	rs.pos.line += 1;
+	rs.pos.off = 0;
     }
     return E_SUCCESS;
 }
@@ -2366,7 +2438,7 @@ parse_ercode context::read_from_lines(const line_buffer& b) {
 
     context::read_state rs(b);
     //iterate over each line in the file
-    for (; /*rs.pos.line < b.get_n_lines()b.get(rs.pos)*/;) {
+    while (true) {
 	char* line = b.get_line(rs.pos.line);
 	//check for class and function declarations
 	char* dectype_start = token_block(line, "def");
@@ -2387,11 +2459,11 @@ parse_ercode context::read_from_lines(const line_buffer& b) {
 		v.type = VAL_FUNC;
 		v.val.f = &tmp;
 		v.n_els = b.get_n_lines()-rs.pos.line;
-		emplace(cur_func.name, v);
+		set_value(cur_func.name, v);
 		//we have to advance to the line after end of the function declaration
 	    }
 	} else {
-	    er = read_single_line(line, rs);
+	    er = read_single_line(rs);
 	    if (er != E_SUCCESS) { free(line);return er; }
 	}
 	free(line);
@@ -2461,7 +2533,7 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
 	//setup a new scope with function arguments defined
 	context func_scope(&c);
 	for (size_t i = 0; i < call_sig.n_args; ++i) {
-	    func_scope.emplace(call_sig.arg_names[i], call.args[i]);
+	    func_scope.set_value(call_sig.arg_names[i], call.args[i]);
 	}
 	size_t lineno = 0;
     } else {

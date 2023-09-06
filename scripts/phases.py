@@ -13,30 +13,18 @@ import os.path
 import matplotlib
 import matplotlib.pyplot as plt
 
-EPSILON = 0.125
-H_EPSILON = EPSILON/2
-AMP_CUTOFF = 0.025
-PEAK_AMP_THRESH = 0.1
-NOISE_THRESH = 0.1
-OUTLIER_FACTOR = 20
-N_STDS = 2
-WIDTH_SCALE = 1000
-verbose = 4
-
-#The highest waveguide mode (n) that is considered in fits sin((2n-1)pi/L)
-HIGHEST_MODE=3
-MAX_PARAM_EVALS=1
-
-DOUB_SWAP_MAT = np.array([[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0]])
+verbose = 5
+#to avoid divisions by zero shift both the numerator and denominator by a small amount
+DIV_S = 4000
+#when fitting to a generalized Gaussian, expand the polynomial in the exponent up to this order.
+DEF_DEG = 4
 
 #lowpass filter strength applied to asymetric envelopes
 DEF_LOW_SCALE = 1.0
-
-#for a local maxima with amplitude A_l/A_g >= LOC_MAX_CUT, the location of A_l will be considered for double envelope optimization. Here A_l is the amplitude of the local maxima and A_g is the amplitude of the global maxima
-LOC_MAX_CUT = 1e-6
-#The number of standard deviations away from the local maxima to consider when performing least squares fits
-DEF_KEEP_N = 2.5
-
+#this is the parameter alpha used to specify the range on which linear regression is performed
+CUT_ALPHA = 0.1
+#we need to stop recursion for parameter estimation and lowpass evals. Note that a value of 1 indicates only one iteration is performed (no recursion)
+MAX_PARAM_EVALS=1
 MAX_LOWPASS_EVALS = 4
 
 def write_reses(fname, res_list):
@@ -85,43 +73,11 @@ def fix_angle_seq(angles):
                 angles[j] -= 2*np.pi
     return angles
 
-def peaks_to_pulse(t_pts, peaks):
-    res = np.zeros(len(t_pts))
-    for p in peaks:
-        res += p[2]*np.exp( -0.5*((t_pts-p[0])/p[1])**2 )
-    return res
+def rtc_fft(vals, f0i):
+    '''Convert a numpy array in the scipy.rfftfreq() format to one in the scipy.fftfreq() format rolled by -f0i'''
+    return np.roll(np.pad(vals, (0,vals.shape[0]-2)), -f0i)
 
-#all of this is for debuging, first pick a cluster then get the double guess
-def double_gauss_env(x, t_pts):
-    return x[0]*np.exp(-0.5*((t_pts - x[1])/x[2])**2) + x[3]*np.exp(-0.5*((t_pts - x[4])/x[5])**2)
-
-#return a Gaussian envelope over the specified time points with an amplitude amp, a mean t_0 and a standard deviation sqrt(width_sq/2)
-def gauss_env(x, t_pts):
-    return np.abs(x[0])*np.exp(-0.5*((t_pts - x[1])/x[2])**2)
-
-#return a Gaussian pulse series with parameters specified by x (amplitude, mean, 2*std_dev**2, phase)
-def gauss_series(x, t_pts):
-    time_difs = t_pts - x[1]
-    return np.abs(x[0])*np.exp(-0.5*(time_difs/x[2])**2)*np.cos(x[3]*time_difs - x[4])
-
-#return a Gaussian pulse series with parameters specified by x (amplitude, mean, 2*std_dev**2, phase)
-def double_gauss_series(x, t_pts):
-    time_difs_0 = t_pts - x[1]
-    time_difs_1 = t_pts - x[6]
-    return (np.abs(x[0])*np.exp(-0.5*(time_difs_0/x[2])**2) + np.abs(x[5])*np.exp(-0.5*(time_difs_1/x[7])**2))*np.cos(x[3]*time_difs_0 - x[4])
-
-def fix_double_pulse_order(res):
-    '''Adjust the double pulse fit so that the first envelope comes first in time'''
-    #ensure that the pulses are ordeblue the way we expect, fix the order such that the biggest pulse comes first
-    if res.x.shape[0] == 8 and res.x[0] < res.x[5]:
-        res.x = np.dot(DOUB_SWAP_MAT, res.x)
-        res.jac = np.dot(DOUB_SWAP_MAT, res.jac)
-        res.hess_inv = np.dot(DOUB_SWAP_MAT, res.hess_inv)
-        #the phase adjustment is slightly more complicated
-        res.x[4] += res.x[3]*(res.x[1]-res.x[6])
-    return res
-
-class dummy_result:
+class extract_info:
     def __init__(self, amp, omega, phi, t0=1, w=1):
         self.x = np.array([amp, t0, w, omega, phi])
         #todo: give these useful values
@@ -148,37 +104,43 @@ class signal:
             return 0
         return int( avg_t / tot_mag )
 
-    def _get_freq_fwhm(self, threshold=0.5):
+    def _get_freq_fwhm(self, f0i=-1, threshold=CUT_ALPHA):
+        if f0i < 0:
+            f0i = self.f0_ind
         #find the region in frequency that has magnitude greater than max_freq/2
-        cut_amp = self.mags[self.f0_ind]*threshold
-        f_min = self.f0_ind
-        f_max = self.f0_ind
-        j_bound = min(self.f0_ind, len(self.mags)-self.f0_ind-1)
-        if verbose > 2 and len(self.mags)-self.f0_ind-1 < self.f0_ind:
-            print("\tanomalous high frequency! peak f={}".format(self.freqs[self.f0_ind]))
+        cut_amp = self.mags[f0i]*threshold
+        f_min = f0i
+        f_max = f0i
+        j_bound = min(f0i, len(self.mags)-f0i-1)
+        if verbose > 2 and len(self.mags)-f0i-1 < f0i:
+            print("\tanomalous high frequency! peak f={}".format(self.freqs[f0i]))
         for j in range(j_bound):
-            if self.mags[self.f0_ind - j] > cut_amp:
-                f_min = self.f0_ind - j - 1
-            if self.mags[self.f0_ind + j] > cut_amp:
-                f_max = self.f0_ind + j + 1
-        return [f_min, f_max]
+            if self.mags[f0i - j] > cut_amp:
+                f_min = f0i - j - 1
+            if self.mags[f0i + j] > cut_amp:
+                f_max = f0i + j + 1
+        return f_min, f_max
 
-    def _param_est(self, n_evals=0, threshold=0.5, mode="l"):
-        freq_range = self._get_freq_fwhm(threshold=threshold)
-        f_min = freq_range[0]
-        f_max = freq_range[1]
+    def _param_est(self, n_evals=0, threshold=CUT_ALPHA, axs=None):
+        f_min,f_max = self._get_freq_fwhm(threshold=threshold)
         angles = fix_angle_seq(np.angle(self.vf[f_min:f_max]))
         #using this frequency range, perform a linear or cubic fit to estimate phi and t0
-        if (mode == "cubic"):
-            popt, pcov = opt.curve_fit(lambda f,p0,p1,p3: -p3*f**3 - p1*f + p0, self.freqs[f_min:f_max], angles)
-            self._t0_corr = popt[1]/(2*np.pi)
-            self._phi_corr = fix_angle(popt[0])
-        else:
-            res = linregress(self.freqs[f_min:f_max], angles)
-            self._t0_corr = -res.slope/(2*np.pi)
-            self._phi_corr = fix_angle(res.intercept)
+        res = linregress(self.freqs[f_min:f_max], angles)
+        self._t0_corr = -res.slope/(2*np.pi)
+        self._phi_corr = fix_angle(res.intercept)
+        print(self._phi_corr)
+        #self._phi_corr = np.sum(angles)/len(angles)
         if verbose > 2:
-            print("\t{}: arg(a(t)) ~ {}f + {}".format(mode, -self._t0_corr, self._phi_corr))
+            print("\tparameter estimation: arg(a(t)) ~ {}f + {}".format(-self._t0_corr, self._phi_corr))
+        if axs is not None and n_evals == MAX_PARAM_EVALS-1:
+            dat_series = [fix_angle(ang)/np.pi for ang in angles]
+            fit_series_0 = (res.slope*self.freqs[f_min:f_max] + res.intercept)/np.pi
+            fit_series_1 = (res.slope*self.freqs[f_min:f_max] + res.intercept)/np.pi - 2
+            axs.scatter(2*np.pi*self.freqs[f_min:f_max], dat_series, color='green', label="simulation")
+            axs.plot(2*np.pi*self.freqs[f_min:f_max], fit_series_0, color='green', linestyle='--', label="linear fit")
+            axs.plot(2*np.pi*self.freqs[f_min:f_max], fit_series_1, color='green', linestyle='--', label="linear fit")
+            axs.annotate('$t_0 = ${:.2f} fs, $\\varphi = ${:.2f}\n$R^2 = ${:.2f}'.format(self._t0_corr, self._phi_corr, res.rvalue**2), xy=(0,0), xytext=(0.2, 0.80), xycoords='figure fraction')
+            axs.set_ylim(-1,1)
         #if there were a lot of oscillations within the fwhm, that is a sign that the signal may need to be shifted
         if np.abs(self._t0_corr) > 2/(f_max-f_min) and n_evals < MAX_PARAM_EVALS:
             if verbose > 0:
@@ -186,7 +148,123 @@ class signal:
             self.t0_ind += int(self._t0_corr/self.dt)
             tmp_vf = 2*fft.rfft( np.roll(self.v_pts, -self.t0_ind) )
             self._apply_lowpass(tmp_vf, self._last_cent_f, self._low_stren)
-            self._param_est(n_evals=n_evals+1, mode=mode, threshold=threshold)
+            self._param_est(n_evals=n_evals+1, threshold=threshold, axs=axs)
+            self.t0 = self.t_pts[self.t0_ind]
+
+    def _fitted_v(self, x, fs, deg):
+        #get the generalized Gaussian parameterized by the vector x up to degree deg
+        rexp = -x[1]*np.ones(len(fs))
+        for j in range(deg//2):
+            rexp = rexp - x[j+2]*(fs-x[0])**(2*j+2)
+        return np.exp(rexp)
+    def _fitted_e(self, x, fs, deg):
+        #get the generalized Gaussian multiplied by omega (to get the a(omega as opposed to b(omega)) parameterized by the vector x up to degree deg
+        return 2*np.pi*fs*self._fitted_v(x, fs, deg)
+    def _opt_gauss_envelope(self, deg):
+        '''Helper function for _fit_sym_amps and _est_f0 which optimizes the frequency space magnitudes to the form 2*pi*f*exp(sum_k a_2k(f-f0)**2k)
+        deg: the degree of the polynomial in the exponent to use when fitting
+        returns: a scipy optimize result and a frequency scaling factor that was used to perform the fit'''
+        #setup an initial guess using the peak in frequency space
+        max_ind = self.f0_ind//4
+        df = self.freqs[1] - self.freqs[0]
+        #things blow up really fast if we don't rescale the terms in the exponent to order unity
+        fscale = 1/self.freqs[-1]
+        fs = self.freqs*fscale
+        x0 = np.zeros(deg//2 + 2)
+        x0[0] = fs[max_ind]
+        x0[1] = -np.log(self.mags[max_ind])
+        f_min,f_max = self._get_freq_fwhm(f0i=max_ind, threshold=0.5)
+        x0[2] = 0.5/(fs[f_max]-fs[f_min])**2
+        #gradient of cost function
+        def jac_fp(x, fe):
+            #2*residual*omega*e^(-sum ...) appears in all the Jacobian terms
+            rexp = -x[1]*np.ones(len(fs))
+            for j in range(deg//2):
+                rexp = rexp - x[j+2]*(fs-x[0])**(2*j+2)
+            #res_w = 4*np.pi*self.freqs*(2*np.pi*self.freqs*fe(x, fs, deg)-self.mags)*np.exp(rexp)
+            res_w = 4*np.pi*fs*(fe(x, fs, deg)-self.mags)*np.exp(rexp)
+            ret = np.zeros(deg//2+2)
+            ret[1] = -np.sum(res_w)*df
+            for j in range(deg//2):
+                ret[0] += (2*j+2)*x[j+2]*np.sum(res_w*(fs-x[0])**(2*j+1))*df
+                ret[j+2] = -np.sum(res_w*(fs-x[0])**(2*j+2))*df
+            return ret
+        #res = opt.minimize(lambda x, fe: np.sum( (fe(x, fs, deg)-self.mags)**2 )*df, x0, method='Nelder-Mead', args=self._fitted_e)
+        res = opt.minimize(lambda x, fe: np.sum( (fe(x, fs, deg)-self.mags)**2 )*df, x0, jac=jac_fp, args=self._fitted_e)
+        if verbose > 4:
+            print("optimized generalized Gaussian x0={}", x0)
+            print(jac_fp(x0, self._fitted_e))
+            print(res)
+        return res, fscale
+    def _fit_sym_amps(self, deg):
+        '''Fit the frequency space magnitudes to the form 2*pi*f*exp(sum_k a_2k(f-f0)**2k)
+        deg: the degree of the polynomial in the exponent to use when fitting'''
+        res,sc = self._opt_gauss_envelope(deg)
+        return self._fitted_e(res.x, self.freqs*sc, deg), self._fitted_v(res.x, self.freqs*sc, deg)*sc, res.x[0]/sc
+
+    def _est_f0(self, threshold=CUT_ALPHA, mode='odd'):
+        '''Estimate the value for f0 by finding the point where the third derivative of the angles vanishes
+        returns: a tuple with the frequency and its closest index'''
+        f0i = np.argmax(self.mags)
+        f0 = self.freqs[f0i]
+        if mode == 'odd':
+            #find the point to be used as f0. This is the point where the second derivative of arg(E) crosses 0.
+            f_min,f_max = self._get_freq_fwhm(f0i=f0i, threshold=threshold)
+            angles = fix_angle_seq(np.angle(self.vf[f_min:f_max]))
+            f0 = self.f0
+            df = self.freqs[1]-self.freqs[0]
+            prev_thd_der = (angles[2] - 2*angles[1] + angles[0])/df**2
+            best_mag = 0
+            for i in range(2, len(angles)-2):
+                thd_der = (angles[i+2] - 3*angles[i+1] + 3*angles[i] - angles[i-1])/df**2
+                #check for zero crossings
+                if (prev_thd_der <= 0 and thd_der >= 0) or (prev_thd_der >= 0 and thd_der <= 0):
+                    mn,mx = min(prev_thd_der, thd_der), max(prev_thd_der, thd_der)
+                    #take the higher value of |E| as a tiebreaker
+                    if self.mags[f_min+i] >= best_mag:
+                        f0 = self.freqs[f_min+i]+df/2 if (mx == mn) else self.freqs[f_min+i] - mn*df/(mx-mn)
+                        best_mag = self.mags[f_min+i]
+            f0i = int( np.rint(f0 / df) )
+        elif mode == 'avg':
+            #we exclude high frequency noisy data when taking the average
+            f0 = np.trapz(self.mags[:2*self.f0_ind]*self.freqs[:2*self.f0_ind])/np.trapz(self.mags[:2*self.f0_ind])
+            f0i = int( np.rint(f0/(self.freqs[1]-self.freqs[0])) )
+        elif mode == 'avg_v':
+            #we exclude high frequency noisy data when taking the average
+            vfv = self.mags[:2*self.f0_ind]/(2*np.pi*self.freqs+np.exp(-DIV_S*self.freqs/self.f0))
+            f0 = np.trapz(vfv*self.freqs[:2*self.f0_ind])/np.trapz(vfv)
+            f0i = int( np.rint(f0/(self.freqs[1]-self.freqs[0])) )
+        elif mode == 'fit':
+            res,sc = self._opt_gauss_envelope(DEF_DEG)
+            f0 = res.x[0]/sc
+            f0i = int( np.rint(f0/(self.freqs[1]-self.freqs[0])) )
+        if f0i >= len(self.mags):
+            f0i = self.mags-1
+        print(f0i)
+        return f0, f0i
+
+    def get_ang_func(self, f0, fit_axs=None):
+        f_min,f_max = self._get_freq_fwhm()
+        angles = fix_angle_seq(np.angle(self.vf[f_min:f_max]))
+        '''Fit arg(E(f+f0)) to an odd polynomial'''
+        #fit to a polynomial with only odd powers + constant
+        popt, pcov = opt.curve_fit(lambda f,p0,p1,p3,p5,p7: p7*(f-f0)**7 + p5*(f-f0)**5 + p3*(f-f0)**3 + p1*(f-f0) + p0, self.freqs[f_min:f_max], angles)
+        #save a plot of the fit to the axes if supplied
+        if fit_axs is not None:
+            #setup the axes
+            fit_axs.set_xlabel("$f$")
+            fit_axs.set_ylabel("|$\tilde{E}(f)|")
+            ax2 = fit_axs.twinx()
+            ax2.set_ylabel("arg[$\tilde{E}(f)$]", color = 'green')
+            ax2.tick_params(axis ='y', labelcolor = 'green')
+            #actually plot
+            fs = np.linspace(self.freqs[f_min], self.freqs[f_max])
+            ax2.scatter(self.freqs[f_min:f_max], angles, color='green')
+            ax2.plot(fs, popt[4]*(fs-f0)**7 + popt[3]*(fs-f0)**5 + popt[2]*(fs-f0)**3 + popt[1]*(fs-f0) + popt[0], color='green', linestyle='--')
+            fit_axs.plot(self.freqs[f_min:f_max], self.mags[f_min:f_max])
+            fit_axs.plot(self.freqs[f_min:f_max], self.mags[f_min:f_max]/(self.freqs[f_min:f_max]+f0))
+            fit_axs.axvline(x=f0, color='gray')
+        return lambda x: popt[4]*x**7 + popt[3]*x**5 + popt[2]*x**3 + popt[1]*x
 
     def _apply_lowpass(self, vf0, cent_freq, strength):
         self.vf = vf0*np.sinc((self.freqs-cent_freq)*strength)
@@ -208,7 +286,7 @@ class signal:
                 return True
         return False
 
-    def __init__(self, t_pts, v_pts, scan_length=5, lowpass_inc=1.0, noise_thresh=0.1, max_f0=-1, lowpass_center=-1.0):
+    def __init__(self, t_pts, v_pts, scan_length=5, lowpass_inc=1.0, noise_thresh=0.1, lowpass_center=-1.0, w0_type='avg', param_axs=None):
         '''Based on a time series sampled at t_pts with values v_pts, try to find a Gaussian pulse envelope.
         t_pts: a numpy array with the times of each sampled point. This must have the same dimensions as v_pts
         v_pts: a numpy array with the field at each sampled time
@@ -216,6 +294,10 @@ class signal:
         scan_length: This is used when checking for noise
         noise_thresh: This is the ratio of peak frequency magnitude to high frequency components at which a signal is decided to be noisy.
         max_f0: This specifies the maximum allowable frequency at which the central frequency may occur. If the central frequency is found to be higher than this value, then a lowpass filter is applied.
+        w0_type: there are multiple ways of finding the central frequency. This argument should be one of these strings, "odd", "avg", or "peak"
+            -odd: select omega_0 such that arg(a(omega)) is close to an odd function. This helps to minimize the imaginary component of the extracted b(t)
+            -avg: average over all magnitudes $|\tilde{E}(\omega)|$
+            -peak: Take the value of $\omega$ which maximizes $|\tilde{E}(\omega)|$
         lowpass_center: if >0, then lowpass filters are centered around this frequency so as to avoid attenuating genuine signal
         '''
         self.t_pts = t_pts
@@ -223,13 +305,10 @@ class signal:
         #inferred values
         self.dt = t_pts[1]-t_pts[0]
         self.v_abs = np.abs(v_pts)
-        #self.t0_ind = np.argmax(self.v_abs)
         self.t0_ind = self._guess_t0_ind()
         #take the fourier transform       
         self.freqs = fft.rfftfreq(len(v_pts), d=self.dt)
         max_f0_ind = len(self.freqs)//2
-        if max_f0 > 0:
-            max_f0_ind = int(max_f0 / (self.freqs[1]-self.freqs[0]))
         #Shift the pulse so that the peak magnitude is at zero frequency. Taking the inverse fourier transform of this shifted magnitude gives pulse amplitude. The frequency at which the magnitude is maximized is the same as the unmodulated sine wave.
         vf0 = 2*fft.rfft(np.roll(v_pts, -self.t0_ind))
         self.vf = np.copy(vf0) 
@@ -239,6 +318,10 @@ class signal:
         while True:
             self.phi = np.angle(self.vf[0])
             self.f0_ind = np.argmax(self.mags)
+            if w0_type == 'peak' or w0_type == 'odd':
+                self.f0,self.f0_ind = self._est_f0(mode='peak')
+            else:
+                self.f0,self.f0_ind = self._est_f0(mode='avg')
             #apply lowpass filters to noisy signals
             if self._low_stren >= MAX_LOWPASS_EVALS*lowpass_inc:
                 break
@@ -260,67 +343,93 @@ class signal:
                 break
 
         #perform post-processing
-        self._param_est()
+        self._param_est(axs=param_axs)
         if verbose > 1:
-            print("\tt0_corr: {}\n\tphi_corr: {}".format(self._t0_corr, self._phi_corr))
+            print("\tf0_corr: {}\n\tt0_corr: {}\n\tphi_corr: {}".format(self.f0, self._t0_corr, self._phi_corr))
         self.envelope = None
         self.envelope_asym = None
         self.asym_lowpass = DEF_LOW_SCALE
         self.asym_f0 = None
         self.peaks_arr = None
-        self.f0 = self.freqs[self.f0_ind]
         self.t0_ind = np.argmax(self.v_abs)
+        self.t0 = self.t_pts[self.t0_ind]
+        if w0_type == 'odd':
+            self.f0,self.f0_ind = self._est_f0(mode='odd')
 
+    def _get_sym_amps(self, vec_vf, f0):
+        #weirdness converting between scipy rfft and fft
+        fsize = 2*self.mags.shape[0] - 2 + (self.v_pts.shape[0] % 2)
+        ef = np.zeros(fsize)
+        vef = np.zeros(fsize)
+        df = self.freqs[1]-self.freqs[0]
+        f0i = int(f0/df)
+        lrp = f0 - f0i*df
+        for i in range(min(f0i, self.freqs.shape[0]-f0i-1)):
+            #find amplitude for \tilde{b}(\omega) (note the factor of two comes from equation 13
+            vef[i] = 0.5*(vec_vf[f0i-i+1]-vec_vf[f0i-i]+vec_vf[f0i+i+1]-vec_vf[f0i+i])*lrp/df + 0.5*(vec_vf[f0i-i]+vec_vf[f0i+i])
+            vef[-i] = vef[i]
+            #transform from \tilde{b} to \tilde{a}
+            ef[-i] = 2*np.pi*(f0-self.freqs[i])*vef[-i]
+            ef[i] = 2*np.pi*(f0+self.freqs[i])*vef[i]
+        return ef, vef
 
-    def _roll_envelope(self, env):
-        env = fft.fftshift(env)
-        env_peak = np.argmax(env)
-        x0 = self.dt*(np.argmax(self.v_abs) - env_peak)
-        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
-        def fp(x):
-            #linearly interpolate between envelope points to make the cost function continuous
-            shift_fl = int(x/self.dt)
-            shift_rm = x/self.dt - shift_fl
-            ret = 0.0
-            for i in pulse_peaks:
-                val = shift_rm*(env[(i-shift_fl+1) % len(env)]-env[(i-shift_fl) % len(env)]) + env[(i-shift_fl) % len(env)]
-                ret += (val - self.v_abs[i])**2
-            return ret
-        res = opt.minimize(fp, x0)
-        best_ind = int(res.x/self.dt)
-        self.t0 = self.t_pts[env_peak + best_ind]
-        self.phi = self.t_pts[env_peak+best_ind-np.argmax(self.v_pts)]*2*np.pi*self.f0
-        return np.roll(env, best_ind)
-
-    def get_envelope_vec_pot(self):
-        '''if self.envelope is not None:
-            return self.envelope'''
-        #divide by i\omega, handle the zero frequency divergence in a sketchy way
-        oms = 2*np.pi*self.freqs
-        oms[0] = self.vf[1]
-        full_fft = np.pad(-self.vf/oms, (0, self.mags.shape[0]-2))
+    def calc_envelope(self, f0=-1, sym_mode="sym"):
+        '''Calculate a(t) and b(t)
+        f0: the central frequency to use for calculations
+        sym_mode: if set to "sym", then perform a symmeterization about f0 by taking 2b(w) = E(w+w0)/(w+w0) + E(w0-w)/(w0-w), if set to "sym-o", do the same, but choose the value for w0 that minimizes the square error. If set to "exp", then fit the amplitude to a generalized Gaussian (see _fit_sym_amps). Otherwise, no symmeterization is performed'''
+        if f0 <= 0:
+            f0 = self.f0
+            f0i = self.f0_ind
+        else:
+            f0i = int(f0 / (self.freqs[1]-self.freqs[0]))
+        pad_n =  (0, self.mags.shape[0]-2+(self.v_pts.shape[0]%2))
+        if sym_mode is not None:
+            if sym_mode=="exp":
+                ef,vf,f0 = self._fit_sym_amps(DEF_DEG)
+                f0i = int(f0 / (self.freqs[1]-self.freqs[0]))
+                self.env_fourier = np.roll(np.pad(ef, pad_n), -f0i)
+                self.vec_env_fourier = np.roll(np.pad(vf, pad_n), -f0i)
+            else:
+                #start by finding b_0(omega-omega_0)
+                vec_vf = self.mags/(2*np.pi*self.freqs+np.exp(-DIV_S*self.freqs/self.f0))
+                if sym_mode == "sym-o":
+                    vw,ew = 1,1
+                    def fp(f0, af):
+                        ef,vef = af(vec_vf, f0[0])
+                        rr = vw*np.sum( (np.abs(vef)-np.abs(self.vec_env_fourier))**2 ) + ew*np.sum( (np.abs(ef)-np.abs(self.env_fourier))**2 )
+                        return rr 
+                    res = opt.minimize(fp, f0, args=self._get_sym_amps, method='Nelder-Mead')
+                    if verbose > 4:
+                        print("optimized", res)
+                    #account for phases
+                    f0 = res.x[0]
+                self.env_fourier, self.vec_env_fourier = self._get_sym_amps(vec_vf, f0)
+            #get angles
+            ang_fun = self.get_ang_func(f0)
+            vp = ang_fun(fft.fftfreq(len(self.v_pts), d=self.dt))
+            #note that we don't need to account for phi_corr here since ang_fun() already removed this part
+            self.env_fourier = self.env_fourier*np.exp(1j*vp)
+            self.vec_env_fourier = self.vec_env_fourier*np.exp(1j*vp)
+        else:
+            self.env_fourier = np.roll(np.pad(self.vf, pad_n), -f0i)*np.exp(-1j*self._phi_corr)
+            self.vec_env_fourier = np.roll(np.pad(self.vf/(2*np.pi*self.freqs+np.exp(-DIV_S*self.freqs/self.f0)), pad_n), -f0i)*np.exp(-1j*self._phi_corr)
+        #we want to ensure self consistency between envelopes and central frequencies
+        self.f0 = f0
+        self.f0_ind = f0i
         #take the inverse fourier transform and shift to the peak of the pulse
-        self.envelope = 2*np.roll( fft.ifft(np.roll(full_fft, -self.f0_ind))*np.exp(-1j*self._phi_corr), self.t0_ind )
-        #self.envelope = np.abs( np.roll(fft.ifft(np.roll(full_fft, -self.f0_ind)), self.t0_ind) )
+        self.envelope = 2*np.roll(fft.ifft(self.env_fourier), self.t0_ind)
+        '''sig_direct = np.real(self.envelope*np.exp(1j*(2*np.pi*self.f0*(self.t_pts-self.t_pts[self.t0_ind]) + self._phi_corr)))
+        t_ind_diff = np.argmax(self.v_pts) - np.argmax(np.real(sig_direct))
+        self.envelope = np.roll(self.envelope, t_ind_diff)
+        self.t0 = t_ind_diff*self.dt + self.t_pts[self.t0_ind]
+        print("\tpeak shift: {}".format(np.sign(t_ind_diff)*self.t_pts[np.abs(t_ind_diff)]))'''
         #for odd numbers of time points, the inverse fourier transform will have one fewer points
         if len(self.t_pts) > len(self.envelope):
             self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
-        mu, env = self.get_mu(env=self.envelope)
-        #self.phi = (mu-self.t_pts[np.argmax(self.v_pts)])*2*np.pi*self.f0
-        return self.envelope
 
     def get_envelope(self):
-        '''if self.envelope is not None:
-            return self.envelope'''
-        #take the inverse fourier transform and shift to the peak of the pulse
-        full_fft = np.pad(self.vf, (0, self.mags.shape[0]-2))
-        self.envelope_fourier = fft.ifft(np.roll(full_fft, -self.f0_ind))*np.exp(-1j*self._phi_corr)
-        self.envelope = 2*np.roll(self.envelope_fourier, self.t0_ind)
-        #for odd numbers of time points, the inverse fourier transform will have one fewer points
-        if len(self.t_pts) > len(self.envelope):
-            self.envelope = np.pad( self.envelope, (0,len(self.t_pts)-len(self.envelope)) )
-        mu, env = self.get_mu(env=self.envelope)
-        #self.phi = (mu-self.t_pts[np.argmax(self.v_pts)])*2*np.pi*self.f0
+        if self.envelope is None:
+            self.calc_envelope()
         return self.envelope
 
     def get_mu(self, env=None):
@@ -341,154 +450,82 @@ class signal:
         skew = np.trapz(env*(self.t_pts - mu)**3)/(sig**3)
         return mu, sig, skew, env
 
-    def opt_envelope_asym(self):
-        env = self.get_envelope()
-        samp_is = np.argmax(np.abs(self.v_pts))
-        vs = self.v_pts[samp_is]
-        def fp(x):
-            this_env = np.roll(env, int(x/self.dt))
-            return np.sum((this_env[samp_is] - vs)**2)
-        res = opt.minimize(fp, 0.0)
-        print(fp(0.0), res.fun)
-        self._t0_corr += res.x[0]
-        self._phi_corr = fix_angle(self._phi_corr + 2*np.pi*self.f0*res.x[0])
-        #find the envelope to do some proce
-        env_amp = np.max(env)
-        _,env_w,_ = self.get_sig(env=env/(np.trapz(env)*self.dt))
-        dum = dummy_result(env_amp, self.f0, self._phi_corr, t0=self._t0_corr+self.t_pts[self.t0_ind], w=env_w)
-        return dum
-
-    def get_peaks(self, peak_amp_thresh=0.1, width_steps=5):
-        '''Helper function for est_env_new
-        t_pts: the sampled points in time, this should have the same dimension as vs and ns
-        vs: the absolute value of the actual pulse. This WILL break if there are any negative values.
-        ns: the envelope of the pulse obtained through some signal processing
-        '''
-        if self.peaks_arr is not None:
-            return self.peaks_arr
-        ns = self.get_envelope()
-        #now that we have an envolope, find its maxima
-        pulse_peaks = ssig.argrelmax(self.v_abs)[0]
-        max_peak = np.max(ns)
-        env_peaks,env_props = ssig.find_peaks(ns, prominence=max_peak*0.05)
-        #return a single default peak if no extrema were found to prevent out of bounds errors
-        if len(pulse_peaks) == 0 or len(env_peaks) == 0:
-            return np.array([[0, 1, 1]])
-        
-        #an array of peaks. The columns are time, width, amplitude, and the residual error. The error is cumulative i.e. The pulse incorporates all peaks before the current one and computes the square error.
-        self.peaks_arr = np.zeros((len(env_peaks),4))
-        n = 0
-        for i, v in enumerate(env_peaks):
-            if v >= len(self.t_pts):
-                break
-            now = self.t_pts[v]
-            #find the nearest maxima in the actual pulse. The envelopes aren't great at getting amplitudes, but they are useful for widths and centers.
-            p_ind = 0
-            closest_sep = self.t_pts[-1] - self.t_pts[0]
-            for p in pulse_peaks:
-                sep = abs(self.t_pts[p] - now)
-                if sep < closest_sep:
-                    p_ind = p
-                    closest_sep = sep
-                else:
-                    break
-            if self.v_abs[p_ind] > peak_amp_thresh*max_peak:
-                #make sure that we're inside the array but we take at least one step
-                stp = min(v-env_props['left_bases'][i], env_props['right_bases'][i]-v)//4
-                if stp <= 0:
-                    continue
-                samp_ts, samp_ls = self._get_region(ns, v, stp)
-                reg,cov = opt.curve_fit(lambda x,a,b: a*x**2 + b, samp_ts, np.log(max_peak)-np.log(samp_ls))
-                this_w = 1/np.sqrt(reg[0])
-                #only add this to the array if the value isn't nan
-                if not np.isnan(this_w):
-                    self.peaks_arr[n, 0] = now
-                    self.peaks_arr[n, 1] = this_w
-                    self.peaks_arr[n, 2] = self.v_abs[p_ind]
-                    #self.peaks_arr[n, 3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[n:n+1]) - self.v_abs[pulse_peaks])**2)
-                    n += 1
-
-        #sort peaks by intensity
-        self.peaks_arr.resize((n,4))
-        self.peaks_arr = self.peaks_arr[(-self.peaks_arr)[:, 2].argsort()]
-        #self.peaks_arr = self.peaks_arr[(self.peaks_arr)[:, 3].argsort()]
-        for i in range(len(self.peaks_arr)):
-            self.peaks_arr[i,3] = np.sum((peaks_to_pulse(self.t_pts[pulse_peaks], self.peaks_arr[0:i+1]) - self.v_abs[pulse_peaks])**2)
-        return self.peaks_arr
-
-    def _get_region(self, ns, i, width_steps):
-        #make sure that we're inside the array but we take at least one step
-        stp = max(min(min(width_steps, i), len(self.t_pts)-i-1), 1) 
-        #do a quadratic fit to get a guess of the Gaussian width
-        samp_ts = self.t_pts[i-stp:i+stp] - self.t_pts[i]
-        samp_ls = ns[i-stp:i+stp]
-        return samp_ts, samp_ls
-
-    def make_raw_plt(self, axs):
-        #get the envelope and perform a fitting
-        env = self.get_envelope()
-        peak_t = self.t_pts[self.t0_ind] - self._t0_corr
-        axs[0].set_title("Frequency space representation of a simulated pulse")
+    def plt_raw_fdom(self, axs):
         # Add the magnitude 
-        axs[0].set_xlabel('frequency (1/fs)') 
-        axs[0].set_ylabel('magnitude (arb. units)', color = 'black') 
-        plt1 = axs[0].plot(self.freqs, np.abs(self.vf), color = 'black')
+        axs.set_xlabel('$\omega$ (1/fs)') 
+        axs.set_ylabel('|$E(\omega)$|', color = 'black') 
+        axs.plot(2*np.pi*self.freqs, np.abs(self.vf), color = 'black', label='magnitude')
         #plot the bounds used for fitting
         frange = self._get_freq_fwhm()
-        axs[0].axvline(self.freqs[frange[0]], color='gray', linestyle=':')
-        axs[0].axvline(self.freqs[frange[1]], color='gray', linestyle=':')
-        axs[0].tick_params(axis ='y', labelcolor = 'black')
+        axs.axvline(2*np.pi*self.freqs[frange[0]], color='gray', linestyle=':')
+        axs.axvline(2*np.pi*self.freqs[frange[1]], color='gray', linestyle=':')
+        axs.axvline(2*np.pi*self.f0, color='gray')
+        axs.tick_params(axis ='y', labelcolor = 'black')
+        axs.set_ylim(0, max(self.mags)*1.1)
         # Adding Twin Axes
-        ax2 = axs[0].twinx()
-        ax2.set_ylabel('phase', color = 'green')
-        ax2.set_ylim([-np.pi, np.pi])
+        ax2 = axs.twinx()
+        ax2.set_ylim(-1, 1)
+        ax2.set_ylabel("arg[$E(\omega)$]$/\pi$", color = 'green')
         ax2.tick_params(axis ='y', labelcolor = 'green')
-        ax2.plot(self.freqs, np.angle(self.vf), color='green')
-        #save time domain
-        axs[1].plot(self.t_pts, self.v_pts, color='black', label='simulated data')
-        axs[1].plot(self.t_pts, env, color='teal', label='envelope')
-        axs[1].plot(self.t_pts, self.get_envelope(), color='red', label='envelope')
-        axs[1].axvline(peak_t, color='teal', linestyle=':')
-        axs[1].plot(self.t_pts, env*np.cos(2*np.pi*self.f0*(self.t_pts-peak_t)+self._phi_corr), color='orange', label='extracted pulse')
+        ax2.plot(2*np.pi*self.freqs, np.angle(self.vf)/np.pi, color='green', label='phase')
+    def plt_raw_tdom(self, axs):
+        peak_t = self.t_pts[self.t0_ind] - self._t0_corr
+        #get the envelope and perform a fitting
+        env = self.get_envelope()
+        axs.plot(self.t_pts, self.v_pts, color='black', label='simulated data')
+        axs.plot(self.t_pts, env, color='teal', label='envelope')
+        axs.plot(self.t_pts, self.get_envelope(), color='red', label='envelope')
+        axs.axvline(peak_t, color='teal', linestyle=':')
+        axs.plot(self.t_pts, env*np.cos(2*np.pi*self.f0*(self.t_pts-peak_t)+self._phi_corr), color='orange', label='extracted pulse')
 
     def compare_envelopes(self, axs):
         env = self.get_envelope()
-        env_vec = self.get_envelope_vec_pot()
         axs.plot(self.t_pts, self.v_pts, color='black', label='measured E(t)')
-        axs.plot(self.t_pts, np.abs(env), color='blue', label='a(t)')
-        axs.plot(self.t_pts, 2*np.abs(env_vec), color='red', label='b(t)')
-        axs.legend(loc='upper right')
+        axs.fill_between(self.t_pts, np.real(env), -np.real(env), color='blue', label='Re$[a(t)]$', alpha=0.2)
+        axs.fill_between(self.t_pts, np.imag(env), -np.imag(env), color='red', label='Im$[a(t)]$', alpha=0.2)
+        #axs.legend(loc='upper right')
 
     def compare_signals(self, axs):
         print(self._phi_corr)
         env = self.get_envelope()
-        env_vec = self.get_envelope_vec_pot()
         max_field_t = self.t_pts[np.argmax(self.v_pts)]
         #get the signal from a(t)e^(i(\omega_0(t-t_0) + \phi)) + c.c.
-        sig_direct = np.real( env*np.exp(1j*(2*np.pi*self.f0*(self.t_pts-self.t_pts[self.t0_ind]) + self._phi_corr)) )
-        #roll the signal so that it lines up with the peak
-        max_sig_t = self.t_pts[np.argmax(sig_direct)]
-        sig_direct = np.roll(sig_direct, int((max_field_t-max_sig_t)/self.dt))
-        #get the signal using the differential of the vector potential
-        sig_vector = env_vec*np.sin(2*np.pi*self.f0*(self.t_pts-self.t_pts[self.t0_ind]) + self._phi_corr)
-        sig_vector = np.pad(np.diff(sig_vector), (0,1))
+        sig_direct_re = np.real(env)*np.cos(2*np.pi*self.f0*(self.t_pts-self.t0) + self._phi_corr)
+        sig_direct_im = np.imag(env)*np.sin(2*np.pi*self.f0*(self.t_pts-self.t0) + self._phi_corr)
         axs.plot(self.t_pts, self.v_pts, color='black', label='measured')
-        axs.plot(self.t_pts, sig_direct, color='red', label='a(t)', linestyle=':')
-        axs.plot(self.t_pts, np.real(sig_vector), color='blue', label='b(t)')
-        axs.set_ylim([-1, 1])
-        axs.legend(loc='upper right')
+        env_vec = 2*np.roll( fft.ifft(self.vec_env_fourier), int(self.t0/self.dt) )
+        axs.fill_between(self.t_pts, np.real(env), -np.real(env), color='green', label='Re$[a(t)]$', alpha=0.2)
+        axs.fill_between(self.t_pts, np.imag(env), -np.imag(env), color='blue', label='Im$[a(t)]$', alpha=0.2)
+        #f0,_ = self._est_f0(mode='avg')
+        f0 = self.f0
+        fit_ser = np.diff( np.real(env_vec)*np.sin(2*np.pi*f0*(self.t_pts-self.t0)+self._phi_corr) )/self.dt
+        fit_ser = np.roll(fit_ser, -np.argmax(fit_ser)+np.argmax(self.v_pts))
+        axs.plot(self.t_pts[:-1], fit_ser*np.max(self.v_pts)/np.max(fit_ser), color='red', label='extracted', linestyle='-.')
+        axs.set_xlim(self.t_pts[0], self.t_pts[-1])
 
-    def make_fit_plt(self, ax):
-        #extract gaussian peaks
-        s_peaks = self.get_peaks()
-        #make plots
-        ax.set_title("Comparisons in time space")
-        ax.set_xlabel("time (fs)")
-        ax.set_ylabel("amplitude (arb. units)")
-        ax.plot(self.t_pts, peaks_to_pulse(self.t_pts, s_peaks), color='darkturquoise', label='fitted peaks')
-        ax.errorbar(s_peaks[:,0], s_peaks[:,2], xerr=s_peaks[:,1], color='darkturquoise', linestyle=None, marker='s')
-        ax.plot(self.t_pts, self.v_pts, color='black', label='simulated data')
-        ax.legend()
+    def compare_fspace(self, axs, sym_mode='sym-o', plt_raxs=True):
+        full_freqs = fft.fftfreq(len(self.t_pts))
+        #make unsymmeterized envelope plots
+        self.calc_envelope(sym_mode=None)
+        env_unsym = self.get_envelope()
+        axs.plot(fft.fftshift(full_freqs), fft.fftshift(np.abs(self.env_fourier)), color='blue', label='|$a(\omega)$|')
+        axs.plot(fft.fftshift(full_freqs), fft.fftshift(np.abs(self.vec_env_fourier)), color='orange', label='|$b(\omega)$|')
+        #plot the symmeterized envelope for comparison
+        self.calc_envelope(sym_mode=sym_mode)
+        env = self.get_envelope()
+        axs.plot(fft.fftshift(full_freqs), fft.fftshift(np.abs(self.env_fourier)), color='blue', linestyle='--')
+        axs.plot(fft.fftshift(full_freqs), fft.fftshift(np.abs(self.vec_env_fourier)), color='orange', linestyle='--')
+        ax2 = axs.twinx()
+        ax2.tick_params(axis ='y', labelcolor = 'green')
+        ext_angles = fft.fftshift(np.angle(self.vec_env_fourier))
+        ax2.plot(fft.fftshift(full_freqs), [fix_angle(a)/np.pi for a in ext_angles], color='green', linestyle='--')
+        #figure out the actual angles for comparison
+        pad_n = (0, self.mags.shape[0]-2+self.v_pts.shape[0]%2)
+        actual_angles = fft.fftshift( np.roll(np.pad(np.angle(self.vf)-self._phi_corr, pad_n), -self.f0_ind) )
+        ax2.plot(fft.fftshift(full_freqs), [fix_angle(a)/np.pi for a in actual_angles], color='green', label='arg[$a(\omega)$]')
+        ax2.set_ylim(-1, 1)
+        if not plt_raxs:
+            ax2.get_yaxis().set_visible(False)
 
 N_RES_PARAMS = 7
 class cluster_res:
@@ -635,7 +672,7 @@ class phase_finder:
     height: the thickness of the junction
     pass_alpha: The scale of the low pass filter applied to the time series. This corresponds to taking a time average of duration 2/pass_alpha on either side
     '''
-    def __init__(self, fname, pass_alpha=1.0, slice_dir='x', prefix='.', keep_n=2.5, scan_length=5, do_time_fits=False):
+    def __init__(self, fname, pass_alpha=1.0, slice_dir='x', prefix='.', keep_n=2.5, scan_length=5):
         self.prefix = prefix
         self.slice_dir = slice_dir
         self.slice_name = 'z'
@@ -643,7 +680,6 @@ class phase_finder:
             self.slice_name = 'x'
         self.keep_n = keep_n
         self.scan_length = scan_length
-        self.do_time_fits = do_time_fits
         #open the h5 file and identify all the clusters
         self.f = h5py.File(fname, "r")
         self.clust_names = []
@@ -693,147 +729,8 @@ class phase_finder:
     def get_point_times(self, clust, ind, low_pass=False):
         #fetch a list of points and their associated coordinates
         points = list(self.f[clust].keys())[1:]
-        #TODO: generate an estimate of err_2
-        #err_2 = 8*np.max(np.diff(v_pts)**2)
         err_2 = 0.02
         return np.array(self.f[clust][points[ind]]['time']['Re']), err_2
-
-    def opt_pulse(self, t_pts, a_pts, env_x, est_omega, est_phi):
-        '''Set values for the a_pts for each time point
-        a_pts: the values of the electric field at each corresponding time point in t_pts. Note that len(a_pts) must be the same as len(t_pts)
-        env_x: an array representing the value found from an envelope fit (i.e if you call res=opt_envelope(...) this would be res.x
-        est_omega: a guess of the value of omega based on the envelope fitting
-        est_phi: a guess of the value of the CEP based on the envelope fitting
-        returns: the fit result along with the lower and upper times used to perform the fitting'''
-
-        #truncate so that we only look at N_STDS deviations from the center of the pulse
-        if self.keep_n > 0:
-            dt = (t_pts[-1]-t_pts[0])/t_pts.shape[0]
-            i_0 = int(env_x[1]/dt)
-            i_shift = int(self.keep_n*env_x[2] / dt)
-            #make sure we don't go past the ends of the array
-            if i_0 < i_shift:
-                i_shift = i_0
-            if i_0+i_shift > t_pts.shape[0]:
-                i_shift = min(t_pts.shape[0] - i_0 - 1, i_0)
-            t_pts = t_pts[i_0-i_shift:i_0+i_shift]
-            a_pts = a_pts[i_0-i_shift:i_0+i_shift]
-            if len(t_pts) == 0:
-                t_pts = t_pts
-                a_pts = a_pts
-        else:
-            t_pts = t_pts
-            a_pts = a_pts
-
-        #it is helpful to try to get the amplitude close to unity so that the gradient in other directions is not suppressed
-        if env_x[0] != 0.0:
-            a_pts = a_pts / env_x[0]
-
-        #square error of the pulse envelope
-        def fp(x):
-            if x[2] == 0:
-                x[2] = 0.1
-            return np.sum( (gauss_series(x, t_pts) - a_pts)**2 )
-        def jac_fp(x):
-            p_i = gauss_series(x, t_pts) - a_pts
-            exp_cos = np.exp(-0.5*((t_pts-x[1])/x[2])**2)*np.cos(x[3]*(t_pts-x[1])-x[4])
-            exp_sin = np.exp(-0.5*((t_pts-x[1])/x[2])**2)*np.sin(x[3]*(t_pts-x[1])-x[4])       
-            t_dif_by_w = (t_pts-x[1])
-            ret = np.zeros(5)
-            ret[0] = 2*np.sum(p_i*exp_cos)
-            ret[1] = 2*x[0]*np.sum(p_i*(t_dif_by_w*exp_cos/(x[2]**2) + x[3]*exp_sin))
-            ret[2] = 2*x[0]*np.sum(p_i*exp_cos*t_dif_by_w**2)/(x[2]**3)
-            ret[3] = -2*x[0]*np.sum(p_i*exp_sin*t_dif_by_w)
-            ret[4] = 2*x[0]*np.sum(p_i*exp_sin)
-            return np.real(ret)
-
-        x0 = np.array([1.0, env_x[1], env_x[2], est_omega, est_phi])
-        #super hacky way to account for pi phase shifts
-        init_fp = fp(x0)
-        x0[4] += np.pi
-        if fp(x0) > init_fp:
-            x0[4] = est_phi
-        else:
-            est_phi += np.pi
-            init_fp = fp(x0)
-        x0[4] = fix_angle(x0[4])
-
-        #now we actually perform the minimization
-        res = opt.minimize(fp, x0, jac=jac_fp)
-        #sometimes the signal optimizes to zero, try flipping around if this happens
-        if res.fun > 10:
-            x0[4] += np.pi
-            x0[4] = fix_angle(x0[4])
-            res2 = opt.minimize(fp, x0, jac=jac_fp)
-            if res2.fun < res.fun:
-                res = res2
-
-        #renormalize thingies
-        res.x[0] = res.x[0]*env_x[0]
-        res.x[4] = fix_angle(res.x[4])
-        return res, t_pts[0], t_pts[-1], init_fp
-    def opt_double_pulse(self, t_pts, a_pts, env_x, est_omega, est_phi):
-        '''Set values for the a_pts for each time point
-        a_pts: the values of the electric field at each corresponding time point in t_pts. Note that len(a_pts) must be the same as len(t_pts)
-        env_x: an array representing the value found from an envelope fit (i.e if you call res=opt_envelope(...) this would be res.x
-        est_omega: a guess of the value of omega based on the envelope fitting
-        est_phi: a guess of the value of the CEP based on the envelope fitting
-        returns: the fit result along with the lower and upper times used to perform the fitting'''
-        #it is helpful to try to get the amplitude close to unity so that the gradient in other directions is not suppressed
-        if env_x[0] != 0.0:
-            a_pts = a_pts / env_x[0]
-
-        #square error of the pulse envelope
-        def fp(x):
-            return np.sum( (double_gauss_series(x, t_pts) - a_pts)**2 )
-        def jac_fp(x):
-            #negative amplitudes are invalid, fix them to be positive
-            x[0] = np.abs(x[0])
-            x[5] = np.abs(x[5])
-            #the difference between the fit/data series
-            p_i = double_gauss_series(x, t_pts) - a_pts
-            t_dif_0 = (t_pts-x[1])
-            t_dif_1 = (t_pts-x[6])
-            exp_cos_0 = x[0]*np.exp(-0.5*(t_dif_0/x[2])**2)*np.cos(x[3]*t_dif_0-x[4])
-            exp_sin_0 = x[0]*np.exp(-0.5*(t_dif_0/x[2])**2)*np.sin(x[3]*t_dif_0-x[4])
-            exp_cos_1 = x[5]*np.exp(-0.5*(t_dif_1/x[7])**2)*np.cos(x[3]*t_dif_0-x[4])
-            exp_sin_1 = x[5]*np.exp(-0.5*(t_dif_1/x[7])**2)*np.sin(x[3]*t_dif_0-x[4])
-            ret = np.zeros(8)
-            ret[0] = 2*np.sum(p_i*exp_cos_0)/x[0]
-            ret[1] = 2*np.sum(p_i*(t_dif_0*exp_cos_0/(x[2]**2) + x[3]*(exp_sin_0+exp_sin_1)))
-            ret[2] = 2*np.sum(p_i*exp_cos_0*t_dif_0**2)/(x[2]**3)
-            ret[3] =-2*np.sum(p_i*t_dif_0*(exp_sin_0+exp_sin_1))
-            ret[4] = 2*np.sum(p_i*(exp_sin_0+exp_sin_1))
-            ret[5] = 2*np.sum(p_i*exp_cos_1)/x[5]
-            ret[6] = 2*np.sum(p_i*(t_dif_1*exp_cos_1/(x[7]**2)))
-            ret[7] = 2*np.sum(p_i*exp_cos_1*t_dif_1**2)/(x[7]**3)
-            return np.real(ret)
-
-        x0 = np.array([1.0, env_x[1], env_x[2], est_omega, est_phi, env_x[3]/env_x[0], env_x[4], env_x[5]])
-        #super hacky way to account for pi phase shifts
-        init_fp = fp(x0)
-        x0[4] += np.pi
-        if fp(x0) > init_fp:
-            x0[4] = est_phi
-            init_fp = fp(x0)
-        else:
-            est_phi += np.pi
-        x0[4] = fix_angle(x0[4])
-
-        #now we actually perform the minimization
-        res = opt.minimize(fp, x0)
-        #sometimes the signal optimizes to zero, try flipping around if this happens
-        if res.fun > 10:
-            x0[4] += np.pi
-            x0[4] = fix_angle(x0[4])
-            res2 = opt.minimize(fp, x0, jac=jac_fp)
-            if res2.fun < res.fun:
-                res = res2
-
-        #renormalize thingies
-        res.x[0] = np.abs(res.x[0])*env_x[0]
-        res.x[5] = np.abs(res.x[5])*env_x[0]
-        return res, t_pts[0], t_pts[-1], init_fp
 
     def opt_pulse_full(self, t_pts, a_pts, err_sq, fig_name='', raw_ax=None, final_ax=None):
         if a_pts.shape != t_pts.shape:
@@ -849,72 +746,15 @@ class phase_finder:
         sig_env = psig.get_envelope()
         max_env_ind = np.argmax(sig_env)
         amp = sig_env[max_env_ind]
-        if not self.do_time_fits:
-            #phi = fix_angle(phi + w0*psig._t0_corr)
-            res = dummy_result(amp, w0, phi)
-            if fig_name != '':
-                res_name = fig_name+"_res.txt"
-                write_reses(res_name, [res])
-            if raw_ax is not None:
-                psig.make_raw_plt(raw_ax)
-            _,_,skew,_ = psig.get_skewness() 
-            return res, skew
-
-        peak_arr = psig.get_peaks()
-
-        if verbose > 2:
-            print("\tinitial peaks: {}\n\tinitial omega_0: {}\n\tinitial phi: {}".format(peak_arr[0:2], w0, phi))
-
-        used_double = False
-        res = None
-        low_t = t_pts[0]
-        hi_t = t_pts[-1]
-
-        #substantial evidence as defined by Jeffreys
-        ln_bayes = (0.5/err_sq)*(peak_arr[0,3] - peak_arr[1,3]) if peak_arr.shape[0] > 1 else 0.0
-        if verbose > 1:
-            print("\tenvelope sigma={}, bayes factor={}".format(err_sq, np.exp(ln_bayes)))
-        if np.isnan(ln_bayes) or ln_bayes > 1.15:
-            guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], peak_arr[1,2], peak_arr[1,0], peak_arr[1,1]])
-            res, low_t, hi_t, init_fun = self.opt_double_pulse(t_pts, a_pts, guess_x, w0, phi)
-            used_double = True
-        else:
-            guess_x = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1]])
-            res, low_t, hi_t, init_fun = self.opt_pulse(t_pts, a_pts, guess_x, w0, phi)
-
-        if verbose > 0:
-            print("\tenvelope type={}".format("double" if used_double else "single"))
-
-        #plot figures if requested
+        #store the information
+        res = extract_info(amp, w0, phi)
         if fig_name != '':
             res_name = fig_name+"_res.txt"
-            write_reses(res_name, [res, {"fun": init_fun, "x": guess_x}])
-        #save plots of the frequency domain and envelope extraction
+            write_reses(res_name, [res])
         if raw_ax is not None:
-            psig.make_raw_plt(raw_ax)
-        #save plots of the final fitted waveform
-        if final_ax is not None:
-            psig.make_fit_plt(final_ax)
-            final_ax.set_ylim([-0.2, 0.2])
-            if used_double:
-                x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], 2*np.pi*psig.f0, psig.phi, peak_arr[1,2], peak_arr[1,0], peak_arr[1,1]])
-                final_ax.plot(t_pts, double_gauss_env(x0, t_pts), color='red', linestyle=':')
-                final_ax.plot(t_pts, double_gauss_env(res.x, t_pts), color='blue', linestyle=':')
-                final_ax.plot(t_pts, double_gauss_series(x0, t_pts), color='red')
-                final_ax.plot(t_pts, double_gauss_series(res.x, t_pts), color='blue')
-            else:
-                x0 = np.array([peak_arr[0,2], peak_arr[0,0], peak_arr[0,1], 2*np.pi*psig.f0, psig.phi])
-                final_ax.plot(t_pts, gauss_env(x0, t_pts), color='red', linestyle=':')
-                final_ax.plot(t_pts, gauss_env(res.x, t_pts), color='blue', linestyle=':')
-                final_ax.axvline(x=low_t, color='gray', linestyle=':')
-                final_ax.axvline(x=hi_t, color='gray', linestyle=':')
-                final_ax.plot(t_pts, gauss_series(x0, t_pts), color='red')
-                final_ax.plot(t_pts, gauss_series(res.x, t_pts), color='blue')
-
-        if not res.success:
-            amp = np.max(np.abs(psig.get_envelope()))
-            res = dummy_result(amp, w0, psig._phi_corr)
-        _,_,skew,_ = psig.get_skewness()
+            psig.compare_fspace(raw_ax[0])
+            psig.compare_signals(raw_ax[1])
+        _,_,skew,_ = psig.get_skewness() 
         return res, skew
 
     def read_cluster(self, clust, save_fit_figs=False):
@@ -932,7 +772,6 @@ class phase_finder:
 
         ret = cluster_res(xs)
         good_js = []
-        phase_cor = 0
         for j in range(len(points)):
             v_pts, err_2 = self.get_point_times(clust, j, low_pass=False)
             if verbose > 0:
@@ -951,8 +790,6 @@ class phase_finder:
             res,skew = self.opt_pulse_full(self.t_pts, np.real(v_pts), err_2, fig_name=fig_name, raw_ax=raw_ax, final_ax=fin_ax)
             #save the point
             n_evals += 1
-            if verbose > 0:
-                print("\tsquare errors = {}\n\tx={}\n\tdiag(H^-1)={}".format(res.fun, res.x, np.diagonal(res.hess_inv)))
             good_js.append(j)
             ret.set_point(j, res, skew, err_2)
             if verbose > 0:
