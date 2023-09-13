@@ -1444,6 +1444,12 @@ TEST_CASE("context parsing") {
     }
 }
 
+bool cgs_true(value v) {
+    if (v.type == VAL_NUM && v.val.x == 1)
+	return true;
+    return false;
+}
+
 TEST_CASE("context file parsing") {
     line_buffer lb("tests/context_test.geom");
     CHECK(lb.get_n_lines() == 10);
@@ -1453,8 +1459,19 @@ TEST_CASE("context file parsing") {
     parse_ercode er = c.read_from_lines(lb);
     CHECK(er == E_SUCCESS);
     CHECK(c.size() == init_size+4);
+    CHECK(cgs_true( c.parse_value("\e_24.__type__ == \"Gaussian_source\"") ));
+    CHECK(cgs_true( c.parse_value("\e_24.component == 0") ));
+    CHECK(cgs_true( c.parse_value("\e_24.wavelength == 1.33") ));
+    CHECK(cgs_true( c.parse_value("\e_24.amplitude == 1") ));
+    CHECK(cgs_true( c.parse_value("\e_24.width == 2") ));
+    CHECK(cgs_true( c.parse_value("\e_24.phase == 0.0") ));
+    CHECK(cgs_true( c.parse_value("\e_24.cutoff == .125") ));
+    CHECK(cgs_true( c.parse_value("\e_24.start_time == -1.25") ));
+    CHECK(cgs_true( c.parse_value("\e_24.region.__type__ == \"Box\"") ));
+    CHECK(cgs_true( c.parse_value("\e_24.region.pt_1 == vec(0,0,1)") ));
+    CHECK(cgs_true( c.parse_value("\e_24.region.pt_2 == vec(4,4.,1)") ));
     //look at the Gaussian
-    value inst = c.peek_val(4); {
+    /*value inst = c.peek_val(4); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 9);
 	value tmp = inst.val.c->lookup("__type__");
@@ -1475,8 +1492,8 @@ TEST_CASE("context file parsing") {
 	tmp = inst.val.c->lookup("start_time");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == -1.25);
 	CHECK(is_type(inst.val.c->peek_val(), "Box"));
-    }
-    inst = c.peek_val(3); {
+    }*/
+    value inst = c.peek_val(3); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 8);
 	value tmp = inst.val.c->lookup("__type__");

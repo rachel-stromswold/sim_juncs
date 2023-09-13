@@ -127,6 +127,10 @@ value cgs_gen_plane(context* c, cgs_func f, parse_ercode& er) {
 	vec3 diff_3 = *(point_3.val.v) - *(point_1.val.v);
 	normal = make_val_vec3( diff_2.cross(diff_3).normalize() );
 	offset = normal.val.v->dot(*(point_1.val.v));
+	//cleanup intermediate values
+	cleanup_val(&point_1);
+	cleanup_val(&point_2);
+	cleanup_val(&point_3);
     }
     ret = make_val_inst(c, "Plane");
     ret.val.c->place_value("normal", normal);

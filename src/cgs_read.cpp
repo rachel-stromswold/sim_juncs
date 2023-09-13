@@ -1195,6 +1195,18 @@ bool value::operator==(const value& o) const {
 	    if (!res) return false;
 	}
 	return true;
+    } else if (type == VAL_3VEC) {
+	if (val.v == o.val.v)
+	    return true;
+	if (val.v != NULL && o.val.v != NULL)
+	    return *(val.v) == *(o.val.v);
+	return false;
+    } else if  (type == VAL_MAT) {
+	if (val.v == o.val.v)
+	    return true;
+	if (val.v != NULL && o.val.v != NULL)
+	    return *(val.m) == *(o.val.m);
+	return false;
     }
     //TODO: implement other comparisons
     return false;
@@ -1697,8 +1709,8 @@ context::~context() {
 	if (table[i])
 	    delete table[i];
     }
-    /*for (size_t i = 0; i < stack_ptr; ++i)
-	cleanup_val(&(buf[i].v));*/
+    for (size_t i = 0; i < stack_ptr; ++i)
+	cleanup_val(&(buf[i].v));
 }
 
 /**
@@ -1757,8 +1769,8 @@ parse_ercode context::set_value(const char* p_name, value p_val, bool force_push
     //generate a fake name if none was provided
     if (!p_name || p_name[0] == 0) {
 	char tmp[BUF_SIZE];
-	snprintf(tmp, BUF_SIZE, "0_%lu", stack_ptr);
-	set_value(tmp, p_val);
+	snprintf(tmp, BUF_SIZE, "\e_%lu", stack_ptr);
+	set_value(tmp, p_val, force_push, move_assign);
 	return E_SUCCESS;
     }
     size_t ti = fnv_1(p_name);
@@ -1767,6 +1779,7 @@ parse_ercode context::set_value(const char* p_name, value p_val, bool force_push
     //iterate through the linked list until we find a matching name
     while(cur && !force_push) {
 	if (strcmp(p_name, cur->name) == 0) {
+	    cleanup_val(&(buf[cur->ind].v));
 	    buf[cur->ind].v = (move_assign)? p_val : copy_val(p_val);
 	    return E_SUCCESS;
 	}
@@ -2404,6 +2417,21 @@ clean_paren:
 	if (er != E_SUCCESS) { sto.type=VAL_UNDEF;return sto; }
     }
     return sto;
+}
+
+/**
+ * Easily inspect values using const strings
+ */
+value context::parse_value(const char* tok) {
+    parse_ercode er;
+    char* tmp = strdup(tok);
+    value ret = parse_value(tmp, er);
+    free(tmp);
+    if (er != E_SUCCESS) {
+	cleanup_val(&ret);
+	ret = make_val_undef();
+    }
+    return ret;
 }
 
 /*

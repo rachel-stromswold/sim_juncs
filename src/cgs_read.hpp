@@ -444,6 +444,7 @@ public:
     parse_ercode pop_n(size_t n);
     value parse_value(char* tok, parse_ercode& er);
     value parse_value(const line_buffer& b, line_buffer_ind& pos, parse_ercode& er);
+    value parse_value(const char* tok);
     cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
     void swap(stack<val_ind>& o) { stack<val_ind>::swap(o); }
