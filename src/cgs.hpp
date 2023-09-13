@@ -193,9 +193,9 @@ public:
     scene() {}
     scene(const char* p_fname, parse_ercode* ercode = NULL);
     scene(const char* p_fname, context con, parse_ercode* ercode = NULL);
-    scene(const scene& o);
+    /*scene(const scene& o);
     scene(scene&& o);
-    scene& operator=(scene& o);
+    scene& operator=(scene& o);*/
     ~scene();
 
     std::vector<composite_object*> get_roots() { return roots; }

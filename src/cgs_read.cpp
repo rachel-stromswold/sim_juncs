@@ -773,7 +773,7 @@ char line_buffer::get(line_buffer_ind pos) const {
 /**
  * Make a vector argument with the x,y, and z coordinates supplied
  */
-value make_vec(context& c, cgs_func tmp_f, parse_ercode& er) {
+value make_vec(context* c, cgs_func tmp_f, parse_ercode& er) {
     value sto;sto.type = VAL_UNDEF;
     if (tmp_f.n_args < 3) { er = E_LACK_TOKENS;return sto; }
     if (tmp_f.args[0].type != VAL_NUM || tmp_f.args[1].type != VAL_NUM || tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return sto; }
@@ -786,7 +786,7 @@ value make_vec(context& c, cgs_func tmp_f, parse_ercode& er) {
 /**
  * Make a range following python syntax. If one argument is supplied then a list with tmp_f.args[0] elements is created starting at index 0 and going up to (but not including) tmp_f.args[0]. If two arguments are supplied then the range is from (tmp_f.args[0], tmp_f.args[1]). If three arguments are supplied then the range (tmp_f.args[0], tmp_f.args[1]) is still returned, but now the spacing between successive elements is tmp_f.args[2].
  */
-value make_range(context& c, cgs_func tmp_f, parse_ercode& er) {
+value make_range(context* c, cgs_func tmp_f, parse_ercode& er) {
     value sto;sto.type = VAL_UNDEF;
     if (tmp_f.n_args == 0) {
 	er = E_LACK_TOKENS;
@@ -859,7 +859,7 @@ value make_range(context& c, cgs_func tmp_f, parse_ercode& er) {
 /**
  * linspace(a, b, n) Create a list of n equally spaced real numbers starting at a and ending at b. This function must be called with three aguments unlike np.linspace. Note that the value b is included in the list
  */
-value make_linspace(context& c, cgs_func tmp_f, parse_ercode& er) {
+value make_linspace(context* c, cgs_func tmp_f, parse_ercode& er) {
     value sto;
     if (tmp_f.n_args < 3) {
         er = E_LACK_TOKENS;
@@ -894,7 +894,7 @@ value make_linspace(context& c, cgs_func tmp_f, parse_ercode& er) {
  * Take a list value and flatten it so that it has numpy dimensions (n) where n is the sum of the length of each list in the base list. values are copied in order e.g flatten([0,1],[2,3]) -> [0,1,2,3]
  * cgs_func: the function with arguments passed
  */
-value flatten_list(context& c, cgs_func tmp_f, parse_ercode& er) {
+value flatten_list(context* c, cgs_func tmp_f, parse_ercode& er) {
     value sto;sto.type = VAL_UNDEF;
     if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
     if (tmp_f.args[0].type != VAL_LIST) { er = E_BAD_VALUE;return sto; }
@@ -953,7 +953,7 @@ value flatten_list(context& c, cgs_func tmp_f, parse_ercode& er) {
 /**
  * print the elements to the console
  */
-value print(context& c, cgs_func tmp_f, parse_ercode& er) {
+value print(context* c, cgs_func tmp_f, parse_ercode& er) {
     value ret;ret.type = VAL_UNDEF;ret.val.x = 0;ret.n_els = 0;
     for (size_t i = 0; i < tmp_f.n_args; ++i) {
 	if (tmp_f.args[i].type == VAL_NUM) {
@@ -971,29 +971,29 @@ value print(context& c, cgs_func tmp_f, parse_ercode& er) {
 }
 
 //math functions
-value fun_sin(context& c, cgs_func f, parse_ercode& er) {
-    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for sin()");return make_val_undef(); }
-    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("sin() only accept numbers");return make_val_undef(); }
+value fun_sin(context* c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c->error("expected argument for sin()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c->error("sin() only accept numbers");return make_val_undef(); }
     return make_val_num( sin(f.args[0].val.x) );
 }
-value fun_cos(context& c, cgs_func f, parse_ercode& er) {
-    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for cos()");return make_val_undef(); }
-    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("cos() only accept numbers");return make_val_undef(); }
+value fun_cos(context* c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c->error("expected argument for cos()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c->error("cos() only accept numbers");return make_val_undef(); }
     return make_val_num( cos(f.args[0].val.x) );
 }
-value fun_tan(context& c, cgs_func f, parse_ercode& er) {
-    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for tan()");return make_val_undef(); }
-    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("tan() only accept numbers");return make_val_undef(); }
+value fun_tan(context* c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c->error("expected argument for tan()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c->error("tan() only accept numbers");return make_val_undef(); }
     return make_val_num( tan(f.args[0].val.x) );
 }
-value fun_exp(context& c, cgs_func f, parse_ercode& er) {
-    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for tan()");return make_val_undef(); }
-    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("tan() only accept numbers");return make_val_undef(); }
+value fun_exp(context* c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c->error("expected argument for tan()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c->error("tan() only accept numbers");return make_val_undef(); }
     return make_val_num( exp(f.args[0].val.x) );
 }
-value fun_sqrt(context& c, cgs_func f, parse_ercode& er) {
-    if (f.n_args < 1) { er = E_LACK_TOKENS;c.error("expected argument for tan()");return make_val_undef(); }
-    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c.error("tan() only accept numbers");return make_val_undef(); }
+value fun_sqrt(context* c, cgs_func f, parse_ercode& er) {
+    if (f.n_args < 1) { er = E_LACK_TOKENS;c->error("expected argument for tan()");return make_val_undef(); }
+    if (f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;c->error("tan() only accept numbers");return make_val_undef(); }
     return make_val_num( sqrt(f.args[0].val.x) );
 }
 
@@ -1061,7 +1061,7 @@ value make_val_vec3(vec3 vec) {
 /**
  * Add a new callable function with the signature sig and function pointer corresponding to the executed code. This function must accept a function and a pointer to an error code and return a value.
  */
-value make_val_func(const char* name, size_t n_args, value (*p_exec)(context&, cgs_func, parse_ercode&)) {
+value make_val_func(const char* name, size_t n_args, value (*p_exec)(context*, cgs_func, parse_ercode&)) {
     /*cgs_func sig;
     sig.name = strdup(name);
     sig.n_args = n_args;
@@ -1075,6 +1075,19 @@ value make_val_func(const char* name, size_t n_args, value (*p_exec)(context&, c
     ret.n_els = n_args;
     ret.val.f = new user_func(p_exec);
     return ret;
+}
+/**
+ * make an instance object with the given type
+ */
+value make_val_inst(context* parent, const char* s) {
+    value v;
+    v.type = VAL_INST;
+    v.val.c = new context(parent);
+    if (s && s[0] != 0) {
+	value tmp = make_val_str(s);
+	v.val.c->place_value("__type__", tmp);
+    }
+    return v;
 }
 
 bool is_type(value v, const char* str) {
@@ -1347,6 +1360,69 @@ value value::cast_to(valtype t, parse_ercode& er) const {
     return ret;
 }
 
+void print_spaces(FILE* f, size_t n) {
+    for (size_t i = 0; i < n; ++i)
+	fprintf(f, " |");
+}
+void value::print_hierarchy(FILE* f, size_t depth) const {
+    if (f == NULL)
+	f = stdout;
+    //print the left tree view thingie
+    print_spaces(f, depth);
+    /*if (depth > 0 && type != VAL_LIST && type != VAL_ARRAY && type != VAL_INST)
+	fprintf(f, "|");*/
+    //now we handle all of the simple (non-recursive) prints
+    if (type == VAL_UNDEF) {
+	fprintf(f, "UNDEFINED\n");
+    } else if (type == VAL_UNINIT) {
+	fprintf(f, "UNINITIALIZED\n");
+    } else if (type == VAL_NUM) {
+	fprintf(f, "%f\n", val.x);
+    } else if (type == VAL_STR) {
+	fprintf(f, "\"%s\"\n", val.s);
+    } else if (type == VAL_3VEC || type == VAL_MAT) {
+	char* vec_str = (char*)malloc(sizeof(char)*BUF_SIZE);
+	val.v->to_str(vec_str, BUF_SIZE);
+	fprintf(f, "%s\n", vec_str);
+	free(vec_str);
+    } else if (type == VAL_FUNC) {
+	fprintf(f, "%p\n", val.f);
+    //now handle all the recursive prints
+    } else if (type == VAL_LIST) {
+	fprintf(f, "[+\n"/*]*/);
+	for (size_t i = 0; i < n_els; ++i)
+	    val.l[i].print_hierarchy(f, depth+1);
+	print_spaces(f, depth);
+	fprintf(f, /*[*/"]\n");
+    } else if (type == VAL_ARRAY) {
+	fprintf(f, "([+\n"/*])*/);
+	for (size_t i = 0; i < n_els; ++i) {
+	    print_spaces(f, depth+2);
+	    fprintf(f, "|%f\n", val.a[i]);
+	}
+	print_spaces(f, depth+1);
+	fprintf(f, /*([*/"])\n");
+    } else if (type == VAL_INST) {
+	fprintf(f, "{+\n"/*}*/);
+	for (size_t i = val.c->size(); i > 0; --i) {
+	    name_val_pair pair = val.c->inspect(i);
+	    value tmp = pair.get_val();
+	    print_spaces(f, depth+1);
+	    fprintf(f, "%s:", pair.get_name());
+	    //use space economically for simple types
+	    if (tmp.type == VAL_LIST || tmp.type == VAL_ARRAY || tmp.type == VAL_INST) {
+		fprintf(f, " -V\n");
+		tmp.print_hierarchy(f, depth+1);
+	    } else {
+		fprintf(f, " ");
+		tmp.print_hierarchy(f, 0);
+	    }
+	}
+	print_spaces(f, depth);
+	fprintf(f, /*{*/"}\n");
+    }
+}
+
 /** ======================================================== cgs_func ======================================================== **/
 
 void cleanup_func(cgs_func* f) {
@@ -1494,22 +1570,7 @@ value& name_val_pair::get_val() {
     return val;
 }
 
-/** ======================================================== cgs_func ======================================================== **/
-
-/*context::context(const context& o) {
-    parent = o.parent;
-    stack_ptr = o.stack_ptr;
-    for (size_t i = 0; i < stack_ptr; ++i) {
-	buf[i] = o.buf[i];
-    }
-}
-context::context(context&& o) {
-    parent = o.parent;
-    stack_ptr = o.stack_ptr;
-    for (size_t i = 0; i < stack_ptr; ++i) {
-	buf[i] = o.buf[i];
-    }
-}*/
+/** ======================================================== context ======================================================== **/
 
 /**
  * Given the string starting at token, and the index of an open paren parse the result into a cgs_func struct.
@@ -1581,44 +1642,50 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
     return f;
 }
 
-/** ======================================================== context ======================================================== **/
-
-/**
- * setup pointers to all the builtin functions
- */
-void context::setup_builtins() {
-#ifndef BRANCH_CALL
-    value tmp_f = make_val_func("vec", 3, &make_vec);
-    set_value("vec", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("range", 1, &make_range);
-    set_value("range", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("linspace", 3, &make_linspace);
-    set_value("linspace", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("flatten", 1, &flatten_list);
-    set_value("flatten", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("print", 1, &print);
-    set_value("print", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("sin", 1, &fun_sin);
-    set_value("sin", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("cos", 1, &fun_cos);
-    set_value("cos", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("tan", 1, &fun_tan);
-    set_value("tan", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("exp", 1, &fun_exp);
-    set_value("exp", tmp_f);
-    cleanup_val(&tmp_f);
-    tmp_f = make_val_func("sqrt", 1, &fun_sqrt);
-    set_value("sqrt", tmp_f);
-    cleanup_val(&tmp_f);
-#endif
+void context::copy_context(const context& o) {
+    //we can't copy parents, so use the same
+    parent = o.parent;
+    //allocate the buffer
+    grow(o.stack_ptr+1);
+    stack_ptr = o.stack_ptr;
+    for (size_t i = 0; i < stack_ptr; ++i) {
+	buf[i].i = o.buf[i].i;
+	buf[i].v = copy_val(o.buf[i].v);
+    }
+    //now we need to copy over the table
+    for (size_t i = 0; i < TABLE_SIZE(TABLE_BITS); ++i) {
+	if (o.table[i]) {
+	    name_ind* o_cur = o.table[i];
+	    table[i] = new name_ind();
+	    name_ind* t_cur = table[i];
+	    while (true) {
+		if (o_cur->name)
+		    t_cur->name = strdup(o_cur->name);
+		t_cur->ind = o_cur->ind;
+		//break if this is the end of the list, otherwise repeat using the next element
+		if (o_cur->next == NULL)
+		    break;
+		t_cur->next = new name_ind();
+		o_cur = o_cur->next;
+		t_cur = t_cur->next;
+	    }
+	} else {
+	    table[i] = NULL;
+	}
+    }
+}
+context::context(context&& o) {
+    parent = o.parent;
+    stack_ptr = o.stack_ptr;
+    for (size_t i = 0; i < stack_ptr; ++i) {
+	buf[i] = o.buf[i];
+	o.buf[i].v = make_val_undef();
+    }
+    //moving linked lists is actually trivial
+    for (size_t i = 0; i < TABLE_SIZE(TABLE_BITS); ++i) {
+	table[i] = o.table[i];
+	o.table[i] = NULL;
+    }
 }
 
 /**
@@ -1626,15 +1693,40 @@ void context::setup_builtins() {
  */
 context::~context() {
     //erase the hash table
-    /*for (size_t i = 0; i < TABLE_SIZE(TABLE_BITS); ++i) {
-	name_ind* cur = table[i];
-	table[i] = NULL;
-	while (cur) {
-	    name_ind* next = cur->next;
-	    delete cur;
-	    cur = next;
-	}
-    }*/
+    for (size_t i = 0; i < TABLE_SIZE(TABLE_BITS); ++i) {
+	if (table[i])
+	    delete table[i];
+    }
+    /*for (size_t i = 0; i < stack_ptr; ++i)
+	cleanup_val(&(buf[i].v));*/
+}
+
+/**
+ * setup pointers to all the builtin functions
+ */
+void context::setup_builtins() {
+#ifndef BRANCH_CALL
+    value tmp_f = make_val_func("vec", 3, &make_vec);
+    place_value("vec", tmp_f);
+    tmp_f = make_val_func("range", 1, &make_range);
+    place_value("range", tmp_f);
+    tmp_f = make_val_func("linspace", 3, &make_linspace);
+    place_value("linspace", tmp_f);
+    tmp_f = make_val_func("flatten", 1, &flatten_list);
+    place_value("flatten", tmp_f);
+    tmp_f = make_val_func("print", 1, &print);
+    place_value("print", tmp_f);
+    tmp_f = make_val_func("sin", 1, &fun_sin);
+    place_value("sin", tmp_f);
+    tmp_f = make_val_func("cos", 1, &fun_cos);
+    place_value("cos", tmp_f);
+    tmp_f = make_val_func("tan", 1, &fun_tan);
+    place_value("tan", tmp_f);
+    tmp_f = make_val_func("exp", 1, &fun_exp);
+    place_value("exp", tmp_f);
+    tmp_f = make_val_func("sqrt", 1, &fun_sqrt);
+    place_value("sqrt", tmp_f);
+#endif
 }
 
 //non-cryptographically hash the string str
@@ -1658,9 +1750,10 @@ size_t fnv_1(const char* str) {
  * name: the name of the variable to set
  * new_val: the value to set the variable to
  * force_push: If set to true, then set_value is guaranteed to increase the stack size by one, even if there is already an element named p_name. This element is guaranteed to receive priority over the existing element, so this may be used to simulate scoped variables.
+ * move_assign: If set to true, then the value is directly moved into the context. This can save some time.
  * returns: E_SUCCESS if the variable with a matching name was found or E_NOT_DEFINED otherwise
  */
-parse_ercode context::set_value(const char* p_name, value p_val, bool force_push) {
+parse_ercode context::set_value(const char* p_name, value p_val, bool force_push, bool move_assign) {
     //generate a fake name if none was provided
     if (!p_name || p_name[0] == 0) {
 	char tmp[BUF_SIZE];
@@ -1673,17 +1766,18 @@ parse_ercode context::set_value(const char* p_name, value p_val, bool force_push
     name_ind* cur = table[ti];
     //iterate through the linked list until we find a matching name
     while(cur && !force_push) {
-	if (strcmp(p_name, buf[cur->ind].get_name()) == 0) {
-	    buf[cur->ind].get_val() = copy_val(p_val);
+	if (strcmp(p_name, cur->name) == 0) {
+	    buf[cur->ind].v = (move_assign)? p_val : copy_val(p_val);
 	    return E_SUCCESS;
 	}
 	cur = cur->next;
     }
     //if we reach this point then no entry with the matching name was found, add it
-    table[ti] = new name_ind(stack_ptr, table[ti]);
+    table[ti] = new name_ind(p_name, stack_ptr, table[ti]);
     if (force_push)
 	table[ti]->next = cur;
-    name_val_pair inst(p_name, p_val);
+    value tmp_v = (move_assign)? p_val : copy_val(p_val);
+    val_ind inst(ti, tmp_v);
     push(inst);
     return E_SUCCESS;
 }
@@ -1698,8 +1792,8 @@ value context::lookup(const char* str) const {
     //lookup
     name_ind* cur = table[fnv_1(str)];
     while(cur) {
-	if (strcmp(str, buf[cur->ind].get_name()) == 0)
-	    return buf[cur->ind].get_val();
+	if (strcmp(str, cur->name) == 0)
+	    return buf[cur->ind].v;
 	cur = cur->next;
     }
     //try searching through the parent if that didn't work
@@ -1713,27 +1807,43 @@ value context::lookup(const char* str) const {
 
 value context::peek_val(size_t i) {
     if (i < stack_ptr)
-	return buf[stack_ptr - i].get_val();
+	return buf[stack_ptr - i].v;
     value ret;ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;
     return ret;
 }
 
-parse_ercode context::pop(name_val_pair* ptr) {
+name_val_pair context::inspect(size_t i) {
+    if (i > 0 && i <= stack_ptr) {
+	//get the appropriate stack element and search through its corresponding hash table bucket
+	size_t j = stack_ptr-i;
+	char* name = NULL;
+	name_ind* cur = table[buf[j].i];
+	while (cur) {
+	    if (cur->ind == j) {
+		return name_val_pair(cur->name, buf[j].v);
+	    }
+	    cur = cur->next;
+	}
+    }
+    return name_val_pair(0);
+}
+
+parse_ercode context::pop(val_ind* ptr) {
     if (stack_ptr == 0)
 	return E_EMPTY_STACK;
     //find the name of the item on top of the stack and look up the current index
-    const char* p_name = buf[stack_ptr-1].get_name();
-    size_t ti = fnv_1(p_name);
+    size_t ti = buf[stack_ptr-1].i;
     name_ind* cur = table[ti];
     name_ind* prev = NULL;
     while (cur) {
-	if (strcmp(p_name, buf[cur->ind].get_name()) == 0) {
+	if (cur->ind == stack_ptr-1) {
 	    if (prev)
 		prev->next = cur->next;
 	    else
 		table[ti] = cur->next;
 	    if (ptr)
 		*ptr = buf[--stack_ptr];
+	    delete cur;
 	    break;
 	}
     }
@@ -1809,8 +1919,7 @@ value context::parse_list(char* str, parse_ercode& er) {
 	    if (er != E_SUCCESS) { n_els = i;return sto; }
 	}
 	//we need to remove the the variable we loop over
-	name_val_pair tmp;
-	pop(&tmp);
+	pop(NULL);
 	//reset the string so that it can be parsed again
 	for_start[0] = 'f';
 	in_start[0] = 'i';
@@ -2118,7 +2227,8 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    sto.n_els = last_close_ind-first_open_ind;
 	    //allocate memory and copy
 	    sto.val.s = (char*)malloc(sizeof(char)*sto.n_els);
-	    for (size_t j = 0; j < sto.n_els-1; ++j) sto.val.s[j] = str[first_open_ind+j+1];
+	    for (size_t j = 0; j < sto.n_els-1; ++j)
+		sto.val.s[j] = str[first_open_ind+j+1];
 	    sto.val.s[sto.n_els-1] = 0;
 	} else if (str[first_open_ind] == '[' && str[last_close_ind] == ']') {
 	    //first check to see if the user is trying to access an element
@@ -2266,7 +2376,7 @@ clean_paren:
 		    if (func_val.type == VAL_FUNC) {
 			//make sure that the function was found and that sufficient arguments were provided
 			if (func_val.n_els <= tmp_f.n_args) {
-			    sto = func_val.val.f->eval(*this, tmp_f, er);
+			    sto = func_val.val.f->eval(this, tmp_f, er);
 			} else {
 			    printf("Error: unrecognized function name %s\n", tmp_f.name);
 			    er = E_LACK_TOKENS;
@@ -2418,8 +2528,7 @@ parse_ercode context::read_single_line(context::read_state& rs) {
     if (started) {
 	value tmp_val = parse_value(rs.buf+rval_ind, er);
 	if (er != E_SUCCESS) return er;
-	set_value(lval, tmp_val);
-	//cleanup_val(&tmp_val);
+	place_value(lval, tmp_val);
     } else {
 	rs.pos.line += 1;
 	rs.pos.off = 0;
@@ -2498,7 +2607,7 @@ user_func::user_func(cgs_func sig, line_buffer b) : code_lines(b) {
  * n: the number of characters currently in the buffer, see read_cgs_line
  * fp: the file pointer to read from
  */
-user_func::user_func(value (*p_exec)(context&, cgs_func, parse_ercode&)) : call_sig() {
+user_func::user_func(value (*p_exec)(context*, cgs_func, parse_ercode&)) : call_sig() {
     exec = p_exec;
 }
 //deallocation
@@ -2524,14 +2633,14 @@ typedef enum {TOK_NONE, TOK_IF, TOK_FOR, TOK_WHILE, TOK_RETURN} token_type;
 /**
  * evaluate the function
  */
-value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
+value user_func::eval(context* c, cgs_func call, parse_ercode& er) {
     value sto;
     if (exec) {
 	value ret = (*exec)(c, call, er);
 	return ret;
     } else if (call.n_args == call_sig.n_args) {
 	//setup a new scope with function arguments defined
-	context func_scope(&c);
+	context func_scope(c);
 	for (size_t i = 0; i < call_sig.n_args; ++i) {
 	    func_scope.set_value(call_sig.arg_names[i], call.args[i]);
 	}

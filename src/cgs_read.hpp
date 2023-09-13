@@ -37,7 +37,7 @@ typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
 typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED, E_OUT_OF_RANGE, E_BAD_FLOAT } parse_ercode;
-typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_ARRAY, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST} valtype;
+typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_ARRAY, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST, VAL_UNINIT} valtype;
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
 
 inline void* xrealloc(void* p, size_t nsize) {
@@ -138,6 +138,8 @@ protected:
 	buf_len = new_size;
 
 	T* tmp_buf = (T*)malloc(sizeof(T)*buf_len);
+	if (stack_ptr >= buf_len)
+	    printf("something went wrong %lu >= %lu\n", stack_ptr, buf_len);
 	//copy memory to new block if allocation was successful or return nomem error
 	if (tmp_buf) {
 	    for (size_t i = 0; i < stack_ptr; ++i) {
@@ -316,6 +318,8 @@ struct value {
     double to_float();
     int rep_string(char* sto, size_t n) const;
     value cast_to(valtype type, parse_ercode& er) const;
+    //print the hierarchy to standard output
+    void print_hierarchy(FILE* f=NULL, size_t depth=0) const;
 };
 //check whether the value is of the specified type based on the type string
 inline bool is_type(value v, valtype t) { return v.type == t; }
@@ -339,7 +343,8 @@ value make_val_array(std::vector<double> a);
 value make_val_list(const value* vs, size_t n_vs);
 value make_val_mat(mat3x3 m);
 value make_val_vec3(vec3 vec);
-value make_val_func(const char* name, size_t n_args, value (*p_exec)(context&, cgs_func, parse_ercode&));
+value make_val_func(const char* name, size_t n_args, value (*p_exec)(context*, cgs_func, parse_ercode&));
+value make_val_inst(context* parent, const char* s);
 cgs_func parse_func_decl(char* str);
 cgs_func copy_func(const cgs_func o);
 void cleanup_func(cgs_func* o);
@@ -382,11 +387,25 @@ public:
 
 /** ============================ context ============================ **/
 struct name_ind {
+    char* name;
     size_t ind;
     name_ind* next;
-    name_ind(size_t i, name_ind* ptr=NULL) { ind = i;next=ptr; }
+    name_ind() { name = NULL;ind = 0;next = NULL; }
+    name_ind(const char* p_name, size_t i, name_ind* ptr=NULL) { name = strdup(p_name);ind = i;next=ptr; }
+    ~name_ind() {
+	free(name);
+	if (next) delete next;
+	name = NULL;
+	next = NULL;
+    }
 };
-class context : public stack<name_val_pair> {
+struct val_ind {
+    size_t i;
+    value v;
+    val_ind(int p_i) { i=p_i;v.type=VAL_UNDEF; }
+    val_ind(size_t p_i, value p_v) { i = p_i;v = p_v; }
+};
+class context : public stack<val_ind> {
 private:
     //members
     context* parent;
@@ -410,21 +429,26 @@ private:
 	for(size_t i = 0; i < TABLE_SIZE(TABLE_BITS); ++i) { table[i] = NULL; }
     }
     void setup_builtins();
+    void copy_context(const context& o);
 
 public:
-    context() : stack<name_val_pair>() { init();setup_builtins();parent = NULL; }
-    context(context* p_parent) : stack<name_val_pair>() { init();parent = p_parent; }
+    context() : stack<val_ind>() { init();setup_builtins();parent = NULL; }
+    context(context* p_parent) : stack<val_ind>() { init();parent = p_parent; }
+    context(const context& o) { stack_ptr=0;copy_context(o); }
+    context operator=(const context& o) { stack_ptr=0;copy_context(o);return *this; }
+    context(context&& o);
     ~context();
-    //void emplace(const char* p_name, value p_val); { name_val_pair inst(p_name, p_val);push(inst); }
+    //void emplace(const char* p_name, value p_val); { val_ind inst(p_name, p_val);push(inst); }
     value lookup(const char* name) const;
-    parse_ercode pop(name_val_pair* ptr=NULL);
+    parse_ercode pop(val_ind* ptr=NULL);
     parse_ercode pop_n(size_t n);
     value parse_value(char* tok, parse_ercode& er);
     value parse_value(const line_buffer& b, line_buffer_ind& pos, parse_ercode& er);
     cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
-    void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }
-    parse_ercode set_value(const char* name, value new_val, bool force_push=false);
+    void swap(stack<val_ind>& o) { stack<val_ind>::swap(o); }
+    parse_ercode set_value(const char* name, value new_val, bool force_push=false, bool move_assign=false);
+    parse_ercode place_value(const char* name, value new_val) { return set_value(name, new_val, false, true); }
     parse_ercode read_from_lines(const line_buffer& b);
     void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
     value peek_val(size_t i=1);
@@ -432,6 +456,7 @@ public:
 	//TODO: something that isn't dumb
 	printf("Error: %s\n", msg);
     }
+    name_val_pair inspect(size_t i=1);
 };
 
 /**
@@ -441,16 +466,16 @@ class user_func {
 private:
     cgs_func call_sig;
     line_buffer code_lines;
-    value (*exec)(context&, cgs_func, parse_ercode&);
+    value (*exec)(context*, cgs_func, parse_ercode&);
 public:
     //read the function with contents stored in the file pointer fp at the current file position
     user_func(cgs_func sig, line_buffer p_buf);
-    user_func(value (*p_exec)(context&, cgs_func, parse_ercode&));
+    user_func(value (*p_exec)(context*, cgs_func, parse_ercode&));
     ~user_func();
     user_func(const user_func& o);
     user_func(user_func&& o);
     line_buffer& get_buffer() { return code_lines; }
-    value eval(context& c, cgs_func call, parse_ercode& er);
+    value eval(context* c, cgs_func call, parse_ercode& er);
 };
 
 #endif //CGS_READ_H

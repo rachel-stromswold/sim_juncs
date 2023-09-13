@@ -13,20 +13,20 @@
 enum basis_comp_vectors { C_EX, C_EY, C_EZ, C_HX, C_HY, C_HZ };
 
 basis_comp_vectors read_component_string(const char* str);
-value cgs_gen_gaussian_source(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_continuous_source(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_box(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_plane(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_sphere(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_cylinder(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_composite(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_union(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_intersect(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_complement(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_difference(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_snapshot(context& c, cgs_func f, parse_ercode& er);
-value cgs_gen_monitor(context& c, cgs_func f, parse_ercode& er);
+value cgs_gen_gaussian_source(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_continuous_source(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_box(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_plane(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_sphere(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_cylinder(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_composite(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_union(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_intersect(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_complement(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_difference(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_snapshot(context* c, cgs_func f, parse_ercode& er);
+value cgs_gen_monitor(context* c, cgs_func f, parse_ercode& er);
 
-void setup_geometry_context(context& con);
+void setup_geometry_context(context* con);
 
 #endif

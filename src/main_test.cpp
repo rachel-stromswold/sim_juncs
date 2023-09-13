@@ -1288,7 +1288,7 @@ TEST_CASE("line_buffer get_enclosed") {
     }
 }
 
-value test_fun_call(context& c, cgs_func f, parse_ercode& er) {
+value test_fun_call(context* c, cgs_func f, parse_ercode& er) {
     value ret;
     if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
     if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
@@ -1304,7 +1304,7 @@ value test_fun_call(context& c, cgs_func f, parse_ercode& er) {
     return f.args[0];
 }
 
-value test_fun_gamma(context& c, cgs_func f, parse_ercode& er) {
+value test_fun_gamma(context* c, cgs_func f, parse_ercode& er) {
     value ret;
     if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
     if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
@@ -1358,7 +1358,7 @@ TEST_CASE("context parsing") {
 	CHECK(val_c.val.l[0].type == VAL_STR);
 	CHECK(val_c.val.l[1].type == VAL_STR);
 	//lookup the stack value
-	name_val_pair pair_b = c.peek(2);
+	name_val_pair pair_b = c.inspect(2);
 	value val_b = pair_b.get_val();
 	CHECK(val_b.type == VAL_STR);
 	printf("val_b = %s", val_b.val.s);
@@ -1448,7 +1448,7 @@ TEST_CASE("context file parsing") {
     line_buffer lb("tests/context_test.geom");
     CHECK(lb.get_n_lines() == 10);
     context c;
-    setup_geometry_context(c);
+    setup_geometry_context(&c);
     size_t init_size = c.size();
     parse_ercode er = c.read_from_lines(lb);
     CHECK(er == E_SUCCESS);
@@ -1457,11 +1457,10 @@ TEST_CASE("context file parsing") {
     value inst = c.peek_val(4); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 9);
-	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("__type__"));
-	CHECK(strval.get_val().type == VAL_STR);
-	CHECK(strcmp(strval.get_val().val.s, "Gaussian_source") == 0);
-	value tmp = inst.val.c->lookup("component");
+	value tmp = inst.val.c->lookup("__type__");
+	CHECK(tmp.type == VAL_STR);
+	CHECK(strcmp(tmp.val.s, "Gaussian_source") == 0);
+	tmp = inst.val.c->lookup("component");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_EX);
 	tmp = inst.val.c->lookup("wavelength");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == doctest::Approx(1.33));
@@ -1480,11 +1479,10 @@ TEST_CASE("context file parsing") {
     inst = c.peek_val(3); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 8);
-	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("__type__"));
-	CHECK(strval.get_val().type == VAL_STR);
-	CHECK(strcmp(strval.get_val().val.s, "CW_source") == 0);
-	value tmp = inst.val.c->lookup("component");
+	value tmp = inst.val.c->lookup("__type__");
+	CHECK(tmp.type == VAL_STR);
+	CHECK(strcmp(tmp.val.s, "CW_source") == 0);
+	tmp = inst.val.c->lookup("component");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_HZ);
 	tmp = inst.val.c->lookup("wavelength");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.625);
@@ -1501,11 +1499,10 @@ TEST_CASE("context file parsing") {
     inst = c.peek_val(2); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 5);
-	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("__type__"));
-	CHECK(strval.get_val().type == VAL_STR);
-	CHECK(strcmp(strval.get_val().val.s, "Composite") == 0);
-	value tmp = inst.val.c->lookup("eps");
+	value tmp = inst.val.c->lookup("__type__");
+	CHECK(tmp.type == VAL_STR);
+	CHECK(strcmp(tmp.val.s, "Composite") == 0);
+	tmp = inst.val.c->lookup("eps");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 3.5);
 	tmp = inst.val.c->lookup("alpha");
 	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1);
@@ -1520,11 +1517,10 @@ TEST_CASE("context file parsing") {
     inst = c.peek_val(1); {
 	CHECK(inst.type == VAL_INST);
 	CHECK(inst.val.c->size() == 9);
-	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
-	CHECK(strval.name_matches("__type__"));
-	CHECK(strval.get_val().type == VAL_STR);
-	CHECK(strcmp(strval.get_val().val.s, "snapshot") == 0);
-	value tmp = inst.val.c->lookup("fname");
+	value tmp = inst.val.c->lookup("__type__");
+	CHECK(tmp.type == VAL_STR);
+	CHECK(strcmp(tmp.val.s, "snapshot") == 0);
+	tmp = inst.val.c->lookup("fname");
 	CHECK(tmp.type == VAL_STR);CHECK(strcmp(tmp.val.s, "/tmp/run_alpha.pgm") == 0);
 	tmp = inst.val.c->lookup("cam_v");
 	CHECK(tmp.type == VAL_3VEC);

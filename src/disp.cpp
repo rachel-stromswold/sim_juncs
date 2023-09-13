@@ -2,22 +2,22 @@
 
 const double eps_cutoff = 10;
 
-value um_to_l(context& c, cgs_func f, parse_ercode& er) {
+value um_to_l(context* c, cgs_func f, parse_ercode& er) {
     value ret;
     if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
     if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
     //lookup the length scale
-    value l_per_um = c.lookup("l_per_um");
+    value l_per_um = c->lookup("l_per_um");
     if (l_per_um.type != VAL_NUM) { er = E_NOT_DEFINED;return ret; }
     return make_val_num( (l_per_um.val.x)*(f.args[0].val.x) );
 }
 
-value fs_to_t(context& c, cgs_func f, parse_ercode& er) {
+value fs_to_t(context* c, cgs_func f, parse_ercode& er) {
     value ret;
     if (f.n_args < 1) { er = E_LACK_TOKENS;return ret; }
     if (f.args[0].type != VAL_NUM) { er = E_BAD_TOKEN;return ret; }
     //lookup the length scale
-    value l_per_um = c.lookup("l_per_um");
+    value l_per_um = c->lookup("l_per_um");
     if (l_per_um.type != VAL_NUM) { er = E_NOT_DEFINED;return ret; }
     return make_val_num( LIGHT_SPEED*(l_per_um.val.x)*(f.args[0].val.x) );
 }
@@ -34,8 +34,7 @@ context context_from_settings(const parse_settings& args) {
     con.set_value("length", make_val_num(2*args.pml_thickness + args.len));
     con.set_value("l_per_um", make_val_num(args.um_scale));
     value tmp_out = make_val_str(args.out_dir);
-    con.set_value("out_dir", tmp_out);
-    cleanup_val(&tmp_out);
+    con.place_value("out_dir", tmp_out);
     //helpful functions
     value tmp_f = make_val_func("um_to_l", 1, &um_to_l);
     con.set_value("um_to_l", tmp_f);
@@ -464,7 +463,14 @@ parse_ercode bound_geom::parse_monitors(value vl) {
 	for (size_t i = 0; i < vl.n_els; ++i) {
 	    //see if we can cast to a vector and check for errors
 	    value vec_cast = vl.val.l[i].cast_to(VAL_3VEC, er);
-	    if (er != E_SUCCESS) { cleanup_val(&vec_cast);return er; }
+	    if (vec_cast.type != VAL_3VEC) {
+		er = E_BAD_TYPE;
+		return er;
+	    }
+	    if (er != E_SUCCESS) {
+		cleanup_val(&vec_cast);
+		return er;
+	    }
 	    //convert to a meep vector and append
 	    meep::vec tmp_vec(vec_cast.val.v->x(), vec_cast.val.v->y(), vec_cast.val.v->z());
 	    monitor_locs.push_back(tmp_vec);
@@ -853,7 +859,7 @@ void bound_geom::save_field_times(const char* fname_prefix) {
     c_info_dim[0] = {1};
     H5::DataSpace c_info_space(1, c_info_dim);
     for (size_t i = c.size(); i > 0; --i) {
-	name_val_pair nv = c.peek(i);
+	name_val_pair nv = c.inspect(i);
 	//only write numeric types
 	if (nv.get_val().type == VAL_NUM) {
 	    H5::DataSet c_info_dataset(cgs_group.createDataSet(nv.get_name(), H5_float_type, c_info_space));

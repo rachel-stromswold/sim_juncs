@@ -301,7 +301,7 @@ composite_object::composite_object(combine_type p_cmb, context* inst, int p_inve
     //read metadata
     size_t n_args = inst->size()-1;
     for (size_t i = 2; i <= n_args; ++i) {
-	name_val_pair p = inst->peek(i);
+	name_val_pair p = inst->inspect(i);
 	std::string tok_cpp(p.get_name());
 	metadata[tok_cpp] = copy_val(p.get_val());
     }
@@ -575,18 +575,18 @@ parse_ercode scene::read_file(const char* p_fname) {
 }
 
 scene::scene(const char* p_fname, parse_ercode* ercode) {
-    setup_geometry_context(named_items);
+    setup_geometry_context(&named_items);
     if (ercode) *ercode = E_SUCCESS;
     *ercode = read_file(p_fname);
 }
 
 scene::scene(const char* p_fname, context con, parse_ercode* ercode) : named_items(con) {
-    setup_geometry_context(named_items);
+    setup_geometry_context(&named_items);
     if (ercode) *ercode = E_SUCCESS;
     *ercode = read_file(p_fname);
 }
 
-scene::scene(const scene& o) {
+/*scene::scene(const scene& o) {
     roots.resize(o.roots.size());
     data_objs.resize(o.data_objs.size());
     for (_uint i = 0; i < roots.size(); ++i) {
@@ -613,7 +613,7 @@ scene& scene::operator=(scene& o) {
     named_items = o.named_items;
 
     return *this;
-}
+}*/
 
 scene::~scene() {
     //TODO: double frees are bad lol
