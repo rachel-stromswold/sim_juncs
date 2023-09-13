@@ -1062,14 +1062,6 @@ value make_val_vec3(vec3 vec) {
  * Add a new callable function with the signature sig and function pointer corresponding to the executed code. This function must accept a function and a pointer to an error code and return a value.
  */
 value make_val_func(const char* name, size_t n_args, value (*p_exec)(context*, cgs_func, parse_ercode&)) {
-    /*cgs_func sig;
-    sig.name = strdup(name);
-    sig.n_args = n_args;
-    for (size_t i = 0; i < n_args; ++i) {
-	sig.args[i] = make_val_num(0);
-	sig.arg_names[i] = NULL;
-    }*/
-
     value ret;
     ret.type = VAL_FUNC;
     ret.n_els = n_args;
@@ -1376,13 +1368,14 @@ void print_spaces(FILE* f, size_t n) {
     for (size_t i = 0; i < n; ++i)
 	fprintf(f, " |");
 }
+/**
+ * recursively print out a value and the values it contains
+ */
 void value::print_hierarchy(FILE* f, size_t depth) const {
     if (f == NULL)
 	f = stdout;
     //print the left tree view thingie
     print_spaces(f, depth);
-    /*if (depth > 0 && type != VAL_LIST && type != VAL_ARRAY && type != VAL_INST)
-	fprintf(f, "|");*/
     //now we handle all of the simple (non-recursive) prints
     if (type == VAL_UNDEF) {
 	fprintf(f, "UNDEFINED\n");
@@ -1717,7 +1710,6 @@ context::~context() {
  * setup pointers to all the builtin functions
  */
 void context::setup_builtins() {
-#ifndef BRANCH_CALL
     value tmp_f = make_val_func("vec", 3, &make_vec);
     place_value("vec", tmp_f);
     tmp_f = make_val_func("range", 1, &make_range);
@@ -1738,7 +1730,6 @@ void context::setup_builtins() {
     place_value("exp", tmp_f);
     tmp_f = make_val_func("sqrt", 1, &fun_sqrt);
     place_value("sqrt", tmp_f);
-#endif
 }
 
 //non-cryptographically hash the string str
@@ -2013,17 +2004,6 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	sto.type = VAL_NUM;
 	sto.n_els = 1;
 	sto.val.x = (tmp_l == tmp_r);
-	/*if (tmp_l.type != tmp_r.type) {
-	    sto.val.x = 0;
-	} else if (tmp_l.type == VAL_STR) {
-	    if (tmp_l.size() == tmp_r.size() && strcmp(tmp_l.get_val().s, tmp_l.get_val().s) == 0)
-		sto.val.x = 1;
-	    else
-		sto.val.x = 0;
-	} else if (tmp_l.type == VAL_NUM) {
-	    sto.val.x = (tmp_l.val.x == tmp_r.val.x)? 1: 0;
-	}*/
-	//++i;
     } else if (term_char == '>') {
 	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_BAD_VALUE;return sto; }
 	if (str[i+1] == '=') {
@@ -2320,70 +2300,6 @@ value context::parse_value(char* str, parse_ercode& er) {
 		    char* f_end;
 		    tmp_f = parse_func(str, first_open_ind, er, &f_end);
 		    if (er != E_SUCCESS) { return sto; }
-#ifdef BRANCH_CALL
-		    if (strcmp(tmp_f.name, "vec") == 0) {
-			sto = make_vec(*this, tmp_f, er);
-		    } else if (strcmp(tmp_f.name, "range") == 0) {
-			sto = make_range(*this, tmp_f, er);
-		    } else if (strcmp(tmp_f.name, "linspace") == 0) {
-			sto = make_linspace(*this, tmp_f, er);
-		    } else if (strcmp(tmp_f.name, "flatten") == 0) {
-			sto = flatten_list(*this, tmp_f, er);
-		    } else if (strcmp(tmp_f.name, "print") == 0) {
-			sto = print(*this, tmp_f, er);
-		    } else if (strcmp(tmp_f.name, "sin") == 0) {
-			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;goto clean_paren; }
-			if (tmp_f.args[0].type != VAL_NUM) {
-			    printf("Error: math functions only accept numbers\n");
-			    er = E_BAD_TYPE;goto clean_paren; }
-			sto.type = VAL_NUM;
-			sto.val.x = sin(tmp_f.args[0].val.x);
-		    } else if (strcmp(tmp_f.name, "cos") == 0) {
-			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) {
-			    printf("Error: math functions only accept numbers\n");
-			    er = E_BAD_TYPE;goto clean_paren; }
-			sto.type = VAL_NUM;
-			sto.val.x = cos(tmp_f.args[0].val.x);
-		    } else if (strcmp(tmp_f.name, "tan") == 0) {
-			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) {
-			    printf("Error: math functions only accept numbers\n");
-			    er = E_BAD_TYPE;goto clean_paren; }
-			sto.type = VAL_NUM;
-			sto.val.x = tan(tmp_f.args[0].val.x);
-		    } else if (strcmp(tmp_f.name, "exp") == 0) {
-			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) {
-			    printf("Error: math functions only accept numbers\n");
-			    er = E_BAD_TYPE;goto clean_paren; }
-			sto.type = VAL_NUM;
-			sto.val.x = exp(tmp_f.args[0].val.x);
-		    } else if (strcmp(tmp_f.name, "sqrt") == 0) {
-			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) {
-			    printf("Error: math functions only accept numbers\n");
-			    er = E_BAD_TYPE;goto clean_paren; }
-			sto.type = VAL_NUM;
-			sto.val.x = sqrt(tmp_f.args[0].val.x);
-		    } else {
-			//otherwise lookup the function
-			value func_val = lookup(tmp_f.name);
-			if (func_val.type == VAL_FUNC) {
-			    //make sure that the function was found and that sufficient arguments were provided
-			    if (func_val.n_els <= tmp_f.n_args) {
-				sto = func_val.val.f->eval(*this, tmp_f, er);
-			    }
-			} else {
-			    printf("Error: unrecognized function name %s\n", tmp_f.name);
-			    er = E_BAD_TYPE;
-			}
-		    }
-clean_paren:
-		    str[last_close_ind+1] = term_char;
-		    cleanup_func(&tmp_f);
-		    return sto;
-#else
 		    //otherwise lookup the function
 		    value func_val = lookup(tmp_f.name);
 		    if (func_val.type == VAL_FUNC) {
@@ -2400,7 +2316,6 @@ clean_paren:
 		    }
 		    cleanup_func(&tmp_f);
 		    return sto;
-#endif
 		}
 
 	    }
