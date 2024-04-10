@@ -20,8 +20,8 @@ set(APP_EXE sim_geom)
 
 #find all the libraries we need for building
 set(CMAKE_BUILD_RPATH "/software/meep/b3/lib")
-find_library(meep libmeep.a REQUIRED HINTS $ENV{HOME}/install/lib)
-#find_library(meep libmeep.a REQUIRED HINTS /software/meep/b3/lib)
+#find_library(meep libmeep.a REQUIRED HINTS $ENV{HOME}/install/lib)
+find_library(meep libmeep.so REQUIRED HINTS /software/meep/b3/lib)
 #we need to install cmake to a custom location
 #set(HDF5_DIR "/home/sstromsw/install/cmake")
 find_package(HDF5 REQUIRED COMPONENTS CXX HL)
@@ -38,14 +38,14 @@ add_executable( ${APP_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/d
 #linking
 target_link_libraries(${APP_EXE} PRIVATE meep png ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} ctlgeom)
 target_include_directories( ${APP_EXE} PRIVATE ${HDF5_INCLUDE_DIRS})
-target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
+#target_include_directories( ${APP_EXE} PRIVATE "~/install/include")
 
 #check if we need to build tests
 if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
     #build and link the unit testing executable
     add_executable( ${TEST_EXE} src/cgs_read.cpp src/cgs.cpp src/data_utils.cpp src/disp.cpp src/main_test.cpp )
     target_link_libraries(${TEST_EXE} PRIVATE meep ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES})
-    target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
+    #target_include_directories( ${TEST_EXE} PRIVATE "~/install/include" )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest" )
     target_include_directories( ${TEST_EXE} PRIVATE ${HDF5_INCLUDE_DIRS} )
     target_include_directories( ${TEST_EXE} PRIVATE "/usr/include/doctest")
