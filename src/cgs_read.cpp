@@ -123,16 +123,16 @@ char* token_block(char* str, const char* comp) {
  * n: a pointer to a size_t with the number of characters in the buffer pointed to by bufptr. The call will return do nothing and return -1 if n is null but *bufptr is not.
  * fp: file pointer to read from
  * linecount: a pointer to an integer specifying the number of new line characters read.
- * Returns: -2 if an error occured, -1 if the end of the file was reached, or the number of characters read (including null termination) if successful
+ * Returns: the number of characters read (including null termination). On reaching the end of the file, 0 is returned.
  */
-int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
+size_t read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
     //dereference pointers and interpret them correctly
     size_t n_lines = 0;
     if (lineno) n_lines = *lineno;
     size_t size = *n;
     char* buf = *bufptr;
     if (buf) {
-	if (size == 0) return -2;
+	if (size == 0) return 0;
     } else {
 	size = LINE_SIZE;
 	buf = (char*)malloc(sizeof(char)*size);
@@ -143,14 +143,14 @@ int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno) {
     for (;; ++i) {
 	if (i >= size) {
 	    size *= 2;
-	    buf = (char*)realloc(buf, sizeof(char)*size);
+	    buf = (char*)xrealloc(buf, sizeof(char)*size);
 	}
 	if (res == EOF) {
 	    buf[i] = 0;
 	    *n = size;
 	    *bufptr = buf;
 	    if (lineno) *lineno = n_lines;
-	    return -1;
+	    return 0;
 	} else if (res == ';') {
 	    buf[i] = 0;
 	    //only count one line end
@@ -226,7 +226,7 @@ char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
     for (; str[i] != 0; ++i) {
 	//if this is a separator then add the entry to the list
 	if (str[i] == sep && blk_stk.is_empty()) {
-	    ret = (char**)realloc(ret, sizeof(char*)*(off+1));
+	    ret = (char**)xrealloc(ret, sizeof(char*)*(off+1));
 
 	    //append the element to the list
 	    ret[off++] = saveptr;
@@ -288,7 +288,7 @@ char** csv_to_list(char* str, char sep, size_t* listlen, parse_ercode& er) {
     //make sure the string is null terminated
     //if (str[i] != 0) str[j] = 0;
     str[j] = 0;
-    ret = (char**)realloc(ret, sizeof(char*)*(off+2));
+    ret = (char**)xrealloc(ret, sizeof(char*)*(off+2));
     //add the last element to the list, but only if something was actually written, then set the length if requested
     if (j != 0) ret[off++] = saveptr;
     if (listlen) *listlen = off;
@@ -321,7 +321,26 @@ char* CGS_trim_whitespace(char* str, size_t* len) {
 
 /** ============================ line_buffer ============================ **/
 
-line_buffer::line_buffer(char* p_fname) {
+
+line_buffer_ind operator+(const line_buffer_ind& lhs, const size_t& rhs) {
+    return line_buffer_ind(lhs.line, lhs.off+rhs);
+}
+line_buffer_ind operator-(const line_buffer_ind& lhs, const size_t& rhs) {
+    line_buffer_ind ret(lhs.line, lhs.off);
+    if (rhs > ret.off)
+	ret.off = 0;
+    else
+	ret.off -= rhs;
+    return ret;
+}
+
+line_buffer::line_buffer() {
+    lines = NULL;
+    line_sizes = NULL;
+    n_lines = 0;
+}
+
+line_buffer::line_buffer(const char* p_fname) {
     size_t buf_size = BUF_SIZE;
     lines = (char**)malloc(sizeof(char*)*buf_size);
     line_sizes = (size_t*)malloc(sizeof(size_t)*buf_size);
@@ -334,21 +353,47 @@ line_buffer::line_buffer(char* p_fname) {
     if (fp) {
 	size_t lineno = 1;
 	size_t line_len = 0;
+	bool go_again = true;
 	do {
-	    //reallocate buffer if necessary
+	    //xreallocate buffer if necessary
 	    if (n_lines >= buf_size) {
 		buf_size *= 2;
-		lines = (char**)realloc(lines, sizeof(char*)*buf_size);
-		line_sizes = (size_t*)realloc(line_sizes, sizeof(size_t)*buf_size);
+		lines = (char**)xrealloc(lines, sizeof(char*)*buf_size);
+		line_sizes = (size_t*)xrealloc(line_sizes, sizeof(size_t)*buf_size);
 	    }
-	    //these need to be set to zero so that read_cgs_line() will allocate a buffer for us
-	    char* this_buf = NULL;
-	    line_len = read_cgs_line(&this_buf, &line_len, fp, &lineno);
-	    lines[n_lines] = this_buf;
-	    line_sizes[n_lines++] = line_len;
-	} while (line_len >= 0);
-	lines = (char**)realloc(lines, sizeof(char*)*n_lines);
-	line_sizes = (size_t*)realloc(line_sizes, sizeof(size_t)*n_lines);
+	    //read the line until a semicolon, newline or EOF is found
+	    size_t this_size = BUF_SIZE;
+	    char* this_buf = (char*)malloc(this_size);
+	    int res = fgetc(fp);
+	    for (line_len = 0; true; ++line_len) {
+		//grow the buffer if necessary
+		if (line_len >= this_size) {
+		    this_size *= 2;
+		    this_buf = (char*)xrealloc(this_buf, sizeof(char)*this_size);
+		}
+		if (res == EOF || (char)res ==';' || (char)res == '\n') {
+		    this_buf[line_len] = 0;
+		    if ((char)res == '\n')
+			++lineno;
+		    else if ((char)res == EOF)
+			go_again = false;
+		    line_len = line_len;
+		    break;
+		}
+		this_buf[line_len] = (char)res;
+		res = fgetc(fp);
+	    }
+	    if (line_len > 0) {
+		this_buf = (char*)xrealloc(this_buf, sizeof(char)*(line_len+1));
+		lines[n_lines] = this_buf;
+		line_sizes[n_lines++] = line_len;
+	    } else {
+		free(this_buf);
+	    }
+	} while (go_again);
+	lines = (char**)xrealloc(lines, sizeof(char*)*n_lines);
+	line_sizes = (size_t*)xrealloc(line_sizes, sizeof(size_t)*n_lines);
+	fclose(fp);
     } else {
         printf("Error: couldn't open file %s for reading!\n", p_fname);
 	free(lines);
@@ -405,9 +450,18 @@ line_buffer::line_buffer(const char* str, char sep, const char* ignore_blocks) {
     }
 }
 line_buffer::~line_buffer() {
-    for (size_t i = 0; i < n_lines; ++i) free(lines[i]);
-    free(line_sizes);
-    free(lines);
+    if (lines) {
+	for (size_t i = 0; i < n_lines; ++i) {
+	    free(lines[i]);
+	}
+	free(lines);
+    }
+    if (line_sizes) {
+	free(line_sizes);
+    }
+    n_lines = 0;
+    lines = NULL;
+    line_sizes = NULL;
 }
 line_buffer::line_buffer(const line_buffer& o) {
     n_lines = o.n_lines;
@@ -425,71 +479,239 @@ line_buffer::line_buffer(line_buffer&& o) {
     o.n_lines = 0;
     o.lines = NULL;
 }
+line_buffer& line_buffer::operator=(line_buffer& o) {
+    size_t tmp_n_lines = n_lines;
+    n_lines = o.n_lines;
+    o.n_lines = tmp_n_lines;
+    size_t* tmp_line_sizes = line_sizes;
+    line_sizes = o.line_sizes;
+    o.line_sizes = tmp_line_sizes;
+    char** tmp_lines = lines;
+    lines = o.lines;
+    o.lines = tmp_lines;
+    return *this;
+}
+
+line_buffer& line_buffer::operator=(line_buffer&& o) {
+    n_lines = o.n_lines;
+    lines = o.lines;
+    line_sizes = o.line_sizes;
+    o.n_lines = 0;
+    o.line_sizes = NULL;
+    o.lines = NULL;
+    return *this;
+}
+
+/**
+ * Goes through a line buffer and splits into multiple lines at each instance of split_delim.
+ * i.e. if the buffer is in the state
+ * lines = {"foo; bar", "foobar;"}
+ * then split(';') will transform the state to
+ * lines = {"foo", " bar", "foobar;"}
+ */
+void line_buffer::split(char split_delim) {
+    for (size_t i = 0; i < n_lines; ++i) {
+	for (size_t j = 0; j < line_sizes[i]; ++j) {
+	    if (lines[i][j] == split_delim) {
+		++n_lines;
+		printf("new size = %lu\n", sizeof(char*)*n_lines);
+		lines = (char**)xrealloc(lines, sizeof(char*)*n_lines);
+		line_sizes = (size_t*)xrealloc(line_sizes, sizeof(size_t)*n_lines);
+		//move everything else forward
+		for (size_t k = n_lines-1; k > i+1; --k) {
+		    lines[k] = lines[k-1];
+		    line_sizes[k] = line_sizes[k-1];
+		}
+		//split this line
+		lines[i+1] = strndup(lines[i]+j+1, line_sizes[i]-j);
+		lines[i][j] = 0;
+		line_sizes[i+1] = line_sizes[i]-j-1;
+		line_sizes[i] = j;
+	    }
+	}
+    }
+}
+
+/**
+ * helper function for get_enclosed and jmp_enclosed. This function reads the line at index k for the line contained between start_delim and end_delim. If only a start_delim is found or start_ind is not NULL, a pointer with a value set to the index of the start of the line is returned.
+ * linesto: store the line read into this variable
+ * start_delim: the starting delimiter
+ * end_delim: the ending delimiter
+ * start: the position to start reading. This is updated as soon as the start delimiter is actually found
+ * end: the position where reading stopped. This will be at offset 0 on the line after start->line if an end delimiter was not found or the character where reading stopped because of an end delimiter.
+ * includ_delims: if true, then the delimiters are included in the string
+ * start_ind: a pointer, the value of which is the index in the line k to start reading.
+ * depth: keeps track of how many nested pairs of start and end delimeters we've encountered. We only want to exit calling if an end_delim was found. This variable is set to -1 if a zero depth close brace was found to signal that parsing should terminate.
+ * end_line: If end delim is set, then the value in end_line is set to k.
+ * jp: stores the index where line reading stopped. Either because a NULL terminator was encountered or an end_delim was encountered
+ * returns: an index of the position of the index that reading started from or -1 if not found
+ */
+int line_buffer::it_single(char** linesto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delims, bool include_start) const {
+    bool free_after = false;
+    if (start == NULL) {
+	start = (line_buffer_ind*)malloc(sizeof(line_buffer_ind));
+	start->line = 0;
+	start->off = 0;
+    }
+    //setup
+    int depth = 0;
+    if (pdepth) depth = *pdepth;
+    size_t j = start->off;
+    size_t init_off = start->off;
+    int ret = -1;
+    //iterate through characters in the line looking for an end_delim without a preceeding start_delim
+    size_t i = start->line;
+    end->line = i;
+    while (true) {
+	if (lines[i][j] == 0) {
+	    if(end) {
+		end->line = i+1;
+		end->off = j;
+	    }
+	    break;
+	} else if (lines[i][j] == start_delim) {
+	    //this is a special case, depths may only be toggled
+	    if (end_delim == start_delim) {
+		if (j == 0 || lines[i][j-1] != '\\') {
+		    depth = 1 - depth;
+		    if (depth == 1) {
+			//start block
+			start->line = i;
+			start->off = j;
+			ret = j;
+			if (!include_delims) ++(start->off);
+		    } else {
+			//end block	
+			if (end) {
+			    if (include_delims) ++j;
+			    end->off = j;
+			}
+			break;
+		    }
+		}
+	    } else {
+		if (depth == 0) {
+		    start->line = i;
+		    start->off = j;
+		    ret = j;
+		    if (!include_delims) ++(start->off);
+		}
+		++depth;
+	    }
+	} else if (lines[i][j] == end_delim) {
+	    --depth;
+	    if (depth <= 0) {
+		if (include_delims) ++j;
+		if (end)
+		    end->off = j;
+		//--depth;//force escaping from the loop
+		break;
+	    }
+	}
+	++j;
+    }
+    if (pdepth) *pdepth = depth;
+    if (linesto) {
+	if (include_start)
+	    *linesto = lines[i]+init_off;
+	else
+	    *linesto = lines[i]+(start->off);
+    }
+    if (include_start)
+	start->off = init_off;
+    if (free_after) free(start);
+    return ret;
+}
+
 /**
  * Find the line buffer starting on line start_line between the first instance of start_delim and the last instance of end_delim respecting nesting (i.e. if lines={"a {", "b {", "}", "} c"} then {"b {", "}"} is returned. Note that the result must be deallocated with a call to free().
  * start_line: the line to start reading from
- * end_line: if this value is not NULL, then the index of the line on which end_delim was found is stored here
+ * end_line: if this value is not NULL, then the index of the line on which end_delim was found is stored here. If the end delimeter is not found, then the line is set to n_lines and the offset is set to zero
  * start_delim: the character to be used as the starting delimiter. This needs to be supplied so that we find a matching end_delim at the root level
  * end_delim: the character to be searched for
  * line_offset: the character on line start_line to start reading from, this defaults to zero. Note that this only applies to the start_line, and not any subsequent lines in the buffer.
- * include_delims: if true then the delimeters are included in the enclosed strings. defualts to false
+ * include_delims: if true, then the delimeters are included in the enclosed strings. defualts to false
+ * include_start: if true, then the part preceeding the first instance of start_delim will be included. This value is always false if include_delims is false. If include_delims is true, then this defaults to true.
  * returns: an array of lines that must be deallocated by a call to free(). The number of lines is stored in n_lines.
  */
-line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char start_delim, char end_delim, size_t line_offset, bool include_delims) {
-    //initialization
+line_buffer line_buffer::get_enclosed(line_buffer_ind start, line_buffer_ind* pend, char start_delim, char end_delim, bool include_delims, bool include_start) const {
     line_buffer ret;
-    if (end_line) *end_line = -1;
+    //initialization
+    if (pend) {
+	pend->line = n_lines;
+	pend->off = 0;
+    }
     if (n_lines == 0) {
 	ret.n_lines = 0;
 	ret.lines = NULL;
 	ret.line_sizes = NULL;
 	return ret;
     }
+    //set include_start to false if include_delims is false
+    include_start &= include_delims;
     ret.lines = (char**)malloc(sizeof(char*)*n_lines);
     ret.line_sizes = (size_t*)malloc(sizeof(size_t)*n_lines);
 
     //tracking variables
     int depth = 0;
-    bool exit = false;
 
     //iterate through lines
     size_t k = 0;
-    long start_char = -1;
-    long j = line_offset;
-    for (size_t i = start_line; !exit && i < n_lines; ++i) {
+    size_t start_line = start.line;
+    line_buffer_ind end;
+    size_t i = start.line;
+    bool started = false;
+    for (; depth >= 0 && i < n_lines; ++i) {
 	if (lines[i] == NULL) {
-	    ret.n_lines = i;
-	    exit = true;
+	    ret.n_lines = i-start_line;
+	    break;
 	} else {
-	    //this way we ensure that start char is always zero after the first start_delim is read
-	    if (start_char >= 0) start_char = 0;
-	    //iterate through characters in the line looking for an end_delim without a preceeding start_delim
-	    for (; lines[i][j]; ++j) {
-		if (lines[i][j] == start_delim) {
-		    if (depth == 0) {
-			start_char = j;
-			if (!include_delims) ++start_char;
-		    }
-		    ++depth;
-		} else if (lines[i][j] == end_delim) {
-		    --depth;
-		    if (depth <= 0) {
-			ret.n_lines = k+1;
-			exit = true;
-			if (include_delims) ++j;
-			if (end_line) *end_line = i;
-			break;
-		    }
-		}
-	    }
+	    end.line = i;
+	    end.off = 0;
+	    char* this_line;
+	    int start_ind = it_single(&this_line, start_delim, end_delim, &start, &end, &depth, include_delims, include_start);
+	    if (start_ind >= 0) started = true;
 	    //don't read empty lines
-	    if (start_char >= 0) {
-		ret.line_sizes[k] = j;
-		ret.lines[k++] = strndup(lines[i]+start_char, j-start_char);
+	    if (started) {
+		ret.line_sizes[k] = end.off-start.off;
+		ret.lines[k++] = strndup(this_line, end.off-start.off);
 	    }
-	    j = 0;
+	    //This means that an end delimeter was found. In this case, we need to break out of the loop.
+	    if (end.line == start.line) break;
+	    start.off = 0;
+	    ++start.line;
 	}
     }
+    if (pend) *pend = end;
+    ret.n_lines = k;
+    return ret;
+}
+
+line_buffer_ind line_buffer::jmp_enclosed(line_buffer_ind start, char start_delim, char end_delim, bool include_delims) const {
+    int depth = 0;
+    for (size_t i = start.line; depth >= 0 && i < n_lines; ++i) {
+	line_buffer_ind end(i, 0);
+	it_single(NULL, start_delim, end_delim, &start, &end, &depth, include_delims, false);
+	if (end.line == start.line) {
+	    return end;
+	}
+	start.off = 0;
+	++start.line;
+    }
+    line_buffer_ind ret(n_lines, 0);
+    return ret;
+}
+
+/**
+ * Return a string with the line contained at index i. This string should be freed with a call to free().
+ */
+char* line_buffer::get_line(line_buffer_ind p) const {
+    if (p.line >= n_lines)
+	return NULL;
+    size_t line_size = line_sizes[p.line]+1;
+    char* ret = (char*)malloc(sizeof(char)*(line_size-p.off));
+    for (size_t j = p.off; j < line_size; ++j) ret[j-p.off] = lines[p.line][j];
+    ret[line_size-p.off-1] = 0;
     return ret;
 }
 
@@ -497,7 +719,7 @@ line_buffer line_buffer::get_enclosed(size_t start_line, long* end_line, char st
  * Returns a version of the line buffer which is flattened so that everything fits onto one line.
  * sep_char: if this is not zero, then each newline in the buffer is replaced by a sep_char
  */
-char* line_buffer::flatten(char sep_char) {
+char* line_buffer::flatten(char sep_char) const {
     //figure out how much memory must be allocated
     size_t tot_size = 1;
     for (size_t i = 0; i < n_lines; ++i) { tot_size += line_sizes[i]; }
@@ -513,6 +735,38 @@ char* line_buffer::flatten(char sep_char) {
     }
     ret[k] = 0;
     return ret;
+}
+
+bool line_buffer::inc(line_buffer_ind& p) const {
+    if (p.line >= n_lines) return false;
+    if (p.off >= line_sizes[p.line]) {
+	if (p.line == n_lines-1) return false;
+	p.off = 0;
+	p.line += 1;
+    } else {
+	p.off += 1;
+    }
+    return true;
+}
+
+bool line_buffer::dec(line_buffer_ind& p) const {
+    if (p.line > n_lines) return false;
+    if (p.off == 0) {
+	if (p.line == 0) return false;
+	p.line -= 1;
+	p.off = line_sizes[p.line];
+    } else {
+	p.off -= 1;
+    }
+    return true;
+}
+
+/**
+ * returns the character at position pos
+ */
+char line_buffer::get(line_buffer_ind pos) const {
+    if (pos.line >= n_lines || pos.off >= line_sizes[pos.line]) return 0;
+    return lines[pos.line][pos.off];
 }
 
 /** ======================================================== builtin functions ======================================================== **/
@@ -538,7 +792,11 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	er = E_LACK_TOKENS;
 	return sto;
     } else if (tmp_f.n_args == 1) {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;
+	    return sto;
+	}
 	if (tmp_f.args[0].val.x < 0) { er = E_BAD_VALUE;return sto; }
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
@@ -549,8 +807,16 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	    sto.val.l[i].val.x = i;
 	}
     } else if (tmp_f.n_args == 2) {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
-	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;
+	    return sto;
+	}
+	if (tmp_f.args[1].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;
+	    return sto;
+	}
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
 	int list_start = (int)(tmp_f.args[0].val.x);
@@ -565,9 +831,15 @@ value make_range(cgs_func tmp_f, parse_ercode& er) {
 	    ++j;
 	}
     } else {
-	if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
-	if (tmp_f.args[1].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
-	if (tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[0].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[1].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;return sto; }
+	if (tmp_f.args[2].type != VAL_NUM) {
+	    printf("Error: ranges can only be specified with numeric types\n");
+	    er = E_BAD_TYPE;return sto; }
 	//interpret the argument as an upper bound starting from 0
 	sto.type = VAL_LIST;
 	double list_start = tmp_f.args[0].val.x;
@@ -613,6 +885,7 @@ value make_linspace(cgs_func tmp_f, parse_ercode& er) {
             er = E_SUCCESS;
             return sto;
         } else {
+	    printf("Error: linspaces can only be specified with numeric types");
             er = E_BAD_TYPE;
             return sto;
         }    
@@ -655,7 +928,7 @@ value flatten_list(cgs_func tmp_f, parse_ercode& er) {
 	    if (j >= buf_size) {
 		//-1 since we already have at least one element. no base_n_els=0 check is needed since that case will ensure the for loop is never evaluated
 		buf_size += (base_n_els-1)*(i+1);
-		value* tmp_val = (value*)realloc(sto.val.l, sizeof(value)*buf_size);
+		value* tmp_val = (value*)xrealloc(sto.val.l, sizeof(value)*buf_size);
 		if (!tmp_val) {
 		    free(sto.val.l);
 		    cleanup_func(&tmp_f);
@@ -733,7 +1006,7 @@ value make_val_list(const value* vs, size_t n_vs) {
     v.type = VAL_LIST;
     v.n_els = n_vs;
     v.val.l = (value*)malloc(sizeof(value)*v.n_els);
-    for (size_t i = 0; i < v.n_els; ++i) v.val.l[i] = vs[i];
+    for (size_t i = 0; i < v.n_els; ++i) v.val.l[i] = copy_val(vs[i]);
     return v;
 }
 value make_val_mat(mat3x3 m) {
@@ -768,6 +1041,32 @@ value make_val_func(const char* name, size_t n_args, value (*p_exec)(context&, c
     ret.val.f = new user_func(p_exec);
     return ret;
 }
+
+bool is_type(value v, const char* str) {
+    if (v.type == VAL_INST) {
+	value type_str = v.val.c->lookup("__type__");
+	if (type_str.type == VAL_STR)
+	    return (strcmp(str, type_str.val.s) == 0);
+    } else if (strcmp(str, "undefined") == 0) {
+	return (v.type == VAL_UNDEF);
+    } else if (strcmp(str, "string") == 0) {
+	return (v.type == VAL_STR);
+    } else if (strcmp(str, "numeric") == 0) {
+	return (v.type == VAL_NUM);
+    } else if (strcmp(str, "list") == 0) {
+	return (v.type == VAL_LIST);
+    } else if (strcmp(str, "vec3") == 0) {
+	return (v.type == VAL_3VEC);
+    } else if (strcmp(str, "matrix") == 0) {
+	return (v.type == VAL_MAT);
+    } else if (strcmp(str, "function") == 0) {
+	return (v.type == VAL_FUNC);
+    } else if (strcmp(str, "instance") == 0) {
+	return (v.type == VAL_INST);
+    }
+    return false;
+}
+
 void cleanup_val(value* v) {
     if (v->type == VAL_STR && v->val.s) {
 	free(v->val.s);
@@ -795,8 +1094,13 @@ value copy_val(const value o) {
 	ret.val.s = (char*)malloc(sizeof(char)*o.n_els);
 	for (size_t i = 0; i < o.n_els; ++i) ret.val.s[i] = o.val.s[i];
     } else if (o.type == VAL_LIST) {
-	ret.val.l = (value*)calloc(o.n_els, sizeof(value));
-	for (size_t i = 0; i < o.n_els; ++i) ret.val.l[i] = copy_val(o.val.l[i]);
+	if (o.val.l == NULL) {
+	    ret.n_els = 0;
+	    ret.val.l = NULL;
+	} else {
+	    ret.val.l = (value*)calloc(o.n_els, sizeof(value));
+	    for (size_t i = 0; i < o.n_els; ++i) ret.val.l[i] = copy_val(o.val.l[i]);
+	}
     } else if (o.type == VAL_MAT) {
 	ret.val.m = new mat3x3(*(o.val.m));
     } else if (o.type == VAL_3VEC) {
@@ -921,6 +1225,7 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	if (type == VAL_3VEC) {
 	    ret.n_els = 3;
 	    ret.val.l = (value*)malloc(sizeof(value)*ret.n_els);
+	    if (!ret.val.l) { ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;return ret; }
 	    for (size_t i = 0; i < ret.n_els; ++i) {
 		ret.val.l[i].type = VAL_NUM;
 		ret.val.l[i].n_els = 1;
@@ -929,11 +1234,20 @@ value value::cast_to(valtype t, parse_ercode& er) const {
 	    return ret;
 	} else if (type == VAL_MAT) {
 	    //TODO
+	} else if (type == VAL_INST) {
+	    ret.n_els = val.c->size();
+	    ret.val.l = (value*)calloc(ret.n_els, sizeof(value));
+	    if (!ret.val.l) { ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;return ret; }
+	    for (size_t i = 1; i < ret.n_els; ++i) {
+		ret.val.l[i] = copy_val(val.c->peek_val(i));
+	    }
+	    ret.n_els = n_els;
+	    return ret;
 	}
     } else if (t == VAL_STR) {
 	ret.val.s = (char*)malloc(sizeof(char)*BUF_SIZE);
 	int n_write = rep_string(ret.val.s, BUF_SIZE);
-	ret.val.s = (char*)realloc(ret.val.s, sizeof(char)*(n_write+1));
+	ret.val.s = (char*)xrealloc(ret.val.s, sizeof(char)*(n_write+1));
     }
     //if we reach this point in execution then there was an error
     ret.type = VAL_UNDEF;
@@ -1090,6 +1404,21 @@ value& name_val_pair::get_val() {
 
 /** ======================================================== cgs_func ======================================================== **/
 
+/*context::context(const context& o) {
+    parent = o.parent;
+    stack_ptr = o.stack_ptr;
+    for (size_t i = 0; i < stack_ptr; ++i) {
+	buf[i] = o.buf[i];
+    }
+}
+context::context(context&& o) {
+    parent = o.parent;
+    stack_ptr = o.stack_ptr;
+    for (size_t i = 0; i < stack_ptr; ++i) {
+	buf[i] = o.buf[i];
+    }
+}*/
+
 /**
  * Given the string starting at token, and the index of an open paren parse the result into a cgs_func struct.
  * token: a c-string which is modified in place that contains the function
@@ -1178,12 +1507,29 @@ value context::lookup(const char* str) const {
     value ret;
     ret.type = VAL_UNDEF;
     ret.val.x = 0;
-    if (stack_ptr == 0) return ret;
+    //avoid overflows
+    if (stack_ptr == 0) {
+	if (parent) return parent->lookup(str);
+	return ret;
+    }
     //iterate to find the item highest on the stack with a matching name
-    for (long i = stack_ptr-1; i >= 0; --i) {
+    for (size_t i = stack_ptr-1;; --i) {
 	if (buf[i].name_matches(str)) return buf[i].get_val();
+	if (i == 0)
+	    break;
+    }
+    //if that didn't work try performing a lookup in the parent
+    if (parent) {
+	return parent->lookup(str);
     }
     //return a default undefined value if nothing was found
+    return ret;
+}
+
+value context::peek_val(size_t i) {
+    if (i < stack_ptr)
+	return buf[stack_ptr - i].get_val();
+    value ret;ret.type = VAL_UNDEF;ret.n_els = 0;ret.val.x = 0;
     return ret;
 }
 
@@ -1329,7 +1675,9 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	}
     } else if (term_char == '.') {
 	value inst_val = lookup(find_token_before(str, i));
-	if (inst_val.type != VAL_INST) { er = E_BAD_TYPE;return sto; }
+	if (inst_val.type != VAL_INST) {
+	    printf("Error: tried to lookup from non instance type\n");
+	    er = E_BAD_TYPE;return sto; }
 	str[i] = term_char;
 	return inst_val.val.c->parse_value(str+i+1, er);
     }
@@ -1405,7 +1753,13 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.m = new mat3x3((*tmp_l.val.m) * (*tmp_r.val.m));
 	}
     } else if (term_char == '/') {
-	if (tmp_r.val.x == 0) { cleanup_val(&tmp_l);cleanup_val(&tmp_r);er = E_NAN;return sto; }//TODO: return a nan?
+	if (tmp_r.val.x == 0) {
+	    printf("Error: division by zero.\n");
+	    cleanup_val(&tmp_l);
+	    cleanup_val(&tmp_r);
+	    er = E_NAN;
+	    return sto;
+	}//TODO: return a nan?
 	if (tmp_l.type == VAL_NUM && tmp_r.type == VAL_NUM) {
 	    sto.val.x = tmp_l.val.x / tmp_r.val.x;
 	} else if (tmp_r.type == VAL_NUM && tmp_l.type == VAL_MAT) {	
@@ -1413,7 +1767,7 @@ value context::do_op(char* str, size_t i, parse_ercode& er) {
 	    sto.val.m = new mat3x3(*tmp_r.val.m / tmp_r.val.x);
 	}
     } else if (term_char == '^') {
-	if (tmp_r.val.x == 0 || tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_NAN;return sto; }//TODO: return a nan?
+	if (tmp_l.type != VAL_NUM || tmp_r.type != VAL_NUM) { er = E_NAN;return sto; }//TODO: return a nan?
 	sto.type = VAL_NUM;
 	sto.val.x = pow(tmp_l.val.x, tmp_r.val.x);
     }
@@ -1581,25 +1935,37 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    } else {
 		value tmp_lst = lookup(pre_list_name);
 		str[first_open_ind] = '[';//]
-		if (tmp_lst.type != VAL_LIST) { cleanup_val(&tmp_lst);er = E_BAD_TYPE;return sto; }
+		if (tmp_lst.type != VAL_LIST) {
+		    printf("Error: tried to index from non list type\n");
+		    cleanup_val(&tmp_lst);er = E_BAD_TYPE;return sto; }
 		str[last_close_ind] = 0;
 		value contents = parse_value(str+first_open_ind+1, er);
 		str[last_close_ind] = /*[*/']';
 		//check that we found the list and that it was valid
-		if (contents.type != VAL_NUM) { cleanup_val(&contents);er = E_BAD_TYPE;return sto; }
+		if (contents.type != VAL_NUM) {
+		    printf("Error: only integers are valid indices\n");
+		    cleanup_val(&contents);er = E_BAD_TYPE;return sto; }
 		//now figure out the index
 		long tmp = (long)(contents.val.x);
 		if (tmp < 0) tmp = tmp_lst.n_els+tmp;
-		if (tmp < 0) { er = E_OUT_OF_RANGE;return sto; }
+		if (tmp < 0) {
+		    printf("Error: index %d is out of range for list of size %lu.\n", tmp, tmp_lst.n_els);
+		    er = E_OUT_OF_RANGE;
+		    return sto;
+		}
 		size_t ind = (size_t)tmp;
-		if (ind >= tmp_lst.n_els) { er = E_OUT_OF_RANGE;return sto; }
+		if (ind >= tmp_lst.n_els) {
+		    printf("Error: index %d is out of range for list of size %lu.\n", tmp, tmp_lst.n_els);
+		    er = E_OUT_OF_RANGE;
+		    return sto;
+		}
 		return copy_val(tmp_lst.val.l[ind]);
 	    }
 	} else if (str[first_open_ind] == '{' && str[last_close_ind] == '}') {
 	    //now parse the argument as a context
 	    size_t n_els;
 	    str[last_close_ind] = 0;
-	    char** list_els = csv_to_list(str+first_open_ind+1, ';', &n_els, er);
+	    char** list_els = csv_to_list(str+first_open_ind+1, ',', &n_els, er);
 	    if (er != E_SUCCESS) { free(list_els);return sto; }
 	    //setup the context
 	    sto.val.c = new collection(this);
@@ -1647,27 +2013,37 @@ value context::parse_value(char* str, parse_ercode& er) {
 			sto = print(tmp_f, er);
 		    } else if (strcmp(tmp_f.name, "sin") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;goto clean_paren; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = sin(tmp_f.args[0].val.x);
 		    } else if (strcmp(tmp_f.name, "cos") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = cos(tmp_f.args[0].val.x);
 		    } else if (strcmp(tmp_f.name, "tan") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = tan(tmp_f.args[0].val.x);
 		    } else if (strcmp(tmp_f.name, "exp") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = exp(tmp_f.args[0].val.x);
 		    } else if (strcmp(tmp_f.name, "sqrt") == 0) {
 			if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
-			if (tmp_f.args[0].type != VAL_NUM) { er = E_BAD_TYPE;goto clean_paren; }
+			if (tmp_f.args[0].type != VAL_NUM) {
+			    printf("Error: math functions only accept numbers\n");
+			    er = E_BAD_TYPE;goto clean_paren; }
 			sto.type = VAL_NUM;
 			sto.val.x = sqrt(tmp_f.args[0].val.x);
 		    } else {
@@ -1679,6 +2055,7 @@ value context::parse_value(char* str, parse_ercode& er) {
 				sto = func_val.val.f->eval(*this, tmp_f, er);
 			    }
 			} else {
+			    printf("Error: unrecognized function name %s\n", tmp_f.name);
 			    er = E_BAD_TYPE;
 			}
 		    }
@@ -1703,21 +2080,150 @@ clean_paren:
     return sto;
 }
 
+/*
+ * helper function for parse_value which appends at most n characters from the string str to line while dynamically resizing the buffer if necessary
+ * line: the line to save to
+ * line_off: the current end of line
+ * line_size: the size in memory allocated for line
+ * n: the maximum number of characters to write
+ */
+char* append_to_line(char* line, size_t* line_off, size_t* line_size, const char* str, size_t n) {
+    if (!line_off || !line_size || !str || n == 0) return line;
+    size_t ls = *line_size;
+    size_t i = *line_off;
+    if (!line || i + n >= ls) {
+	ls = 2*i + n + 1;
+	line = (char*)xrealloc(line, ls);
+    }
+    size_t j = 0;
+    for (; j < n; ++j) {
+	line[i+j] = str[j];
+	//terminate on reaching the string end
+	if (!str[j]) {
+	    ++j;
+	    break;
+	}
+    }
+    *line_off = i+j;
+    *line_size = ls;
+    return line;
+}
+
+/**helper function for read_from lines that reads a single line
+ */
+parse_ercode context::read_single_line(context::read_state& rs) {
+    parse_ercode er = E_SUCCESS;
+    //tracking variables
+    size_t buf_off = 0;
+    size_t len = rs.b.get_line_size(rs.pos.line);
+    size_t k = 0;
+    bool started = false;
+    char* lval = NULL;
+    size_t rval_ind = 0;
+    line_buffer_ind init = rs.pos;
+    for (rs.pos.off = 0;; ++rs.pos.off) {
+	//make sure the buffer is large enough
+	if (k >= rs.buf_size) {
+	    rs.buf_size *= 2;
+	    rs.buf = (char*)xrealloc(rs.buf, sizeof(char)*rs.buf_size);
+	}
+	//exit the loop when we reach the end, but make sure to include whatever parts haven't already been included
+	if (rs.pos.off >= len || rs.b.get(rs.pos) == 0) {
+	    rs.buf[k] = 0;
+	    break;
+	}
+	//ignore preceeding whitespace
+	if (rs.b.get(rs.pos) != ' ' || rs.b.get(rs.pos) != '\t' || rs.b.get(rs.pos) != '\n')
+	    started = true;
+	if (started) {
+	    //handle comments
+	    if (rs.b.get(rs.pos) == '/' && rs.pos.off > 0 && rs.b.get(rs.pos-1) == '/') {
+		//we don't care about lines that only contain comments, so we should skip over them, but in the other event we need to skip to the end of the line
+		if (k == 1)
+		    started = false;
+		else
+		    rs.pos.off = rs.b.get_line_size(rs.pos.line);
+		//terminate the expression and move to the next line
+		rs.buf[--k] = 0;
+		break;
+	    } else if (rs.b.get(rs.pos) == '*' && rs.pos.off > 0 && rs.b.get(rs.pos-1) == '/') {
+		if (k == 1)
+		    started = false;
+		rs.buf[--k] = 0;//set the slash to be a null terminator
+		while (rs.b.inc(rs.pos)) {
+		    if (rs.b.get(rs.pos) == '*' && rs.b.get(rs.pos+1) == '/') {
+			rs.pos = rs.pos+2;
+			break;
+		    }
+		}
+	    }
+	    //handle assignments
+	    if (rs.b.get(rs.pos) == '=') {
+		rs.buf[k++] = 0;
+		lval = CGS_trim_whitespace(rs.buf, NULL);
+		init.off = k;
+		//buf_off = k;
+		rval_ind = k;
+		continue;//don't copy the value into rs.buf
+	    }
+	    //if we encounter a block, then we need to make sure we include all of its contents, even if that block ends on another line
+	    char match_tok = 0;
+	    switch(rs.b.get(rs.pos)) {
+		case '(': match_tok = ')';break;
+		case '[': match_tok = ']';break;
+		case '{': match_tok = '}';break;
+		case '\"': match_tok = '\"';break;
+		case '\'': match_tok = '\'';break;
+		default: break;
+	    }
+	    if (match_tok) {
+		line_buffer_ind end;
+		line_buffer enc = rs.b.get_enclosed(rs.pos, &end, rs.b.get(rs.pos), match_tok, true, true);
+		char* tmp = enc.flatten(' ');
+		//if we're still on the same line, then we need to continue until we reach the end. Otherwise, save everything inclosed and terminate
+		if (end.line == init.line && end.off < len) {
+		    rs.buf = append_to_line(rs.buf, &k, &rs.buf_size, tmp, end.off - rs.pos.off);
+		    rs.pos = end;
+		    init = rs.pos;
+		    free(tmp);
+		    //continue;//don't copy the value into rs.buf
+		} else {
+		    rs.buf = append_to_line(rs.buf, &k, &rs.buf_size, tmp, strlen(tmp)+1);
+		    free(tmp);
+		    rs.pos = end;
+		    break;//we're done reading this line since we jumped across a line
+		}
+	    }
+	    //handle everything else
+	    rs.buf[k++] = rs.b.get(rs.pos);
+	}
+    }
+    //only set the rval if we haven't done so already
+    if (started) {
+	value tmp_val = parse_value(rs.buf+rval_ind, er);
+	if (er != E_SUCCESS) return er;
+	emplace(lval, tmp_val);
+	cleanup_val(&tmp_val);
+    } else {
+	rs.pos.line += 1;
+	rs.pos.off = 0;
+    }
+    return E_SUCCESS;
+}
+
 /**
  * Generate a context from a list of lines. This context will include function declarations, named variables, and subcontexts (instances).
  * lines: the array of lines to read from
  * n_lines: the size of the array
  * returns: an errorcode if one was found or E_SUCCESS on success
  */
-parse_ercode context::read_from_lines(line_buffer b) {
+parse_ercode context::read_from_lines(const line_buffer& b) {
     parse_ercode er = E_SUCCESS;
-    stack<block_type> blk_stack;
 
-    size_t buf_size = BUF_SIZE;
-    char* buf = (char*)malloc(sizeof(char)*buf_size);
+    context::read_state rs(b);
     //iterate over each line in the file
-    for (size_t lineno = 0; lineno < b.get_n_lines(); ++lineno) {
-	char* line = b.get_line(lineno);
+    while (true) {
+	char* line = b.get_line(rs.pos.line);
 	//check for class and function declarations
 	char* dectype_start = token_block(line, "def");
 	if (dectype_start) {
@@ -1728,98 +2234,29 @@ parse_ercode context::read_from_lines(line_buffer b) {
 	    if (er == E_SUCCESS) {
 		size_t i = 0;
 		for (; endptr[i] && (endptr[i] == ' ' || endptr[i] == '\t' || endptr[i] == '\n'); ++i) (void)0;
-		size_t n_enc = b.get_n_lines()-lineno;
-		long t_line = lineno;
-		line_buffer lines_enc(b.get_enclosed(lineno, &t_line, '{', '}', func_end));
-		if (t_line < 0) { free(buf);return E_BAD_SYNTAX; }
-		lineno = (size_t)t_line;
 		//now we actually create the function
-		user_func tmp(cur_func, lines_enc);
+		rs.pos.off = 0;
+		line_buffer_ind end;
+		user_func tmp(cur_func, b.get_enclosed(rs.pos, &end, '{', '}', func_end));
+		if (end.line == b.get_n_lines()) { free(line);return E_BAD_SYNTAX; }
 		value v;
 		v.type = VAL_FUNC;
 		v.val.f = &tmp;
-		v.n_els = n_enc;
+		v.n_els = b.get_n_lines()-rs.pos.line;
 		emplace(cur_func.name, v);
 		//we have to advance to the line after end of the function declaration
 	    }
 	} else {
-	    //char* lval = NULL;
-	    size_t rval_start = 0;
-	    size_t k = 0;
-	    bool started = false; 
-	    size_t i = 0;
-	    for (; line[i]; ++i) {
-		//handle comments
-		if (line[i] == '/') {
-		    if (line[i+1] == '/') {
-			break;
-		    } else if (line[i+1] == '*') {
-			blk_stack.push(BLK_COMMENT);
-		    } else if (i > 0 && line[i-1] == '*') {
-			block_type tmp = BLK_UNDEF;
-			er = blk_stack.pop(&tmp);
-			if (tmp != BLK_COMMENT) { return E_BAD_SYNTAX; }
-		    }
-		}
-		block_type cur_blkt = BLK_UNDEF;
-		if (blk_stack.size() > 0) cur_blkt = blk_stack.peek();
-		if (cur_blkt != BLK_LITERAL && cur_blkt != BLK_COMMENT) {
-		    if (k >= buf_size) {
-			buf_size *= 2;
-			buf = (char*)realloc(buf, sizeof(char)*buf_size);
-		    }
-		    //ignore preceeding whitespace
-		    if (line[i] != ' ' || line[i] != '\t' || line[i] != '\n') started = true;
-		    if (started) buf[k++] = line[i];
-		    //check for assignment, otherwise handle blocks
-		    char match_tok = 0;
-		    char sep_tok = 0;
-		    if (line[i] == '=') {
-			if (blk_stack.is_empty()) {
-			    buf[k-1] = 0;
-			    //lval = CGS_trim_whitespace(buf, NULL);
-			    rval_start = k;
-			}
-		    } else if (line[i] == '(') {
-			match_tok = ')';
-		    } else if (line[i] == '[') {
-			match_tok = ']';
-		    } else if (line[i] == '{') {
-			match_tok = '}';
-			sep_tok = ';';
-		    }
-		    if (match_tok != 0 && i > rval_start) {
-			long tmp = lineno;
-			line_buffer lines_enc(b.get_enclosed(lineno, &tmp, line[i], match_tok, i, true));
-			if (tmp < 0) { free(buf);return E_BAD_SYNTAX; }
-			lineno = (size_t)tmp;
-			//we have to advance to the end of the function declaration
-			char* enc = lines_enc.flatten(sep_tok);
-			//concatenate the string using thingies
-			size_t dest_len = (k - rval_start) + strlen(enc) + 2;
-			buf = (char*)realloc(buf, sizeof(char)*(k+dest_len));
-			strcpy(buf+k-1, enc);
-			free(enc);
-			//parse the value
-			value tmp_val = parse_value(buf+rval_start, er);
-			if (er != E_SUCCESS) { free(buf);return er; }
-			emplace(CGS_trim_whitespace(buf, NULL), tmp_val);
-			cleanup_val(&tmp_val);
-			break;
-		    }
-		}
-	    }
-	    //only set the rval if we haven't done so already
-	    if (line[i] == 0) {
-		buf[k] = 0;
-		value tmp_val = parse_value(buf+rval_start, er);
-		if (er != E_SUCCESS) { free(buf);return er; }
-		emplace(CGS_trim_whitespace(buf, NULL), tmp_val);
-		cleanup_val(&tmp_val);
-	    }
+	    er = read_single_line(rs);
+	    if (er != E_SUCCESS) { free(line);return er; }
+	}
+	free(line);
+	//if we're at the end of a line, try incrementing. If that doesn't work, then we've reached the end of the file.
+	if (rs.pos.off >= rs.b.get_line_size(rs.pos.line)) {
+	    if (!b.inc(rs.pos))
+		break;
 	}
     }
-    free(buf);
 
     return er;
 }
@@ -1865,7 +2302,6 @@ user_func::user_func(user_func&& o) : code_lines(o.code_lines) {
     o.exec = NULL;
     o.call_sig.n_args = 0;
 }
-
 const char* token_names[] = {"if", "for", "while", "return"};
 const size_t n_token_names = sizeof(token_names)/sizeof(char*);
 typedef enum {TOK_NONE, TOK_IF, TOK_FOR, TOK_WHILE, TOK_RETURN} token_type;
@@ -1877,6 +2313,15 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
     if (exec) {
 	value ret = (*exec)(c, call, er);
 	return ret;
+    } else if (call.n_args == call_sig.n_args) {
+	//setup a new scope with function arguments defined
+	context func_scope(&c);
+	for (size_t i = 0; i < call_sig.n_args; ++i) {
+	    func_scope.emplace(call_sig.arg_names[i], call.args[i]);
+	}
+	size_t lineno = 0;
+    } else {
+	er = E_LACK_TOKENS;
     }
     return sto;
     /*er = E_SUCCESS;
@@ -1897,6 +2342,7 @@ value user_func::eval(context& c, cgs_func call, parse_ercode& er) {
 	    //TODO
 	    defualt: break;
 	}
+	free(line);
     }
     //return an undefined value by default
     value ret;ret.type = VAL_UNDEF;ret.val.x = 0;return ret;*/

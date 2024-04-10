@@ -306,6 +306,7 @@ TEST_CASE("Test line reading") {
     CHECK(read_cgs_line(&buf, &bsize, fp, &lineno) > 0);
     CHECK(strcmp(buf, "last_test()") == 0);
     free(buf);
+    fclose(fp);
 }
 
 TEST_CASE("Check that numbers are written correctly") {
@@ -590,6 +591,8 @@ TEST_CASE("Test value makers") {
 	CHECK(lst_val.val.l[i].type == VAL_NUM);
 	CHECK(lst_val.val.l[i].val.x == (double)i/2);
     }
+    for (size_t i = 0; i < SMALL_TEST_N; ++i)
+	cleanup_val(val_bufs+i);
     cleanup_val(&lst_val);
 }
 
@@ -1039,32 +1042,125 @@ TEST_CASE("Test operations") {
     }
 }
 
-TEST_CASE("Test get_enclosed") {
+TEST_CASE("Test line_buffer splitting") {
+    const char* lines[] = { "apple; banana;c", ";orange" };
+    size_t n_lines = sizeof(lines)/sizeof(char*);
+    line_buffer lb(lines, n_lines);
+    CHECK(lb.get_n_lines() == 2);
+    char* strval = lb.get_line(0);CHECK(strcmp(lines[0], strval) == 0);free(strval);
+    strval = lb.get_line(1);CHECK(strcmp(lines[1], strval) == 0);free(strval);
+    lb.split(';');
+    CHECK(lb.get_n_lines() == 5);
+    strval = lb.get_line(0);CHECK(strcmp("apple", strval) == 0);free(strval);
+    strval = lb.get_line(1);CHECK(strcmp(" banana", strval) == 0);free(strval);
+    strval = lb.get_line(2);CHECK(strcmp("c", strval) == 0);free(strval);
+    strval = lb.get_line(3);CHECK(strcmp("", strval) == 0);free(strval);
+    strval = lb.get_line(4);CHECK(strcmp("orange", strval) == 0);free(strval);
+}
+
+TEST_CASE("test line_buffer it_single") {
+    const char* lines[] = { "def test_fun(a)", "{", "if a > 5 {", "return 1", "}", "return 0", "}" };
+    size_t n_lines = sizeof(lines)/sizeof(char*);
+    //check the lines (curly brace on new line)
+    line_buffer lb(lines, n_lines);
+    //test it_single
+    int depth = 0;
+    char* it_single_str = NULL;
+    //including braces
+    for (size_t i = 0; i < n_lines; ++i) {
+	line_buffer_ind start(i, 0);
+	line_buffer_ind end(i, 0);
+	int it_start = lb.it_single(&it_single_str, '{', '}', &start, &end, &depth, true, false);
+	if (i == 1)
+	    CHECK(it_start == 0);
+	else
+	    CHECK(it_start == -1);
+	CHECK(strcmp(it_single_str, lines[i]) == 0);
+	CHECK(start.line == i);
+	CHECK(start.off == 0);
+	if (i < n_lines-1)
+	    CHECK(end.line == start.line+1);
+	else
+	    CHECK(end.line == start.line);
+	CHECK(end.off == strlen(lines[i]));
+	if (i == 0 or i == n_lines-1)
+	    CHECK(depth == 0);
+	else
+	    CHECK(depth >= 1);
+    }
+    //excluding braces
+    const char* lines_exc[] = { "def test_fun(a)", "", "if a > 5 {", "return 1", "}", "return 0", "}" };
+    for (size_t i = 0; i < n_lines; ++i) {
+	line_buffer_ind start(i, 0);
+	line_buffer_ind end(i, 0);
+	int it_start = lb.it_single(&it_single_str, '{', '}', &start, &end, &depth, false, false);
+	if (i == 1)
+	    CHECK(it_start == 0);
+	else
+	    CHECK(it_start == -1);
+	CHECK(strcmp(it_single_str, lines_exc[i]) == 0);
+	//check that lines start where expected
+	CHECK(start.line == i);
+	if (i == 1)
+	    CHECK(start.off == 1);
+	else
+	    CHECK(start.off == 0);
+	if (i < n_lines-1)
+	    CHECK(end.line == start.line+1);
+	else
+	    CHECK(end.line == start.line);
+	//check that lines end where expected
+	if (i == n_lines-1)
+	    CHECK(end.off == 0);
+	else
+	    CHECK(end.off == strlen(lines[i]));
+	//CHECK that the depths are correct
+	if (i == 0 or i == n_lines-1)
+	    CHECK(depth == 0);
+	else
+	    CHECK(depth >= 1);
+    }
+}
+
+TEST_CASE("Test line_buffer get_enclosed") {
     const char* fun_contents[] = {"", "if a > 5 {", "return 1", "}", "return 0", ""};
     const char* if_contents[] = {"", "return 1", ""};
     size_t fun_n = sizeof(fun_contents)/sizeof(char*);
     size_t if_n = sizeof(if_contents)/sizeof(char*);
 
-    long end_ind;
+    line_buffer_ind end_ind;
+    char* strval = NULL;
 
     SUBCASE("open brace on a different line") {
 	const char* lines[] = { "def test_fun(a)", "{", "if a > 5 {", "return 1", "}", "return 0", "}" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	//check the lines (curly brace on new line)
-	line_buffer b_1(lines, n_lines);
+	line_buffer lb(lines, n_lines);
 	for (size_t i = 0; i < n_lines; ++i) {
-	    CHECK(strcmp(lines[i], b_1.get_line(i)) == 0);
+	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
-	line_buffer b_fun_con(b_1.get_enclosed(0, &end_ind, '{', '}'));
+	//test wrapper functions that use it_single
+	line_buffer_ind bstart;
+	line_buffer b_fun_con = lb.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_fun_con.get_n_lines() == fun_n);
-	CHECK(end_ind == 6);
+	CHECK(end_ind.line == 6);
 	for (size_t i = 0; i < fun_n; ++i) {
-	    CHECK(strcmp(fun_contents[i], b_fun_con.get_line(i)) == 0);
+	    strval = b_fun_con.get_line(i);CHECK(strcmp(fun_contents[i], strval) == 0);free(strval);
 	}
-	line_buffer b_if_con(b_fun_con.get_enclosed(0, &end_ind, '{', '}'));
+	line_buffer b_if_con = b_fun_con.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_if_con.get_n_lines() == if_n);
-	CHECK(end_ind == 3);
-	for (size_t i = 0; i < if_n; ++i) CHECK(strcmp(if_contents[i], b_if_con.get_line(i)) == 0);
+	CHECK(end_ind.line == 3);
+	for (size_t i = 0; i < if_n; ++i) {
+	    strval = b_if_con.get_line(i);CHECK(strcmp(if_contents[i], strval) == 0);free(strval);
+	}
+	//check jumping
+	line_buffer_ind blk_start(0,0);
+	line_buffer_ind blk_end_ind = lb.jmp_enclosed(blk_start, '{', '}');
+	CHECK(blk_end_ind.line == 6);
+	CHECK(blk_end_ind.off == 0);
+	blk_end_ind = lb.jmp_enclosed(blk_start, '{', '}', true);
+	CHECK(blk_end_ind.line == 6);
+	CHECK(blk_end_ind.off == 1);
 	//try flattening
 	char* fun_flat = b_fun_con.flatten();
 	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
@@ -1078,27 +1174,37 @@ TEST_CASE("Test get_enclosed") {
 	const char* lines[] = { "def test_fun(a) {", "if a > 5 {", "return 1", "}", "return 0", "}" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	//check the lines (curly brace on same line)
-	line_buffer b_2(lines, n_lines);
+	line_buffer lb(lines, n_lines);
 	for (size_t i = 0; i < n_lines; ++i) {
-	    CHECK(strcmp(lines[i], b_2.get_line(i)) == 0);
+	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
-	line_buffer b_fun_con_2(b_2.get_enclosed(0, &end_ind, '{', '}'));
-	CHECK(b_fun_con_2.get_n_lines() == fun_n);
-	CHECK(end_ind == 5);
+	//test wrapper functions that use it_single
+	line_buffer_ind bstart;
+	line_buffer b_fun_con = lb.get_enclosed(bstart, &end_ind, '{', '}');
+	CHECK(b_fun_con.get_n_lines() == fun_n);
+	CHECK(end_ind.line == 5);
 	for (size_t i = 0; i < fun_n; ++i) {
-	    CHECK(strcmp(fun_contents[i], b_fun_con_2.get_line(i)) == 0);
+	    strval = b_fun_con.get_line(i);CHECK(strcmp(fun_contents[i], strval) == 0);free(strval);
 	}
-	line_buffer b_if_con_2(b_fun_con_2.get_enclosed(0, &end_ind, '{', '}'));
+	line_buffer b_if_con_2 = b_fun_con.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_if_con_2.get_n_lines() == if_n);
-	CHECK(end_ind == 3);
+	CHECK(end_ind.line == 3);
 	for (size_t i = 0; i < if_n; ++i) {
-	    CHECK(strcmp(if_contents[i], b_if_con_2.get_line(i)) == 0);
+	    strval = b_if_con_2.get_line(i);CHECK(strcmp(if_contents[i], strval) == 0);free(strval);
 	}
+	//check jumping
+	line_buffer_ind blk_start(0,0);
+	line_buffer_ind blk_end_ind = b_fun_con.jmp_enclosed(blk_start, '{', '}');
+	CHECK(blk_end_ind.line == 3);
+	CHECK(blk_end_ind.off == 0);
+	blk_end_ind = b_fun_con.jmp_enclosed(blk_start, '{', '}', true);
+	CHECK(blk_end_ind.line == 3);
+	CHECK(blk_end_ind.off == 1);
 	//try flattening
-	char* fun_flat = b_fun_con_2.flatten();
+	char* fun_flat = b_fun_con.flatten();
 	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
 	free(fun_flat);
-	fun_flat = b_fun_con_2.flatten('|');
+	fun_flat = b_fun_con.flatten('|');
 	CHECK(strcmp(fun_flat, "if a > 5 {|return 1|}|return 0||") == 0);
 	free(fun_flat);
     }
@@ -1107,18 +1213,28 @@ TEST_CASE("Test get_enclosed") {
 	const char* lines[] = { "def test_fun(a) {if a > 5 {return 1}return 0}" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	//check the lines (curly brace on new line)
-	line_buffer b_1(lines, n_lines);
+	line_buffer lb(lines, n_lines);
 	for (size_t i = 0; i < n_lines; ++i) {
-	    CHECK(strcmp(lines[i], b_1.get_line(i)) == 0);
+	    strval = lb.get_line(i);CHECK(strcmp(lines[i], strval) == 0);free(strval);
 	}
-	line_buffer b_fun_con(b_1.get_enclosed(0, &end_ind, '{', '}'));
+	//test wrapper functions that use it_single
+	line_buffer_ind bstart;
+	line_buffer b_fun_con = lb.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_fun_con.get_n_lines() == 1);
-	CHECK(end_ind == 0);
-	CHECK(strcmp("if a > 5 {return 1}return 0", b_fun_con.get_line(0)) == 0);
-	line_buffer b_if_con(b_fun_con.get_enclosed(0, &end_ind, '{', '}'));
+	CHECK(end_ind.line == 0);
+	strval = b_fun_con.get_line(0);CHECK(strcmp("if a > 5 {return 1}return 0", strval) == 0);free(strval);
+	line_buffer b_if_con = b_fun_con.get_enclosed(bstart, &end_ind, '{', '}');
 	CHECK(b_if_con.get_n_lines() == 1);
-	CHECK(end_ind == 0);
-	CHECK(strcmp("return 1", b_if_con.get_line(0)) == 0);
+	CHECK(end_ind.line == 0);
+	strval = b_if_con.get_line(0);CHECK(strcmp("return 1", strval) == 0);free(strval);
+	//check jumping
+	line_buffer_ind blk_start;
+	line_buffer_ind blk_end_ind = b_fun_con.jmp_enclosed(blk_start, '{', '}');
+	CHECK(blk_end_ind.line == 0);
+	CHECK(blk_end_ind.off == 18);
+	blk_end_ind = b_fun_con.jmp_enclosed(blk_start, '{', '}', true);
+	CHECK(blk_end_ind.line == 0);
+	CHECK(blk_end_ind.off == 19);
 	//try flattening
 	char* fun_flat = b_fun_con.flatten();
 	CHECK(strcmp(fun_flat, "if a > 5 {return 1}return 0") == 0);
@@ -1170,7 +1286,7 @@ TEST_CASE("Test context parsing") {
 	CHECK(strcmp(val_b.val.s, "b") == 0);
     }
     SUBCASE ("with nesting") {
-	const char* lines[] = { "a = {name = \"apple\"; values = [20, 11]}", "b = a.values[0]", "c = b + a.values[1]" }; 
+	const char* lines[] = { "a = {name = \"apple\", values = [20, 11]}", "b = a.values[0]", "c = a.values[1] + a.values[0]+1" }; 
 	size_t n_lines = sizeof(lines)/sizeof(char*);
 	line_buffer b_1(lines, n_lines);
 	context c;
@@ -1194,18 +1310,11 @@ TEST_CASE("Test context parsing") {
 	CHECK(val_b.val.x == 20);
 	value val_c = c.lookup("c");
 	CHECK(val_c.type == VAL_NUM);
-	CHECK(val_c.val.x == 31);
+	CHECK(val_c.val.x == 32);
     }
     SUBCASE ("user defined functions") {
 	const char* fun_name = "test_fun";
 	char* tmp_name = strdup(fun_name);
-	cgs_func call_sig;
-	call_sig.n_args = 1;
-	call_sig.args[0].type = VAL_UNDEF;
-	call_sig.args[0].val.x = 0;
-	call_sig.args[0].n_els = 0;
-	call_sig.arg_names[0] = NULL;
-	call_sig.name = tmp_name;
 
 	const char* lines[] = { "a = test_fun(1)", "b=test_fun(10)" };
 	size_t n_lines = sizeof(lines)/sizeof(char*);
@@ -1234,6 +1343,105 @@ TEST_CASE("Test context parsing") {
 	    cleanup_val(&val_b);*/
 	}
 	free(tmp_name);
+    }
+}
+
+TEST_CASE("Test context file parsing") {
+    line_buffer lb("tests/context_test.geom");
+    CHECK(lb.get_n_lines() == 10);
+    context c;
+    setup_geometry_context(c);
+    size_t init_size = c.size();
+    parse_ercode er = c.read_from_lines(lb);
+    CHECK(er == E_SUCCESS);
+    CHECK(c.size() == init_size+4);
+    //look at the Gaussian
+    value inst = c.peek_val(4); {
+	CHECK(inst.type == VAL_INST);
+	CHECK(inst.val.c->size() == 9);
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
+	CHECK(strval.name_matches("__type__"));
+	CHECK(strval.get_val().type == VAL_STR);
+	CHECK(strcmp(strval.get_val().val.s, "Gaussian_source") == 0);
+	value tmp = inst.val.c->lookup("component");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_EX);
+	tmp = inst.val.c->lookup("wavelength");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == doctest::Approx(1.33));
+	tmp = inst.val.c->lookup("amplitude");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1.0);
+	tmp = inst.val.c->lookup("width");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 2.0);
+	tmp = inst.val.c->lookup("phase");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.0);
+	tmp = inst.val.c->lookup("cutoff");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.125);
+	tmp = inst.val.c->lookup("start_time");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == -1.25);
+	CHECK(is_type(inst.val.c->peek_val(), "Box"));
+    }
+    inst = c.peek_val(3); {
+	CHECK(inst.type == VAL_INST);
+	CHECK(inst.val.c->size() == 8);
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
+	CHECK(strval.name_matches("__type__"));
+	CHECK(strval.get_val().type == VAL_STR);
+	CHECK(strcmp(strval.get_val().val.s, "CW_source") == 0);
+	value tmp = inst.val.c->lookup("component");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == (double)C_HZ);
+	tmp = inst.val.c->lookup("wavelength");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.625);
+	tmp = inst.val.c->lookup("amplitude");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.25);
+	tmp = inst.val.c->lookup("start_time");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 0.75);
+	tmp = inst.val.c->lookup("end_time");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 2.25);
+	tmp = inst.val.c->lookup("slowness");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 12);
+	CHECK(is_type(inst.val.c->peek_val(), "Box"));
+    }
+    inst = c.peek_val(2); {
+	CHECK(inst.type == VAL_INST);
+	CHECK(inst.val.c->size() == 5);
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
+	CHECK(strval.name_matches("__type__"));
+	CHECK(strval.get_val().type == VAL_STR);
+	CHECK(strcmp(strval.get_val().val.s, "Composite") == 0);
+	value tmp = inst.val.c->lookup("eps");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 3.5);
+	tmp = inst.val.c->lookup("alpha");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1);
+	tmp = inst.val.c->lookup("color");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 10);
+	value geom = inst.val.c->peek_val();
+	CHECK(geom.type == VAL_LIST);
+	CHECK(geom.n_els == 2);
+	CHECK(is_type(geom.val.l[0], "Box"));
+	CHECK(is_type(geom.val.l[1], "Box"));
+    }
+    inst = c.peek_val(1); {
+	CHECK(inst.type == VAL_INST);
+	CHECK(inst.val.c->size() == 9);
+	name_val_pair strval = inst.val.c->peek(inst.val.c->size());
+	CHECK(strval.name_matches("__type__"));
+	CHECK(strval.get_val().type == VAL_STR);
+	CHECK(strcmp(strval.get_val().val.s, "snapshot") == 0);
+	value tmp = inst.val.c->lookup("fname");
+	CHECK(tmp.type == VAL_STR);CHECK(strcmp(tmp.val.s, "/tmp/run_alpha.pgm") == 0);
+	tmp = inst.val.c->lookup("cam_v");
+	CHECK(tmp.type == VAL_3VEC);
+	tmp = inst.val.c->lookup("look_v");
+	CHECK(tmp.type == VAL_3VEC);
+	tmp = inst.val.c->lookup("up_v");
+	CHECK(tmp.type == VAL_3VEC);
+	tmp = inst.val.c->lookup("scale");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == 1);
+	tmp = inst.val.c->lookup("res");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == DEF_IM_RES);
+	tmp = inst.val.c->lookup("n_samples");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == DEF_TEST_N);
+	tmp = inst.val.c->lookup("step");
+	CHECK(tmp.type == VAL_NUM);CHECK(tmp.val.x == WALK_STEP);
     }
 }
 
@@ -1280,127 +1488,10 @@ TEST_CASE("Test volumes") {
     vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
 }
 
-TEST_CASE("Test object Trees") {
-    //declare variables
-    char buf[BUF_SIZE];
-    object_stack test_stack;
-    object* cur_obj;object_type cur_type;
-    parse_ercode er;
-
-    //setup a bunch of strings describing objects
-    const char* root_obj_str = "Composite(eps = 3.5)";
-    const char* l_str = "union()";
-    const char* ll_str = "Box(vec(0,0,0), vec(1,1,1))";
-    const char* lr_str = "Sphere(vec(2,0,0), 1)";
-    const char* r_str = "intersect()";
-    const char* rl_str = "Box(vec(0,0,0), vec(1,1,1))";
-    const char* rr_str = "Cylinder(vec(2,0,0), 1, 1)";
-
-    scene sc;
-    //Insert root object
-    strncpy(buf, root_obj_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cgs_func cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert object 1
-    strncpy(buf, l_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert left union object
-    strncpy(buf, ll_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert right union object
-    strncpy(buf, lr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert object 2
-    strncpy(buf, r_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert left union object
-    strncpy(buf, rl_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-    //Insert right union object
-    strncpy(buf, rr_str, BUF_SIZE);buf[BUF_SIZE-1] = 0;
-    cur_func = sc.get_context().parse_func(buf, (size_t)(strchr(buf, '(')-buf), er, NULL);
-    CHECK(er == E_SUCCESS);
-    er = sc.make_object(cur_func, &cur_obj, &cur_type, 0);
-    CHECK(er == E_SUCCESS);
-    test_stack.emplace_obj(cur_obj, cur_type);
-    cleanup_func(&cur_func);
-
-    //get all composite objects in the tree
-    composite_object* root = test_stack.get_root();
-    CHECK(root != NULL);
-    composite_object* comp_l = (composite_object*)(root->get_child_l());
-    composite_object* comp_r = (composite_object*)(root->get_child_r());
-    //check that all are not NULL and that types are correct
-    CHECK(root->get_child_type_l() == CGS_COMPOSITE);
-    CHECK(root->get_child_type_r() == CGS_COMPOSITE);
-    CHECK(comp_l != NULL);
-    CHECK(comp_r != NULL);
-
-    //now test that the composite object has the right structure
-    CHECK(comp_l->get_combine_type() == CGS_UNION);
-    CHECK(comp_l->get_child_l() != NULL);
-    CHECK(comp_l->get_child_type_l() == CGS_BOX);
-    CHECK(comp_l->get_child_r() != NULL);
-    CHECK(comp_l->get_child_type_r() == CGS_SPHERE);
-    //check the right branch
-    CHECK(comp_r->get_combine_type() == CGS_INTERSECT);
-    CHECK(comp_r->get_child_l() != NULL);
-    CHECK(comp_r->get_child_type_l() == CGS_BOX);
-    CHECK(comp_r->get_child_r() != NULL);
-    CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
-    delete root;
-}
-
 TEST_CASE("Test File Parsing") {
     parse_ercode er;
     scene s("tests/test.geom", &er);
     CHECK(er == E_SUCCESS);
-    //check that metadata works
-    std::vector<composite_object*> data_vec = s.get_data();
-    CHECK(data_vec.size() > 0);
-    CHECK(data_vec[0]->has_metadata("name"));
-    CHECK(data_vec[0]->has_metadata("entry"));
-    CHECK(data_vec[0]->has_metadata("num"));
-    value name_val = data_vec[0]->fetch_metadata("name");
-    value ntry_val = data_vec[0]->fetch_metadata("entry");
-    value num_val = data_vec[0]->fetch_metadata("num");
-    CHECK(name_val.type == VAL_STR);
-    CHECK(ntry_val.type == VAL_STR);
-    CHECK(num_val.type == VAL_NUM);
-    CHECK(name_val.val.s != NULL);
-    CHECK(ntry_val.val.s != NULL);
-    CHECK(strcmp(name_val.to_c_str(), "foo") == 0);
-    CHECK(strcmp(ntry_val.to_c_str(), "bar,(arr),[blah]") == 0);
-    CHECK(num_val.to_float() == 3);
     //look at context variables
     context c = s.get_context();
     value offset = c.lookup("offset");
@@ -1427,6 +1518,7 @@ TEST_CASE("Test File Parsing") {
     composite_object* comp_r = (composite_object*)(root->get_child_r());
     CHECK(comp_r->get_child_type_l() == CGS_COMPOSITE);
     composite_object* comp_rl = (composite_object*)(comp_r->get_child_l());
+    composite_object* comp_rr = (composite_object*)(comp_r->get_child_r());
     CHECK(comp_l != NULL);
     CHECK(comp_r != NULL);
     CHECK(comp_rl != NULL);
@@ -1440,13 +1532,19 @@ TEST_CASE("Test File Parsing") {
     //check the right branch
     CHECK(comp_r->get_combine_type() == CGS_INTERSECT);
     CHECK(comp_r->get_child_l() != NULL);
-    CHECK(comp_rl->get_combine_type() == CGS_DIFFERENCE);
+    CHECK(comp_rl->get_combine_type() == CGS_INTERSECT);
     CHECK(comp_rl->get_child_l() != NULL);
     CHECK(comp_rl->get_child_type_l() == CGS_BOX);
     CHECK(comp_rl->get_child_r() != NULL);
-    CHECK(comp_rl->get_child_type_r() == CGS_PLANE);
-    CHECK(comp_r->get_child_r() != NULL);
+    CHECK(comp_rl->get_child_type_r() == CGS_COMPOSITE);
+    CHECK(comp_rl->get_child_r() != NULL);
+    composite_object* comp_rlr = (composite_object*)(comp_rl->get_child_r());
+    CHECK(comp_rlr->get_child_type_l() == CGS_PLANE);
+    CHECK(comp_rlr->get_child_l() != NULL);
+    CHECK(comp_rlr->get_child_type_r() == CGS_UNDEF);
+    CHECK(comp_rlr->get_child_r() == NULL);
     CHECK(comp_r->get_child_type_r() == CGS_CYLINDER);
+    CHECK(comp_r->get_child_r() != NULL);
 }
 
 TEST_CASE("Test Geometric Inclusion") {
@@ -1463,6 +1561,52 @@ TEST_CASE("Test Geometric Inclusion") {
     CHECK(root->in(vec3(.55,.41,.85)) == 0);
     vec3 cam_pos(CAM_X, CAM_Y, CAM_Z);
     s.draw("/tmp/test_composite.pgm", cam_pos);
+}
+
+uint32_t set_alpha(uint32_t col, uint32_t a) {
+    return (col & 0x00ffffff) | (a << 24);
+}
+TEST_CASE("Test image saving") {
+    //check that blending works
+    uint32_t c1 = make_col(255, 0, 0);
+    uint32_t c2 = make_col(0, 255, 127);
+    uint32_t blend_res = blend(c1, c2);
+    CHECK(blend_res == c1);
+    c1 = set_alpha(c1, 128);
+    blend_res = blend(c1, c2);
+    CHECK(get_a(blend_res) == 255);
+    CHECK(get_r(blend_res) == 127);
+    CHECK(get_g(blend_res) == 127);
+    CHECK(get_b(blend_res) == 63);
+    c2 = set_alpha(c2, 192);
+    blend_res = blend(c1, c2);
+    CHECK(get_a(blend_res) == 224);
+    CHECK(get_r(blend_res) == 145);
+    CHECK(get_g(blend_res) == 109);
+    CHECK(get_b(blend_res) == 54);
+    //check that 0 opacity results in only one color
+    c1 = set_alpha(c1, 255);
+    c2 = set_alpha(c2, 0);
+    CHECK(blend(c1, c2) == c1);
+    CHECK(blend(c2, c1) == c1);
+    //set up an image buffer
+    size_t res = 255;
+    uint32_t c_buf[res*res];
+    for (size_t i = 0; i < res; ++i) {
+	//transparent to red to transparent gradient on the y direction
+	int a_mask = ((int)i - res/2);
+	a_mask = 255 - (a_mask*a_mask)/64;
+	c1 = set_alpha(c1, a_mask);
+	for (size_t j = 0; j < res; ++j) {
+	    //green to blue gradient in the x direction
+	    c2 = make_col(0, 255, j);
+	    c_buf[i*res + j] = blend(c1, c2);
+	}
+    }
+    save_imbuf("/tmp/tst_img.pgm", c_buf, res, res);
+    //now load a file with test information
+    parse_ercode er;
+    scene s("tests/alpha.geom", &er);
 }
 
 TEST_CASE("Test dispersion material volumentric inclusion") {
@@ -1517,9 +1661,10 @@ TEST_CASE("Test reading of configuration files") {
 	CHECK(args.smooth_rad == 0.25);
 	//CHECK(strcmp(args.monitor_locs, "(1.0,1.0,1.0)") == 0);
 	CHECK(args.post_source_t == 1.0);
-	CHECK(args.field_dump_span == 171);
+	CHECK(args.save_span == 171);
 	CHECK(args.ambient_eps == 1.0);
 	CHECK(strcmp(args.geom_fname, "tests/test.geom") == 0);
+	CHECK(strcmp(args.out_dir, "/test_dir") == 0);
 
 	cleanup_settings(&args);
     }
@@ -1642,21 +1787,21 @@ TEST_CASE("Test geometry file reading") {
 	CHECK(inf.type == SRC_GAUSSIAN);
 	CHECK(inf.component == meep::Ey);
 	CHECK(inf.wavelen == 1.333333);
-	CHECK(inf.width == doctest::Approx(3.0));
-	CHECK(inf.phase == 0.2);
-	CHECK(inf.start_time == 5.0);
-	CHECK(inf.end_time == doctest::Approx(30.2));
 	CHECK(inf.amplitude == 7.0);
+	CHECK(inf.width == doctest::Approx(3.0));
+	CHECK(inf.phase == 0.75);
+	CHECK(inf.start_time == doctest::Approx(5.2));
+	CHECK(inf.end_time == doctest::Approx(41.2));
 
 	inf = sources[1];
 	CHECK(inf.type == SRC_CONTINUOUS);
 	CHECK(inf.component == meep::Hz);
 	CHECK(inf.wavelen == 1.66);
+	CHECK(inf.amplitude == 8.0);
 	CHECK(inf.phase == 0.0);
 	CHECK(inf.start_time == 0.2);
 	CHECK(inf.end_time == 1.2);
 	CHECK(inf.width == 0.1);
-	CHECK(inf.amplitude == 8.0);
 #endif
 
 	cleanup_settings(&args);
@@ -1819,6 +1964,17 @@ TEST_CASE("Test running with a very small system") {
     size_t n_clusts = *clust_data;
     free(clust_data);
     CHECK(n_clusts == geometry.get_n_monitor_clusters());
+    //read the cgs data
+    H5::Group c_grp = grp.openGroup("cgs_params");
+    size_t n_dat;
+    _ftype* dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "l_per_um", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 2.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "sim_length", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 2.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "pml_thickness", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 1.0);free(dat);
+    dat = (_ftype*)read_h5_array_raw(c_grp, H5_float_type, sizeof(_ftype), "tot_len", &n_dat);
+    CHECK(n_dat == 1);CHECK(dat[0] == 4.0);free(dat);
 
     //iterate through each of the specified clusters
     size_t n_group_digits = (size_t)(n_clusts / log(10)) + 1;
@@ -1880,6 +2036,7 @@ int main(int argc, char** argv) {
     // overrides
     context.setOption("no-breaks", true);             // don't break in the debugger when assertions fail
 
+    std::cout << "starting tests!" << std::endl;
     int res = context.run(); // run
 
     if(context.shouldExit()) // important - query flags (and --exit) rely on the user doing this
