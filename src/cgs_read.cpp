@@ -3,21 +3,31 @@
 /** ======================================================== utility functions ======================================================== **/
 
 /**
+ * check if a character is whitespace
+ */
+bool is_whitespace(char c) {
+    if (c == 0 || c == ' ' || c == '\t' || c == '\n' || c == '\r')
+	return true;
+    return false;
+}
+
+/**
  * Helper function for is_token which tests whether the character c is a token terminator
  */
 bool is_char_sep(char c) {
-    if (c == 0 || c == ' ' || c == '\t' || c == '\n' || c == ';' || c == '+'  || c == '-' || c == '*'  || c == '/')
+    if (is_whitespace(c) || c == ';' || c == '+'  || c == '-' || c == '*'  || c == '/')
 	return true;
-    else
-	return false;
+    return false;
 }
 
 /**
  * Helper function which looks at the string str at index i and tests whether it is a token with the matching name
  */
 bool is_token(const char* str, size_t i, size_t len) {
-    if (i > 0 && !is_char_sep(str[i-1])) return false;
-    if (!is_char_sep(str[i+len])) return false;
+    if (i > 0 && !is_char_sep(str[i-1]))
+	return false;
+    if (!is_char_sep(str[i+len]))
+	return false;
     return true;
 }
 
@@ -771,10 +781,35 @@ char line_buffer::get(line_buffer_ind pos) const {
 
 /** ======================================================== builtin functions ======================================================== **/
 /**
+ * Get the type of a value
+ */
+value typeof(context* c, cgs_func tmp_f, parse_ercode& er) {
+    value sto;
+    sto.type = VAL_STR;
+    if (tmp_f.n_args < 1) { er = E_LACK_TOKENS;return sto; }
+    switch (tmp_f.args[0].type) {
+	case VAL_UNDEF: sto.n_els = strlen("undefined");sto.val.s = strdup("undefined"); break;
+	case VAL_STR: sto.n_els = strlen("string");sto.val.s = strdup("string"); break;
+	case VAL_NUM: sto.n_els = strlen("number");sto.val.s = strdup("number"); break;
+	case VAL_ARRAY: sto.n_els = strlen("array");sto.val.s = strdup("array"); break;
+	case VAL_LIST: sto.n_els = strlen("list");sto.val.s = strdup("list"); break;
+	case VAL_3VEC: sto.n_els = strlen("vector_3");sto.val.s = strdup("vector_3"); break;
+	case VAL_MAT: sto.n_els = strlen("matrix_3x3");sto.val.s = strdup("matrix_3x3"); break;
+	case VAL_FUNC: sto.n_els = strlen("function");sto.val.s = strdup("function"); break;
+	case VAL_INST:
+	   value t = tmp_f.args[0].lookup("__type__");
+	   if (t.type == VAL_STR)
+	       sto.val.s = strdup(t.val.s);
+	   break;
+	default: sto.type = VAL_UNDEF;er = E_BAD_VALUE; break;
+    }
+    return sto;
+}
+/**
  * Make a vector argument with the x,y, and z coordinates supplied
  */
 value make_vec(context* c, cgs_func tmp_f, parse_ercode& er) {
-    value sto;sto.type = VAL_UNDEF;
+    value sto = make_val_undef();
     if (tmp_f.n_args < 3) { er = E_LACK_TOKENS;return sto; }
     if (tmp_f.args[0].type != VAL_NUM || tmp_f.args[1].type != VAL_NUM || tmp_f.args[2].type != VAL_NUM) { er = E_BAD_TOKEN;return sto; }
     sto.type = VAL_3VEC;
@@ -787,7 +822,7 @@ value make_vec(context* c, cgs_func tmp_f, parse_ercode& er) {
  * Make a range following python syntax. If one argument is supplied then a list with tmp_f.args[0] elements is created starting at index 0 and going up to (but not including) tmp_f.args[0]. If two arguments are supplied then the range is from (tmp_f.args[0], tmp_f.args[1]). If three arguments are supplied then the range (tmp_f.args[0], tmp_f.args[1]) is still returned, but now the spacing between successive elements is tmp_f.args[2].
  */
 value make_range(context* c, cgs_func tmp_f, parse_ercode& er) {
-    value sto;sto.type = VAL_UNDEF;
+    value sto = make_val_undef();
     if (tmp_f.n_args == 0) {
 	er = E_LACK_TOKENS;
 	return sto;
@@ -1586,7 +1621,7 @@ value& name_val_pair::get_val() {
  * name_only: if set to true, then only the names of the function arguments will be set and all values will be set to undefined. This is useful for handling function declarations
  * returns: an errorcode if an invalid string was supplied.
  */
-cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, char** end, int name_only) {
+cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, const char* const * end, int name_only) {
     cgs_func f;
 
     //by default we want to indicate that we didn't get to the end
@@ -1623,7 +1658,7 @@ cgs_func context::parse_func(char* token, long open_par_ind, parse_ercode& er, c
     }
     if (name_only) {
 	for (size_t i = 0; list_els[i] && i < f.n_args; ++i) {
-	    f.arg_names[i] = strdup(list_els[i]);
+	    f.arg_names[i] = list_els[i];
 	    f.args[i].type = VAL_UNDEF;
 	    f.args[i].n_els = 0;
 	    f.args[i].val.x = 0;
@@ -2293,29 +2328,43 @@ value context::parse_value(char* str, parse_ercode& er) {
 	    //check to see if this is a function call (it is if there are any non-whitespace characters before the open paren
 	    for (size_t j = 0; j < first_open_ind; ++j) {
 		if (str[j] != ' ' && str[j] != '\t' && str[j] != '\n') {
-		    //we can't leave this as zero in case the user needs to do some more operations
-		    char term_char = str[last_close_ind+1];
-		    str[last_close_ind+1] = 0;
 		    cgs_func tmp_f;
-		    char* f_end;
-		    tmp_f = parse_func(str, first_open_ind, er, &f_end);
-		    if (er != E_SUCCESS) { return sto; }
-		    //otherwise lookup the function
-		    value func_val = lookup(tmp_f.name);
-		    if (func_val.type == VAL_FUNC) {
-			//make sure that the function was found and that sufficient arguments were provided
-			if (func_val.n_els <= tmp_f.n_args) {
-			    sto = func_val.val.f->eval(this, tmp_f, er);
+		    //check to see if this is a function declaration, this must be handled differently
+		    if (strncmp(str+j, "fun", KEY_DEF_LEN) == 0 &&
+		    (is_whitespace(str[j+KEY_DEF_LEN]) || str[j+KEY_DEF_LEN] == '('/*)*/)) {
+			const char* f_end;
+			tmp_f = parse_func(str, first_open_ind, er, &f_end, true);
+			//find the contents in the curly brace and separate by semicolons
+			line_buffer b(f_end, ';');
+			sto.type = VAL_FUNC;
+			sto.n_els = tmp_f.n_args;
+			sto.val.f = new user_func(tmp_f, b.get_enclosed(rs.pos, &end, '{', '}', func_end));
+			er = E_SUCCESS;
+			cleanup_func(&tmp_f);
+			return sto;
+		    } else {
+			//we can't leave this as zero in case the user needs to do some more operations
+			char term_char = str[last_close_ind+1];
+			str[last_close_ind+1] = 0;
+			tmp_f = parse_func(str, first_open_ind, er);
+			if (er != E_SUCCESS) { return sto; }
+			//otherwise lookup the function
+			value func_val = lookup(tmp_f.name);
+			if (func_val.type == VAL_FUNC) {
+			    //make sure that the function was found and that sufficient arguments were provided
+			    if (func_val.n_els <= tmp_f.n_args) {
+				sto = func_val.val.f->eval(this, tmp_f, er);
+			    } else {
+				printf("Error: unrecognized function name %s\n", tmp_f.name);
+				er = E_LACK_TOKENS;
+			    }
 			} else {
 			    printf("Error: unrecognized function name %s\n", tmp_f.name);
-			    er = E_LACK_TOKENS;
+			    er = E_BAD_TYPE;
 			}
-		    } else {
-			printf("Error: unrecognized function name %s\n", tmp_f.name);
-			er = E_BAD_TYPE;
+			cleanup_func(&tmp_f);
+			return sto;
 		    }
-		    cleanup_func(&tmp_f);
-		    return sto;
 		}
 
 	    }

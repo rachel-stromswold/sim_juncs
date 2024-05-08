@@ -39,7 +39,7 @@ parser.add_argument('--plot-x-labels', action='store_true', help='If set, then p
 parser.add_argument('--plot-legend', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
 parser.add_argument('--sym-mode', help='Type of symmeterization mode to use', default="sym-o")
-parser.add_argument('--f0-mode', help='Type of central frequency estimate to use', default="avg")
+parser.add_argument('--f0-mode', help='Type of central frequency estimate to use, (options are \'avg\', \'peak\', or \'odd\')', default="avg")
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
 parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)

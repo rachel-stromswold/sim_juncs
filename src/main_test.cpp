@@ -1699,6 +1699,11 @@ TEST_CASE("volumes") {
     delete root;
 }*/
 
+/*TEST_CASE("User functions") {
+    parse_ercode er;
+    scene s("tests/functions.geom")
+}*/
+
 TEST_CASE("File Parsing") {
     parse_ercode er;
     scene s("tests/test.geom", &er);

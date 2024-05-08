@@ -51,6 +51,7 @@ inline void* xrealloc(void* p, size_t nsize) {
 
 /** ======================================================== utility functions ======================================================== **/
 
+bool is_whitespace(char c);
 bool is_char_sep(char c);
 bool is_token(const char* str, size_t i, size_t len);
 char* find_token_before(char* str, size_t i);
@@ -345,11 +346,22 @@ value make_val_mat(mat3x3 m);
 value make_val_vec3(vec3 vec);
 value make_val_func(const char* name, size_t n_args, value (*p_exec)(context*, cgs_func, parse_ercode&));
 value make_val_inst(context* parent, const char* s);
-cgs_func parse_func_decl(char* str);
 cgs_func copy_func(const cgs_func o);
 void cleanup_func(cgs_func* o);
 void swap(cgs_func* a, cgs_func* b);
 value lookup_named(const cgs_func f, const char* name);
+//builtin functions
+value typeof(context* c, cgs_func tmp_f, parse_ercode& er);
+value make_vec(context* c, cgs_func tmp_f, parse_ercode& er);
+value make_range(context* c, cgs_func tmp_f, parse_ercode& er);
+value make_linspace(context* c, cgs_func tmp_f, parse_ercode& er);
+value flatten_list(context* c, cgs_func tmp_f, parse_ercode& er);
+value print(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_sin(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_cos(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_tan(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_exp(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_sqrt(context* c, cgs_func tmp_f, parse_ercode& er);
 
 //collections (like python dicts) are simply aliases for functions under the hood
 typedef context collection;
@@ -445,7 +457,7 @@ public:
     value parse_value(char* tok, parse_ercode& er);
     value parse_value(const line_buffer& b, line_buffer_ind& pos, parse_ercode& er);
     value parse_value(const char* tok);
-    cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end, int name_only=0);
+    cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, const char* const* end=NULL, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
     void swap(stack<val_ind>& o) { stack<val_ind>::swap(o); }
     parse_ercode set_value(const char* name, value new_val, bool force_push=false, bool move_assign=false);
