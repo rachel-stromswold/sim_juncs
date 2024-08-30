@@ -166,11 +166,14 @@ class signal:
         freqs: the frequencies for which the field is computed
         field: if set to 'E' (default) compute the electric field, otherwise compute the envelope for the vector potential
         '''
-        dd = (freqs-self.f0)/self.sigma
+        dd = freqs/self.sigma
         emags = np.zeros(freqs.shape, dtype=complex)
         for i in range(HERM_N):
             emags += self.herm_coeffs[i]*HERMS[i](HERM_SCALE*dd)
-        return 0.5*freqs*emags*np.exp( - dd**2)
+        emags *= 0.5*np.exp(-2j*np.pi*freqs*self.t0 - dd**2)
+        if field == 'E':
+            return (freqs+self.f0)*emags
+        return -emags
         '''dd = (freqs - self.f0)/self.sigma
         #first compute the hermite polynomials
         emags = np.zeros(freqs.shape)
@@ -223,7 +226,9 @@ class signal:
         axs.plot(2*np.pi*freqs, np.abs(self.vfm), color = 'black', label='magnitude')
         axs.plot(2*np.pi*freqs, np.abs(self.get_fenv(freqs)), color=PLT_COLORS[0])
         ax2.plot(2*np.pi*freqs, self.vfa/np.pi, color='green', label='phase')'''
-        fit_field = self.get_fenv(freqs)*np.exp(2j*np.pi*(self.phi - freqs*self.t0))
+        #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
+        fit_field = self.get_fenv(freqs)*np.exp(2j*np.pi*self.phi)
+        fit_field = np.roll(fit_field, int(self.f0/freqs[1]))
         axs.plot(2*np.pi*freqs, self.vfr, color=PLT_COLORS[0], label='real')
         axs.plot(2*np.pi*freqs, self.vfi, color=PLT_COLORS[1], label='imaginary')
         axs.plot(2*np.pi*freqs, np.real(fit_field), color=PLT_COLORS[0], label='real', linestyle='-.')
@@ -275,7 +280,7 @@ class signal:
         #now plot the wave
         env = self.get_tenv(self.t_pts, field='A')
         fit_ser = np.diff( np.real(env)*np.sin(self.f0*(self.t_pts-self.t0)+self.phi) )/self.dt
-        fit_ser = np.roll(fit_ser, -np.argmax(fit_ser)+np.argmax(self.v_pts))
+        fit_ser = np.roll(fit_ser, self.shift_i)
         axs.plot(self.t_pts[:-1], fit_ser*np.max(self.v_pts)/np.max(fit_ser), color='red', label='extracted', linestyle='-.')
         axs.set_xlim(self.t_pts[0], self.t_pts[-1])
 
