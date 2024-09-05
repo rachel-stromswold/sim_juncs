@@ -18,6 +18,10 @@ HERM_N = 3 #use the first HERM_N even hermite polynomials (i.e. HERM_N=1 uses ju
 HERMS = [hermite(n) for n in range(2*HERM_N+2)]
 HERM_SCALE = np.sqrt(2)
 HERM_SCALE=1
+HERM_OFF = 4
+ANG_POLY_OFF = HERM_OFF + HERM_N
+ANG_POLY_N = 0 #in addition to phi and t0, consider higher order odd terms in the polynomial for the angle. i.e. arg(a(w)) = \phi - \omega t_0 + \sum_{n=1}^{ANG_POLY_N} \omega^{2n+1} t_n
+
 MAX_T0_GUESSES = 2
 PLT_COLORS = [
     "#016876",
@@ -90,13 +94,13 @@ def fix_angle_seq(angles, center_ind=0):
                 angles[j] -= 2*np.pi
     return angles
 
-def get_fwhm(pulse, threshold):
-    '''
-    Given a strictly positive time or frequency series pulse, estimate its center and standard deviation
-    pulse: the series for which we find information
-    threshold: the widths are the smallest distance from the peak such that pulse[i] >= threshold*pulse[max]
-    returns: a tuple with the peak index, lower cutoff index and higher cutoff index
-    '''
+'''
+Given a strictly positive time or frequency series pulse, estimate its center and standard deviation
+pulse: the series for which we find information
+threshold: the widths are the smallest distance from the peak such that pulse[i] >= threshold*pulse[max]
+returns: a tuple with the peak index, lower cutoff index and higher cutoff index
+'''
+'''def get_fwhm(pulse, threshold):
     f0i = np.argmax(pulse)
     cut_amp = pulse[f0i]*threshold
     f_min, f_max = f0i, f0i
@@ -106,9 +110,55 @@ def get_fwhm(pulse, threshold):
             f_min = f0i - j
         if pulse[f0i + j] > cut_amp:
             f_max = f0i + j
-    return f0i, f_min, f_max
+    return f0i, f_min, f_max'''
+
+'''
+Given a cost function cost_fn and an analytic gradient grad_fn, check that the two gradients approximately match
+'''
+def test_grads(cost_fn, grad_fn, x):
+    if verbose < 1:
+        return
+    an_g = grad_fn(x)
+    num_g = np.zeros(x.shape)
+    for i in range(x.shape[0]):
+        ei = np.zeros(x.shape[0])
+        ei[i] = 0.001
+        num_g[i] = ( cost_fn(x + ei) - cost_fn(x - ei) )/ei[i]/2
+        if num_g[i] and (num_g[i]-an_g[i])/num_g[i] > 0.01:
+            print("Warning! disagreement between analytic and numeric gradients on axis", i)
+    if (verbose > 4): 
+        print("gradients at x0:")
+        print("\tnumeric:\t", num_g)
+        print("\tanalytic:\t", an_g)
 
 class signal:
+    @staticmethod
+    def _guess_params(freqs, vfm, vfa):
+        #estimate the central frequency and envelope width in frequency space
+        norm = 1/np.trapz(vfm[1:]/freqs[1:])
+        guess_f0 = np.trapz(vfm)*norm
+        guess_sigma = np.sqrt(np.trapz(vfm*freqs)*norm)/2
+        lo_fi, hi_fi = max(int((guess_f0-guess_sigma)/freqs[1]), 1), min(int((guess_f0+guess_sigma)/freqs[1]), len(freqs)-1)
+
+        #now using the selected frequency range, estimate the phase by performing linear regression
+        lr_res = linregress(freqs[lo_fi:hi_fi], vfa[lo_fi:hi_fi])
+        guess_t0 = -lr_res.slope
+        guess_phi = fix_angle(lr_res.intercept - lr_res.slope*freqs[lo_fi])
+        x0 = np.array([guess_phi, guess_t0, guess_f0, 1/guess_sigma])
+
+        #now work out the Hermite-Gaussian expansion assuming w0 and alpha=1/sigma are held fixed at the values we just guessed
+        herm_den = 1
+        dd = x0[3]*(freqs-x0[2])
+        k_ser = np.zeros(freqs.shape)
+        ks = np.zeros(2*HERM_N)
+        for i in range(2*HERM_N):
+            ks[i] = np.trapz(vfm*HERMS[i](dd)*np.exp(-dd**2/2), dx=freqs[1]-freqs[0])/herm_den
+            k_ser += ks[i]*HERMS[i](dd)*np.exp(-dd**2/2)
+            herm_den *= 2*(i+1)
+        ks = np.dot(herm_conv(x0[2], x0[3], HERM_N), ks*np.max(vfm)/np.max(k_ser))
+        x0 = np.append(x0, ks[::2])
+        return x0, lo_fi, hi_fi
+
     def __init__(self, t_pts, v_pts, fname=None, thin=1, phase_axs=None):
         self.dt = t_pts[1] - t_pts[0]
         self.t_pts = t_pts
@@ -120,44 +170,41 @@ class signal:
         freqs = fft.rfftfreq(len(v_pts), d=self.dt)
         vf0 = 2*fft.rfft(np.roll(v_pts, -self.shift_i))
         self.vfm = np.abs(vf0)
-        #estimate the central frequency and envelope width in frequency space
-        norm = 1/np.trapz(self.vfm[1:]/freqs[1:])
-        guess_f0 = np.trapz(self.vfm)*norm
-        guess_sigma = np.sqrt(np.trapz(self.vfm*freqs)*norm)/2
-        lo_fi, hi_fi = max(int((guess_f0-guess_sigma)/freqs[1]), 1), min(int((guess_f0+guess_sigma)/freqs[1]), len(freqs)-1)
+        self.vfa = np.angle(vf0)
+        #get guesses for initial parameters based on heuristics
+        x0, lo_fi, hi_fi = signal._guess_params(freqs, self.vfm, self.vfa)
         self.fit_bounds = np.array([lo_fi, hi_fi])
-        self.vfa = fix_angle_seq(np.angle(vf0), center_ind=int(guess_f0/freqs[1]))
-        #obtain a better estimate of f0 using averaging
-        '''guess_f0 = np.trapz(self.vfm[:2*guess_f0i]*freqs[:2*guess_f0i])/np.trapz(self.vfm[:2*guess_f0i])
-        guess_f0i = int( np.rint(guess_f0/(freqs[1]-freqs[0])) )'''
-        #now using the selected frequency range, estimate the phase by performing linear regression
-        lr_res = linregress(freqs[lo_fi:hi_fi], self.vfa[lo_fi:hi_fi])
-        guess_t0 = -lr_res.slope
-        guess_phi = fix_angle(lr_res.intercept - lr_res.slope*freqs[lo_fi])
-        #now cancel out the f*t0 rotation
-        #vf0 *= np.exp( 2j*np.pi*freqs*guess_t0)
-        self.vfr = np.real(vf0)
-        self.vfi = np.imag(vf0)
-        #finally we perform optimization
+        self.vfa -= self.vfa[int(x0[2]/freqs[1])]
+        #construct the cost function and analytic gradients
         def residuals(x):
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],...
+            #f_0=x[0], sigma=1/x[1], phi=x[2], t_0=x[3], t_1=x[4]..., 
             dd = x[3]*(freqs-x[2])
+            eargs = x[0] - freqs*x[1]
+            for m in range(1, ANG_POLY_N+1):
+                eargs[m] += x[m+ANG_POLY_OFF]*dd**(2*m+1)
+            eargs *= 2*np.pi
             emags = np.zeros(freqs.shape)
             for i in range(HERM_N):
-                emags += x[i+4]*HERMS[2*i](dd)
+                emags += x[i+HERM_OFF]*HERMS[2*i](dd)
             emags *= 0.5*freqs*np.exp(-dd**2/2)
-            return np.sum( emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(2*np.pi*(x[0]-freqs*x[1])-self.vfa) )
+            return np.sum( emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa) )
         def grad_res(x):
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],...
             dd = x[3]*(freqs-x[2])
+            #calculate arguments
+            eargs = x[0] - freqs*x[1]
+            for m in range(1, ANG_POLY_N+1):
+                eargs[m] += x[m+ANG_POLY_OFF]*dd**(2*m+1)
+            eargs *= 2*np.pi
+            #calculate magnitudes
             emags = np.zeros(freqs.shape[0])
-            eargs = 2*np.pi*(x[0] - freqs*x[1])
             demags = np.zeros(freqs.shape[0])
             cemags = np.zeros((HERM_N, freqs.shape[0]))
             for i in range(HERM_N):
-                emags += freqs*x[i+4]*HERMS[2*i](dd)*np.exp(-dd**2/2)
+                emags += freqs*x[i+HERM_OFF]*HERMS[2*i](dd)*np.exp(-dd**2/2)
                 cemags[i,:] = freqs*HERMS[2*i](dd)*np.exp(-dd**2/2)
-                demags += freqs*x[i+4]*(dd*HERMS[2*i](dd)-HERMS[2*i+1](dd))*np.exp(-dd**2/2)
+                demags += freqs*x[i+HERM_OFF]*(dd*HERMS[2*i](dd)-HERMS[2*i+1](dd))*np.exp(-dd**2/2)
             ret = np.zeros(HERM_N+4)
             mag_as = emags*self.vfm*np.sin(eargs-self.vfa)
             mag_gs = emags - 2*self.vfm*np.cos(eargs-self.vfa)
@@ -166,31 +213,12 @@ class signal:
             ret[2] = -0.5*np.sum( mag_gs*demags*x[3] )
             ret[3] = 0.5*np.sum( mag_gs*demags*(freqs-x[2]) )
             for i in range(HERM_N):
-                ret[i+4] = 0.5*np.sum( mag_gs*cemags[i,:] )
+                ret[i+HERM_OFF] = 0.5*np.sum( mag_gs*cemags[i,:] )
+            for m in range(ANG_POLY_N):
+                ret[m+ANG_POLY_OFF] = 2*np.pi*np.sum( mag_as*dd**(2*m+1) )
             return ret
-        x0 = np.array([guess_phi, guess_t0, guess_f0, 1/guess_sigma])
-        #x0[4] = self.vfm[guess_f0i]/freqs[guess_f0i]
-        herm_den = 1
-        dd = x0[3]*(freqs-x0[2])
-        k_ser = np.zeros(freqs.shape)
-        ks = np.zeros(2*HERM_N)
-        for i in range(2*HERM_N):
-            #ks[i] = np.trapz(self.vfm[1:]*HERMS[i](dd)*np.exp(-dd**2)/freqs[1:], dx=freqs[1]-freqs[0])/herm_den
-            ks[i] = np.trapz(self.vfm*HERMS[i](dd)*np.exp(-dd**2/2), dx=freqs[1]-freqs[0])/herm_den
-            k_ser += ks[i]*HERMS[i](dd)*np.exp(-dd**2/2)
-            herm_den *= 2*(i+1)
-        ks = np.dot(herm_conv(x0[2], x0[3], HERM_N), ks*np.max(self.vfm)/np.max(k_ser))
-        x0 = np.append(x0, ks[::2])
-        #test that analytic gradients look correct
-        if (verbose > 4):
-            num_g = np.zeros(HERM_N+4)
-            for i in range(HERM_N+4):
-                ei = np.zeros(HERM_N+4)
-                ei[i] = 0.001
-                num_g[i] = ( residuals(x0 + ei) - residuals(x0 - ei) )/ei[i]/2
-            print("gradients at x0:")
-            print("\tnumeric:\t", num_g)
-            print("\tanalytic:\t", grad_res(x0))
+        #finally we perform optimization
+        test_grads(residuals, grad_res, x0)
         opt_res = opt.minimize(residuals, x0, jac=grad_res)
         if verbose > 4:
             print("x0:\t", x0)
@@ -203,17 +231,21 @@ class signal:
         self.t0 = self._fit_shift + opt_res.x[1]
         self.f0 = opt_res.x[2]
         self.sigma = 1/opt_res.x[3]
-        self.herm_coeffs = opt_res.x[4:]
+        self.herm_coeffs = opt_res.x[HERM_OFF:HERM_OFF+HERM_N]
+        self.poly_coeffs = opt_res.x[ANG_POLY_OFF:ANG_POLY_OFF+ANG_POLY_N]
         #generate plots
         if phase_axs is not None:
             dat_series = [fix_angle(ang)/np.pi for ang in self.vfa]
-            fit_series_0 = fix_angle(-guess_t0*freqs + guess_phi)/np.pi
-            fit_series_1 = fix_angle(-opt_res.x[1]*freqs + self.phi)/np.pi
+            fit_series_0 = fix_angle(x0[0] - x0[1]*freqs)/np.pi
+            fit_series_1 = fix_angle(opt_res.x[0] - opt_res.x[1]*freqs)/np.pi
             dat_omegas = 2*np.pi*freqs
+            phase_axs.axvline(2*np.pi*freqs[self.fit_bounds[0]], color='gray', linestyle=':')
+            phase_axs.axvline(2*np.pi*freqs[self.fit_bounds[1]], color='gray', linestyle=':')
+            phase_axs.axvline(2*np.pi*self.f0, color='gray')
             phase_axs.plot(dat_omegas, dat_series, color='black', label="simulation")
             phase_axs.plot(dat_omegas, fit_series_0, color=PLT_COLORS[0], linestyle='--', label="linear regression")
             phase_axs.plot(dat_omegas, fit_series_1, color=PLT_COLORS[1], linestyle='--', label="full optimization")
-            phase_axs.annotate('$\\varphi = ${:.2f}, $t_0 = ${:.2f} fs\n$R^2 = ${:.2f}'.format(self.phi, self.t0, lr_res.rvalue**2), xy=(0,0), xytext=(0.2, 0.80), xycoords='figure fraction')
+            phase_axs.annotate('$\\varphi = ${:.2f}, $t_0 = ${:.2f} fs'.format(self.phi, self.t0), xy=(0,0), xytext=(0.2, 0.80), xycoords='figure fraction')
             phase_axs.set_ylim(-1,1)
             phase_axs.legend()
 
@@ -224,10 +256,13 @@ class signal:
         field: if set to 'E' (default) compute the electric field, otherwise compute the envelope for the vector potential
         '''
         dd = freqs/self.sigma
+        eargs = np.zeros(dd.shape)
+        for m in range(1, ANG_POLY_N+1):
+            eargs[m] += self.poly_coeffs*dd**(2*m+1)
         emags = np.zeros(freqs.shape, dtype=complex)
         for i in range(HERM_N):
             emags += self.herm_coeffs[i]*HERMS[2*i](dd)
-        emags *= 0.5*np.exp(-2j*np.pi*freqs*self.t0 - dd**2/2)
+        emags *= 0.5*np.exp(2j*np.pi*eargs - dd**2/2)
         if field == 'E':
             return (freqs+self.f0)*emags
         return emags
@@ -252,11 +287,11 @@ class signal:
         axs.axvline(2*np.pi*self.f0, color='gray')
         axs.tick_params(axis ='y', labelcolor = 'black')
         #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
-        fit_field = self.get_fenv(freqs-self.f0)*np.exp(2j*np.pi*(self.phi + freqs*self._fit_shift))
+        fit_field = self.get_fenv(freqs-self.f0)*np.exp( 2j*np.pi*(self.phi + (self._fit_shift-self.t0)*freqs) )
         axs.plot(2*np.pi*freqs, self.vfm, color='black')
         axs.plot(2*np.pi*freqs, np.abs(fit_field), color='black', linestyle='-.')
-        axs.plot(2*np.pi*freqs, self.vfr, color=PLT_COLORS[0], label='real')
-        axs.plot(2*np.pi*freqs, self.vfi, color=PLT_COLORS[1], label='imaginary')
+        axs.plot(2*np.pi*freqs, self.vfm*np.cos(self.vfa), color=PLT_COLORS[0], label='real')
+        axs.plot(2*np.pi*freqs, self.vfm*np.sin(self.vfa), color=PLT_COLORS[1], label='imaginary')
         axs.fill_between(2*np.pi*freqs, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
         axs.fill_between(2*np.pi*freqs, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
 
