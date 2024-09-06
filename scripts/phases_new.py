@@ -19,6 +19,7 @@ HERMS = [hermite(n) for n in range(2*HERM_N+2)]
 HERM_SCALE = np.sqrt(2)
 HERM_SCALE=1
 HERM_OFF = 4
+POLY_FIT_DEVS = 1 #the number of gaussian standard deviations to take when fitting the angles
 ANG_POLY_OFF = HERM_OFF + HERM_N
 ANG_POLY_N = 0 #in addition to phi and t0, consider higher order odd terms in the polynomial for the angle. i.e. arg(a(w)) = \phi - \omega t_0 + \sum_{n=1}^{ANG_POLY_N} \omega^{2n+1} t_n
 
@@ -134,30 +135,80 @@ def test_grads(cost_fn, grad_fn, x):
 class signal:
     @staticmethod
     def _guess_params(freqs, vfm, vfa):
+        x0 = np.zeros(ANG_POLY_OFF+ANG_POLY_N)
+
+        df = freqs[1] - freqs[0]
         #estimate the central frequency and envelope width in frequency space
         norm = 1/np.trapz(vfm[1:]/freqs[1:])
-        guess_f0 = np.trapz(vfm)*norm
-        guess_sigma = np.sqrt(np.trapz(vfm*freqs)*norm)/2
-        lo_fi, hi_fi = max(int((guess_f0-guess_sigma)/freqs[1]), 1), min(int((guess_f0+guess_sigma)/freqs[1]), len(freqs)-1)
+        x0[2] = np.trapz(vfm)*norm
+        x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)*norm)
+        lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
+        dd = x0[3]*(freqs-x0[2])
 
+        #extract phase, t0, and angle polynomials by fitting
+        apoly = np.polynomial.polynomial.Polynomial.fit(dd[lo_fi:hi_fi], vfa[lo_fi:hi_fi], 2*ANG_POLY_N+1).convert()
+        print(apoly)
+        x0[1] = -x0[3]*apoly.coef[1] #the central time t0 is the negative slope
+        x0[0] = apoly.coef[0] + x0[1]*x0[2] #we have to correct the phase since our polynomial fit is centered at f0
+        for m in range(ANG_POLY_N):
+            x0[ANG_POLY_OFF+m] = apoly.coef[2*m+1]
         #now using the selected frequency range, estimate the phase by performing linear regression
         lr_res = linregress(freqs[lo_fi:hi_fi], vfa[lo_fi:hi_fi])
         guess_t0 = -lr_res.slope
         guess_phi = fix_angle(lr_res.intercept - lr_res.slope*freqs[lo_fi])
-        x0 = np.array([guess_phi, guess_t0, guess_f0, 1/guess_sigma])
+        x0[0] = guess_phi
+        x0[1] = guess_t0
 
         #now work out the Hermite-Gaussian expansion assuming w0 and alpha=1/sigma are held fixed at the values we just guessed
         herm_den = 1
-        dd = x0[3]*(freqs-x0[2])
         k_ser = np.zeros(freqs.shape)
         ks = np.zeros(2*HERM_N)
-        for i in range(2*HERM_N):
-            ks[i] = np.trapz(vfm*HERMS[i](dd)*np.exp(-dd**2/2), dx=freqs[1]-freqs[0])/herm_den
-            k_ser += ks[i]*HERMS[i](dd)*np.exp(-dd**2/2)
-            herm_den *= 2*(i+1)
+        for m in range(2*HERM_N):
+            ks[m] = np.trapz(vfm*HERMS[m](dd)*np.exp(-dd**2/2), dx=df)/herm_den
+            k_ser += ks[m]*HERMS[m](dd)*np.exp(-dd**2/2)
+            herm_den *= 2*(m+1)
         ks = np.dot(herm_conv(x0[2], x0[3], HERM_N), ks*np.max(vfm)/np.max(k_ser))
-        x0 = np.append(x0, ks[::2])
+        x0[HERM_OFF:HERM_OFF+HERM_N] = ks[::2]
+        '''slope_den = 1
+        for m in range(ANG_POLY_N):
+            nn = 2*m+2
+            slope_den *= nn+1
+            if nn >= hi_fi - lo_fi:
+                break
+            lr_res = linregress(dd[lo_fi:hi_fi-nn], np.diff(vfa[lo_fi:hi_fi], nn))
+            x0[ANG_POLY_OFF+m] = lr_res.slope/slope_den'''
         return x0, lo_fi, hi_fi
+
+    @staticmethod
+    def fourier_env_form(freqs, phi, t0, f0, alpha, herm_coeffs, ang_poly_coeffs, calc_grads=False):
+        dd = alpha*(freqs - f0)
+        eargs = phi - freqs*t0
+        for m,c in enumerate(ang_poly_coeffs):
+            eargs += c*dd**(2*m+3)
+        eargs *= 2*np.pi
+        emags = np.zeros(freqs.shape[0])
+        demags = None
+        cemags = None
+        if calc_grads:
+            demags = np.zeros(freqs.shape[0])
+            cemags = np.zeros((herm_coeffs.shape[0], freqs.shape[0]))
+            for m,c in enumerate(herm_coeffs):
+                emags += c*HERMS[2*m](dd)
+                demags += c*(dd*HERMS[2*m](dd) - HERMS[2*m+1](dd))
+                cemags[m,:] = HERMS[2*m](dd)*np.exp(-dd**2/2)
+            demags *= np.exp(-dd**2/2)
+        else:
+            for m,c in enumerate(herm_coeffs):
+                emags += c*HERMS[2*m](dd)
+        emags *= np.exp(-dd**2/2)
+        return emags, eargs, dd, demags, cemags
+
+    '''@staticmethod
+    def fourier_env_form(freqs, phi, t0, f0, alpha, herm_coeffs, ang_poly_coeffs, calc_grads=False):
+        x = np.array([phi, t0, f0, alpha])
+        x = np.append(x, herm_coeffs)
+        x = np.append(x, ang_poly_coeffs)
+        return _fourier_env_formx()'''
 
     def __init__(self, t_pts, v_pts, fname=None, thin=1, phase_axs=None):
         self.dt = t_pts[1] - t_pts[0]
@@ -177,45 +228,31 @@ class signal:
         self.vfa -= self.vfa[int(x0[2]/freqs[1])]
         #construct the cost function and analytic gradients
         def residuals(x):
-            #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],...
-            #f_0=x[0], sigma=1/x[1], phi=x[2], t_0=x[3], t_1=x[4]..., 
-            dd = x[3]*(freqs-x[2])
-            eargs = x[0] - freqs*x[1]
-            for m in range(1, ANG_POLY_N+1):
-                eargs[m] += x[m+ANG_POLY_OFF]*dd**(2*m+1)
-            eargs *= 2*np.pi
-            emags = np.zeros(freqs.shape)
-            for i in range(HERM_N):
-                emags += x[i+HERM_OFF]*HERMS[2*i](dd)
-            emags *= 0.5*freqs*np.exp(-dd**2/2)
+            #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
+            herms = x[HERM_OFF:HERM_OFF+HERM_N]
+            ang_polys = x[ANG_POLY_OFF:ANG_POLY_OFF+ANG_POLY_N]
+            emags, eargs, _, _, _ = signal.fourier_env_form(freqs, x[0], x[1], x[2], x[3], herms, ang_polys)
+            emags *= freqs
             return np.sum( emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa) )
         def grad_res(x):
-            #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],...
-            dd = x[3]*(freqs-x[2])
-            #calculate arguments
-            eargs = x[0] - freqs*x[1]
-            for m in range(1, ANG_POLY_N+1):
-                eargs[m] += x[m+ANG_POLY_OFF]*dd**(2*m+1)
-            eargs *= 2*np.pi
-            #calculate magnitudes
-            emags = np.zeros(freqs.shape[0])
-            demags = np.zeros(freqs.shape[0])
-            cemags = np.zeros((HERM_N, freqs.shape[0]))
+            #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
+            ret = np.zeros(ANG_POLY_OFF+ANG_POLY_N)
+            herms = x[HERM_OFF:HERM_OFF+HERM_N]
+            ang_polys = x[ANG_POLY_OFF:ANG_POLY_OFF+ANG_POLY_N]
+            emags, eargs, dd, demags, cemags = signal.fourier_env_form(freqs, x[0], x[1], x[2], x[3], herms, ang_polys, calc_grads=True)
+            emags *= freqs
+            demags *= freqs
+            cemags *= freqs
+            mag_as = 4*np.pi*emags*self.vfm*np.sin(eargs-self.vfa)
+            mag_gs = 2*( emags - self.vfm*np.cos(eargs-self.vfa) )
+            ret[0] = np.sum( mag_as )
+            ret[1] = -np.sum( freqs*mag_as )
+            ret[2] = -np.sum( mag_gs*demags*x[3] )
+            ret[3] = np.sum( mag_gs*demags*(freqs-x[2]) )
             for i in range(HERM_N):
-                emags += freqs*x[i+HERM_OFF]*HERMS[2*i](dd)*np.exp(-dd**2/2)
-                cemags[i,:] = freqs*HERMS[2*i](dd)*np.exp(-dd**2/2)
-                demags += freqs*x[i+HERM_OFF]*(dd*HERMS[2*i](dd)-HERMS[2*i+1](dd))*np.exp(-dd**2/2)
-            ret = np.zeros(HERM_N+4)
-            mag_as = emags*self.vfm*np.sin(eargs-self.vfa)
-            mag_gs = emags - 2*self.vfm*np.cos(eargs-self.vfa)
-            ret[0] = 2*np.pi*np.sum( mag_as )
-            ret[1] = -2*np.pi*np.sum( freqs*mag_as )
-            ret[2] = -0.5*np.sum( mag_gs*demags*x[3] )
-            ret[3] = 0.5*np.sum( mag_gs*demags*(freqs-x[2]) )
-            for i in range(HERM_N):
-                ret[i+HERM_OFF] = 0.5*np.sum( mag_gs*cemags[i,:] )
+                ret[i+HERM_OFF] = np.sum( mag_gs*cemags[i,:] )
             for m in range(ANG_POLY_N):
-                ret[m+ANG_POLY_OFF] = 2*np.pi*np.sum( mag_as*dd**(2*m+1) )
+                ret[m+ANG_POLY_OFF] = np.sum( mag_as*dd**(2*m+3) )
             return ret
         #finally we perform optimization
         test_grads(residuals, grad_res, x0)
@@ -236,6 +273,7 @@ class signal:
         #generate plots
         if phase_axs is not None:
             dat_series = [fix_angle(ang)/np.pi for ang in self.vfa]
+            #_, fit_series_0, _, _, _ = signal.fourier_env_form(freqs, opt_res.x[0], opt_res.x[1], opt_res.x[2], opt_res.x[3], herms, ang_polys)
             fit_series_0 = fix_angle(x0[0] - x0[1]*freqs)/np.pi
             fit_series_1 = fix_angle(opt_res.x[0] - opt_res.x[1]*freqs)/np.pi
             dat_omegas = 2*np.pi*freqs
@@ -255,17 +293,18 @@ class signal:
         freqs: the frequencies for which the field is computed
         field: if set to 'E' (default) compute the electric field, otherwise compute the envelope for the vector potential
         '''
-        dd = freqs/self.sigma
+        '''dd = freqs/self.sigma
         eargs = np.zeros(dd.shape)
         for m in range(1, ANG_POLY_N+1):
-            eargs[m] += self.poly_coeffs*dd**(2*m+1)
+            eargs += self.poly_coeffs*dd**(2*m+3)
         emags = np.zeros(freqs.shape, dtype=complex)
-        for i in range(HERM_N):
-            emags += self.herm_coeffs[i]*HERMS[2*i](dd)
-        emags *= 0.5*np.exp(2j*np.pi*eargs - dd**2/2)
+        for m in range(HERM_N):
+            emags += self.herm_coeffs[m]*HERMS[2*m](dd)
+        emags *= 0.5*np.exp(2j*np.pi*eargs - dd**2/2)'''
+        emags, eargs, _, _, _ = signal.fourier_env_form(freqs, 0, 0, 0, 1/self.sigma, self.herm_coeffs, self.poly_coeffs)
         if field == 'E':
-            return (freqs+self.f0)*emags
-        return emags
+            return (freqs+self.f0)*emags*np.exp(1j*eargs)
+        return emags*np.exp(1j*eargs)
 
     def get_tenv(self, ts, field='E'):
         '''
