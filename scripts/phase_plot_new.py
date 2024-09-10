@@ -2,12 +2,24 @@ import phases_new as phases
 import utils
 import argparse
 import numpy as np
+import scipy.fft as fft
 import h5py
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from scipy.stats import linregress
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+PLT_COLORS = [
+    "#016876",
+    "#cf4f4f",
+    "#97b47d",
+    "#e49c4f",
+    "#a5538d",
+    "#8dbcf9",
+    "#8b4a5f",
+    "#ffa8ff"
+]
 
 matplotlib.rc('figure', figsize=(20, 10))
 plt.rc('font', size=18)
@@ -187,7 +199,7 @@ def make_heatmaps(pf, n_groups=-1):
     cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
 
     #set plot parameters which are reused
-    title = "$L={}$ $\mu$m $\lambda={}$ $\mu$m".format(args.gap_thick, wg.vac_wavelen)
+    title = "L={} μm λ={} μm".format(args.gap_thick, wg.vac_wavelen)
     n_cbar = 1
     wrs = [1]
     vlines = [xl, xr]
@@ -203,7 +215,7 @@ def make_heatmaps(pf, n_groups=-1):
     for i in range(n_groups):
         heat_fig, heat_ax = plt.subplots(2, gridspec_kw={'hspace':0.2})
         make_heatmap(heat_fig, heat_ax[0], 2*cl_amp[i*grp_len:(i+1)*grp_len], "", "amp.", rng=AMP_RANGE, cmap='magma', vlines=vlines, ylabels=ylabels, w=2.2)
-        make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "", r"$\phi/2\pi$", rng=PHI_RANGE, cmap=cmap, vlines=vlines, xlabels=xlabels, ylabels=ylabels, w=2.2)
+        make_heatmap(heat_fig, heat_ax[1], cl_phs[i*grp_len:(i+1)*grp_len], "", r"φ/2π", rng=PHI_RANGE, cmap=cmap, vlines=vlines, xlabels=xlabels, ylabels=ylabels, w=2.2)
         heat_fig.savefig(args.prefix+"/heatmap_grp{}.svg".format(i), bbox_inches='tight')
         plt.close(heat_fig)
         #plot skews
@@ -220,8 +232,8 @@ def make_heatmaps(pf, n_groups=-1):
         plt.close(heat_fig)
         #plot reflected phases
         heat_fig, heat_ax = plt.subplots(2)
-        make_heatmap(heat_fig, heat_ax[0], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"$\phi/2\pi$", rng=PHI_RANGE, cmap='twilight_shifted')
-        make_heatmap(heat_fig, heat_ax[1], cl_ampr[i*grp_len:(i+1)*grp_len], "Reflected amplitudes", r"$\phi/2\pi$", rng=AMP_RANGE, cmap='magma')
+        make_heatmap(heat_fig, heat_ax[0], cl_phs[i*grp_len:(i+1)*grp_len], "Phases", r"φ/2π$", rng=PHI_RANGE, cmap='twilight_shifted')
+        make_heatmap(heat_fig, heat_ax[1], cl_ampr[i*grp_len:(i+1)*grp_len], "Reflected amplitudes", r"φ/2π$", rng=AMP_RANGE, cmap='magma')
         heat_fig.savefig(args.prefix+"/heatmap_phs_grp{}.svg".format(i))
         plt.close(heat_fig)
 
@@ -243,9 +255,9 @@ def make_heatmaps(pf, n_groups=-1):
     wg.setup_axes(avg_ax[1], AMP_RANGE)
     phs_th = -pf.get_src_phase()[0]/np.pi
     avg_ax[0].plot([cl_xs[0][0], cl_xs[0][-1]], [phs_th, phs_th], color='gray', linestyle=':')
-    avg_ax[0].set_ylabel(r"$<\phi>/\pi$")
-    avg_ax[1].set_ylabel(r"$<E_0>$ (arb. units)")
-    avg_ax[1].set_xlabel(r"x $\mu$m")
+    avg_ax[0].set_ylabel(r"<φ>/π")
+    avg_ax[1].set_ylabel(r"<E_0> (arb. units)")
+    avg_ax[1].set_xlabel(r"x μm")
     #plot averages
     for i in range(n_groups):
         avg_ax[0].scatter(cl_xs[0], avg_phs[i])
@@ -276,10 +288,53 @@ def config_axs(axs, xlab, ylab, leg_loc="upper right", leg_ncol=-1, leg_alpha=0.
         figh = float(h)/(t-b)
         axs.figure.set_size_inches(figw, figh)
 
+def plot_raw_fdom(dt, psig, fname):
+    freqs = fft.rfftfreq(len(psig.v_pts), d=dt)
+    vf = 2*fft.rfft(psig.v_pts)
+
+    fig, axs = plt.subplots(2)
+    # setup labels and annotations
+    axs[1].set_xlabel('f (1/fs)') 
+    axs[0].set_ylabel('A(f)', color = 'black')
+    axs[1].set_ylabel('E(f)', color = 'black')
+    axs[1].tick_params(axis ='y', labelcolor = 'black')
+    axs[1].axvline(freqs[psig.fit_bounds[0]], color='gray', linestyle=':')
+    axs[1].axvline(freqs[psig.fit_bounds[1]], color='gray', linestyle=':')
+    axs[1].axvline(psig.f0, color='gray')
+    #plot the vector potential envelope
+    freq_center = freqs[len(freqs)//2]
+    fit_field = psig.get_fenv(freqs-freq_center, field='A')
+    axs[0].fill_between(freqs-freq_center, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
+    axs[0].fill_between(freqs-freq_center, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
+    #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
+    fit_field = psig.get_fenv(freqs-psig.f0)*np.exp( 1j*(psig.phi - 2*np.pi*psig.t0*freqs) )
+    axs[1].plot(freqs, np.abs(vf), color='black')
+    axs[1].plot(freqs, np.abs(fit_field), color='black', linestyle='-.')
+    axs[1].plot(freqs, np.real(vf), color=PLT_COLORS[0], label='real')
+    axs[1].plot(freqs, np.imag(vf), color=PLT_COLORS[1], label='imaginary')
+    axs[1].fill_between(freqs, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
+    axs[1].fill_between(freqs, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
+    fig.savefig(fname, bbox_inches='tight')
+
+def plot_raw_tdom(ts, psig, fname):
+    fig, axs = plt.subplots()
+    #get the envelope and perform a fitting
+    axs.plot(ts, psig.v_pts, color=PLT_COLORS[0], label='simulated data')
+    freqs = fft.fftfreq(len(psig.v_pts), d=ts[1]-ts[0])
+    fit_field = fft.ifft( psig.get_fenv(freqs-psig.f0)*np.exp(1j*(psig.phi - 2*np.pi*psig.t0*freqs)) )
+    fit_field2 = psig.get_tenv(ts)*np.exp(2j*np.pi*(ts-psig.t0)*psig.f0 + 1j*psig.phi)
+    axs.plot(ts, np.real(fit_field), color=PLT_COLORS[1], label='extracted pulse')
+    axs.plot(ts, np.real(fit_field2), color=PLT_COLORS[2], label='extracted pulse', linestyle=':')
+    axs.set_xlim([ts[0], ts[-1]])
+    axs.set_ylim([-1, 1])
+    fig.savefig(fname, bbox_inches='tight')
+
 pf = phases.phase_finder(args.fname, prefix=args.prefix, pass_alpha=args.lowpass, keep_n=-1)
 if args.point == '':
     make_heatmaps(pf, n_groups=args.n_groups)
 else:
+    #phases.signal._do_grad_tests( np.array([0.4]) )
+
     point_arr = args.point.split(",")
     clust = "cluster_"+point_arr[0]
     j = int(point_arr[1])
@@ -288,28 +343,23 @@ else:
     v_pts, err_2 = pf.get_point_times(clust, j, low_pass=False)
     fig, axs = plt.subplots()
     psig = phases.signal(pf.t_pts, v_pts, phase_axs=axs)
-    config_axs(axs, "$\omega$ (1/fs)", "arg[$E(\omega)$]$/2\pi$", leg_loc="lower right")
+    config_axs(axs, "ω (1/fs)", "arg[E(ω)]/2π", leg_loc="lower right")
     fig.savefig("{}_param_est.svg".format(fig_name), bbox_inches='tight')
     #setup the plots
-    raw_fig, raw_ax = plt.subplots()
-    psig.plt_raw_fdom(raw_ax)
-    #config_axs(raw_ax, "$\omega$ (1/fs)", "|$E(\omega)$|", leg_alpha=1, w=6, h=2.5)
-    raw_fig.savefig("{}_raw_fdom.svg".format(fig_name), bbox_inches='tight')
-    raw_fig, raw_ax = plt.subplots()
-    psig.plt_raw_tdom(raw_ax)
-    raw_fig.savefig("{}_raw_tdom.svg".format(fig_name), bbox_inches='tight')
+    plot_raw_fdom(psig.dt, psig, "{}_raw_fdom.svg".format(fig_name))
+    #config_axs(raw_ax, "$ω$ (1/fs)", "|$E(ω)$|", leg_alpha=1, w=6, h=2.5)
+    plot_raw_tdom(pf.t_pts, psig, "{}_raw_tdom.svg".format(fig_name))
     #plot the frequency domain envelope information
     fig, axs = plt.subplots(2)
     psig.compare_fspace(axs[0], sym_mode=args.sym_mode, plt_raxs=not args.plot_y_labels)
     axs[0].set_xlim(-0.05, 0.05)
     psig.compare_tspace(axs[1])
-    config_axs(axs[0], "$f$ (1/fs)", "$E(\omega)$", leg_loc="upper left")
-    config_axs(axs[1], "$t$ (fs)", "$E(t)$", leg_ncol=2)
+    config_axs(axs[0], "f (1/fs)", "$E(ω)$", leg_loc="upper left")
+    config_axs(axs[1], "t (fs)", "$E(t)$", leg_ncol=2)
     #fig.set_size_inches(3.5, 2)
     fig.savefig("{}_fdom.svg".format(fig_name), bbox_inches='tight')
     #plot the time domain envelope information
     fig, axs = plt.subplots()
     psig.compare_tspace(axs)
     #config_axs(axs, "$t$ (fs)", "$E(t)$", leg_ncol=2, w=2, h=1.5)
-    axs.set_ylim(-1.2, 1.2)
     fig.savefig("{}_tdom.svg".format(fig_name), bbox_inches='tight')

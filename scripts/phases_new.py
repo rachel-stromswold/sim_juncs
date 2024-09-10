@@ -69,30 +69,28 @@ def fix_angle(theta):
                 theta -= 2*np.pi
     return theta
 
-def fix_angle_seq(angles, center_ind=0):
+def fix_angle_seq(angles, center_ind=0, scan_n=1):
     '''Given a sequence of angles from -pi to pi look for -pi -> pi rollovers and perform adjustments such that each angle is the closest equivalent angle to the previous.'''
     shift = 0
     n = len(angles)
+    shiftrange = np.arange(-scan_n, scan_n+1)
     #fix all angles right of center
     for i in range(center_ind+1,n):
-        dist_raw = abs(angles[i] - angles[i-1])
-        if abs(angles[i]+2*np.pi - angles[i-1]) < dist_raw:
+        #find the equivalent angle which minimizes the jump
+        shift_n = shiftrange[np.argmin(np.abs(angles[i]+2*np.pi*shiftrange - angles[i-1]))]
+        #shift by the minimizing angle
+        if shift_n != 0:
             for j in range(i,n):
-                angles[j] += 2*np.pi
-        elif abs(angles[i]-2*np.pi - angles[i-1]) < dist_raw:
-            for j in range(i,n):
-                angles[j] -= 2*np.pi
+                angles[j] += 2*np.pi*shift_n
     if center_ind <= 0:
         return angles
     #fix all angles left of center
     for i in range(center_ind-1, -1, -1):
-        dist_raw = abs(angles[i] - angles[i+1])
-        if abs(angles[i]+2*np.pi - angles[i+1]) < dist_raw:
+        shift_n = shiftrange[np.argmin(np.abs(angles[i]+2*np.pi*shiftrange - angles[i+1]))]
+        #shift by the minimizing angle
+        if shift_n != 0:
             for j in range(i+1):
-                angles[j] += 2*np.pi
-        elif abs(angles[i]-2*np.pi - angles[i+1]) < dist_raw:
-            for j in range(i+1):
-                angles[j] -= 2*np.pi
+                angles[j] += 2*np.pi*shift_n
     return angles
 
 '''
@@ -107,7 +105,7 @@ def test_grads(cost_fn, grad_fn, x):
         ei = np.zeros(x.shape[0])
         ei[i] = 0.001
         num_g[i] = ( cost_fn(x + ei) - cost_fn(x - ei) )/ei[i]/2
-        if num_g[i] and (num_g[i]-an_g[i])/num_g[i] > 0.01:
+        if num_g[i] and np.abs( (num_g[i]-an_g[i])/num_g[i] ) > 0.01:
             print("Warning! disagreement between analytic and numeric gradients on axis", i)
     if (verbose > 4): 
         print("gradients at x0:")
@@ -131,13 +129,49 @@ class signal:
             for m in range(HERM_N):
                 emags += x[HERM_OFF+m]*HERMS[2*m](dd)
                 demags += x[HERM_OFF+m]*(dd*HERMS[2*m](dd) - HERMS[2*m+1](dd))
-                cemags[m,:] = HERMS[2*m](dd)*np.exp(-dd**2/2)
-            demags *= np.exp(-dd**2/2)
+                cemags[m,:] = freqs*HERMS[2*m](dd)*np.exp(-dd**2/2)
+            demags *= freqs*np.exp(-dd**2/2)
         else:
             for m in range(HERM_N):
                 emags += x[HERM_OFF+m]*HERMS[2*m](dd)
-        emags *= np.exp(-dd**2/2)
+        emags *= freqs*np.exp(-dd**2/2)
         return emags, eargs, dd, demags, cemags
+
+    @staticmethod
+    def _do_grad_tests(fs):
+        x0 = np.random.random(ANG_POLY_OFF+ANG_POLY_N)
+        print("\n====================================\n")
+        print("testing argument gradients at ", x0, "(fs =", fs, ")")
+
+        def wrap_eargs(x):
+            _, eargs, _, _, _ = signal._fourier_env_formx(fs, x)
+            return eargs[0]
+        def grad_wrap_eargs(x):
+            _, eargs, dd, _, _ = signal._fourier_env_formx(fs, x, calc_grads=True)
+            ret = np.zeros(x.shape)
+            ret[0] = 1
+            ret[1] = -fs[0]
+            for m in range(ANG_POLY_N):
+                ret[ANG_POLY_OFF+m] = np.sum( dd**(2*m+3) )
+                ret[2] -= (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( x[3]*dd**(2*m+2) )
+                ret[3] += (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( (fs-x[2])*dd**(2*m+2) )
+            return ret
+        test_grads(wrap_eargs, grad_wrap_eargs, x0)
+        print("\n====================================\n")
+        print("testing magnitude gradients at ", x0, "(fs =", fs, ")")
+        def wrap_emags(x):
+            emags, _, _, _, _ = signal._fourier_env_formx(fs, x)
+            return emags[0]
+        def grad_wrap_emags(x):
+            emags, eargs, dd, demags, cemags = signal._fourier_env_formx(fs, x, calc_grads=True)
+            ret = np.zeros(x.shape)
+            ret[2] = -np.sum( demags*x[3] )
+            ret[3] = np.sum( demags*(fs-x[2]) )
+            for m in range(HERM_N):
+                ret[HERM_OFF+m] = np.sum( cemags[m,:] )
+            return ret
+        test_grads(wrap_emags, grad_wrap_emags, x0)
+        print("\n====================================\n")
 
     @staticmethod
     def fourier_env_form(freqs, phi, t0, f0, alpha, herm_coeffs, ang_poly_coeffs):
@@ -172,7 +206,7 @@ class signal:
 
         #fit the derivative of the phase to a polynomial of (f-f0)^2/sigma^2 so that only odd powers will appear when we integrate
         dd = dd[lo_fi:hi_fi]
-        vfa = fix_angle_seq( vfa[lo_fi:hi_fi] )
+        vfa = fix_angle_seq(vfa[lo_fi:hi_fi], scan_n=1)
         vfm = vfm[lo_fi:hi_fi]
         def ang_cost(x):
             fit = x[0]*np.ones(dd.shape)
@@ -219,16 +253,10 @@ class signal:
 
     def __init__(self, t_pts, v_pts, fname=None, thin=1, phase_axs=None):
         self.dt = t_pts[1] - t_pts[0]
-        self.t_pts = t_pts
         self.v_pts = v_pts
-        #estimate the central time
-        '''self.shift_i = np.argmax(v_pts)
-        self._fit_shift = t_pts[self.shift_i]'''
-        self.shift_i = 0
-        self._fit_shift = 0
         #take the fourier transform       
         freqs = fft.rfftfreq(len(v_pts), d=self.dt)
-        vf0 = 2*fft.rfft(np.roll(v_pts, -self.shift_i))
+        vf0 = 2*fft.rfft(v_pts)
         self.vfm = np.abs(vf0)
         self.vfa = np.angle(vf0)
         #get guesses for initial parameters based on heuristics
@@ -239,7 +267,8 @@ class signal:
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
             emags, eargs, _, _, _ = signal._fourier_env_formx(freqs, x)
             emags *= freqs
-            return np.sum( emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa) )
+            #return np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
+            return np.log( np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa)) )
         def grad_res(x):
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
             ret = np.zeros(ANG_POLY_OFF+ANG_POLY_N)
@@ -259,7 +288,7 @@ class signal:
                 ret[m+ANG_POLY_OFF] = np.sum( mag_as*dd**(2*m+3) )
                 ret[2] -= (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( mag_as*x[3]*dd**(2*m+2) )
                 ret[3] += (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( mag_as*(freqs-x[2])*dd**(2*m+2) )
-            return ret
+            return ret/np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
         #finally we perform optimization
         test_grads(residuals, grad_res, x0)
         opt_res = opt.minimize(residuals, x0, jac=grad_res)
@@ -271,7 +300,7 @@ class signal:
         #opt_res.x = x0
         #use the results
         self.phi = opt_res.x[0]
-        self.t0 = opt_res.x[1] + self._fit_shift
+        self.t0 = opt_res.x[1]/2/np.pi
         self.f0 = opt_res.x[2]
         self.sigma = 1/opt_res.x[3]
         self.herm_coeffs = opt_res.x[HERM_OFF:HERM_OFF+HERM_N]
@@ -279,7 +308,7 @@ class signal:
         #generate plots
         if phase_axs is not None:
             #dat_series = [fix_angle(ang) for ang in self.vfa]
-            dat_series = fix_angle_seq(self.vfa)
+            dat_series = fix_angle_seq(self.vfa, scan_n=4)
             _, fit_series_0, _, _, _ = signal._fourier_env_formx(freqs, x0)
             _, fit_series_1, _, _, _ = signal._fourier_env_formx(freqs, opt_res.x)
             fit_series_0 = fit_series_0
@@ -306,8 +335,8 @@ class signal:
         '''
         emags, eargs = signal.fourier_env_form(freqs, 0, 0, 0, 1/self.sigma, self.herm_coeffs, self.poly_coeffs)
         if field == 'E':
-            return (freqs+self.f0)*emags*np.exp(1j*eargs)
-        return emags*np.exp(1j*eargs)
+            return 2*(freqs+self.f0)*emags*np.exp(1j*eargs)
+        return 2*emags*np.exp(1j*eargs)
 
     def get_tenv(self, ts, field='E'):
         '''
@@ -317,7 +346,7 @@ class signal:
         '''
         dt = ts[1]-ts[0]
         freqs = fft.fftfreq(len(ts), d=dt)
-        fenv = self.get_fenv(freqs, field=field)*np.exp(-1j*self.t0*freqs)
+        fenv = self.get_fenv(freqs, field=field)*np.exp(-2j*np.pi*self.t0*freqs)
         return fft.ifft(fenv)
 
     def plt_raw_fdom(self, fname):
@@ -337,7 +366,7 @@ class signal:
         axs[0].fill_between(freqs-freq_center, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
         axs[0].fill_between(freqs-freq_center, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
         #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
-        fit_field = self.get_fenv(freqs-self.f0)*np.exp( 1j*(self.phi + (self._fit_shift-self.t0)*freqs) )
+        fit_field = self.get_fenv(freqs-self.f0)*np.exp( 1j*(self.phi - 2*np.pi*self.t0*freqs) )
         axs[1].plot(freqs, self.vfm, color='black')
         axs[1].plot(freqs, np.abs(fit_field), color='black', linestyle='-.')
         axs[1].plot(freqs, self.vfm*np.cos(self.vfa), color=PLT_COLORS[0], label='real')
@@ -346,21 +375,21 @@ class signal:
         axs[1].fill_between(freqs, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
         fig.savefig(fname, bbox_inches='tight')
 
-    def plt_raw_tdom(self, axs):
+    def plt_raw_tdom(self, ts, axs):
         #get the envelope and perform a fitting
-        axs.plot(self.t_pts, self.v_pts, color=PLT_COLORS[0], label='simulated data')
+        axs.plot(ts, self.v_pts, color=PLT_COLORS[0], label='simulated data')
         '''freqs = fft.rfftfreq(len(self.v_pts), d=self.dt)
         fit_field = self.get_fenv(freqs-self.f0)*np.exp(2j*np.pi*(self.phi + freqs*self._fit_shift))
-        axs.plot(self.t_pts, np.roll(fft.irfft(fit_field), self.shift_i), color=PLT_COLORS[1], label='extracted')'''
+        axs.plot(ts, np.roll(fft.irfft(fit_field), self.shift_i), color=PLT_COLORS[1], label='extracted')'''
         freqs = fft.fftfreq(len(self.v_pts), d=self.dt)
-        fit_field = fft.ifft( self.get_fenv(freqs-self.f0)*np.exp(1j*(self.phi - self.t0*freqs)) )
-        fit_field2 = self.get_tenv(self.t_pts)*np.exp(2j*np.pi*(self.t_pts-self.t0/2/np.pi)*self.f0 + 1j*self.phi)
-        axs.plot(self.t_pts, np.real(fit_field), color=PLT_COLORS[1], label='extracted pulse')
-        axs.plot(self.t_pts, np.real(fit_field2), color=PLT_COLORS[2], label='extracted pulse', linestyle=':')
-        axs.set_xlim([self.t_pts[0], self.t_pts[-1]])
+        fit_field = fft.ifft( self.get_fenv(freqs-self.f0)*np.exp(1j*(self.phi - 2*np.pi*self.t0*freqs)) )
+        fit_field2 = self.get_tenv(ts)*np.exp(2j*np.pi*(ts-self.t0)*self.f0 + 1j*self.phi)
+        axs.plot(ts, np.real(fit_field), color=PLT_COLORS[1], label='extracted pulse')
+        axs.plot(ts, np.real(fit_field2), color=PLT_COLORS[2], label='extracted pulse', linestyle=':')
+        axs.set_xlim([ts[0], ts[-1]])
         axs.set_ylim([-1, 1])
 
-    def compare_fspace(self, axs, sym_mode='sym-o', plt_raxs=True):
+    def compare_fspace(self, ts, axs, sym_mode='sym-o', plt_raxs=True):
         freqs = fft.fftfreq(len(self.v_pts), d=self.dt)
         #make unsymmeterized envelope plots
         axs.plot(fft.fftshift(freqs), fft.fftshift(np.abs(self.get_fenv(freqs, field='E'))), color=PLT_COLORS[0], label='|a(ω)|')
@@ -382,27 +411,27 @@ class signal:
         if not plt_raxs:
             ax2.get_yaxis().set_visible(False)'''
 
-    def compare_tspace(self, axs):
+    def compare_tspace(self, ts, axs):
         '''freqs = fft.fftfreq(len(self.v_pts), d=self.dt)
         env = self.get_fenv(freqs, field='E')
-        max_field_t = self.t_pts[np.argmax(self.v_pts)]
+        max_field_t = ts[np.argmax(self.v_pts)]
         #get the signal from a(t)e^(i(\omega_0(t-t_0) + \phi)) + c.c.
-        sig_direct_re = np.real(env)*np.cos(2*np.pi*self.f0*(self.t_pts-self.t0) + self.phi)
-        sig_direct_im = np.imag(env)*np.sin(2*np.pi*self.f0*(self.t_pts-self.t0) + self.phi)
-        axs.plot(self.t_pts, self.v_pts, color='black', label='simulated')'''
-        axs.plot(self.t_pts, self.v_pts, color=PLT_COLORS[0], label='simulated data')
+        sig_direct_re = np.real(env)*np.cos(2*np.pi*self.f0*(ts-self.t0) + self.phi)
+        sig_direct_im = np.imag(env)*np.sin(2*np.pi*self.f0*(ts-self.t0) + self.phi)
+        axs.plot(ts, self.v_pts, color='black', label='simulated')'''
+        axs.plot(ts, self.v_pts, color=PLT_COLORS[0], label='simulated data')
         #first plot the envelope
-        env = self.get_tenv(self.t_pts, field='E')
+        env = self.get_tenv(ts, field='E')
         #now plot the wave
-        env = self.get_tenv(self.t_pts, field='A')
-        #axs.fill_between(self.t_pts, np.real(env), -np.real(env), color=PLT_COLORS[0], label='Re$[a(t)]$', alpha=0.2)
-        #axs.fill_between(self.t_pts, np.imag(env), -np.imag(env), color=PLT_COLORS[1], label='Im$[a(t)]$', alpha=0.2)
-        fit_ser = env*np.sin(2*np.pi*(self.t_pts-self.t0/2/np.pi)*self.f0 + self.phi)/2/np.pi
-        axs.plot(self.t_pts, fit_ser, color='red', label='extracted', linestyle='-.')
+        env = self.get_tenv(ts, field='A')
+        #axs.fill_between(ts, np.real(env), -np.real(env), color=PLT_COLORS[0], label='Re$[a(t)]$', alpha=0.2)
+        #axs.fill_between(ts, np.imag(env), -np.imag(env), color=PLT_COLORS[1], label='Im$[a(t)]$', alpha=0.2)
+        fit_ser = env*np.sin(2*np.pi*(ts-self.t0)*self.f0 + self.phi)/2/np.pi
+        axs.plot(ts, fit_ser, color='red', label='extracted', linestyle='-.')
         fit_ser = np.diff(fit_ser)/self.dt
         #fit_ser = np.roll(fit_ser, self.shift_i)
-        axs.plot(self.t_pts[:-1], fit_ser, color=PLT_COLORS[2], label='extracted')
-        axs.set_xlim([self.t_pts[0], self.t_pts[-1]])
+        axs.plot(ts[:-1], fit_ser, color=PLT_COLORS[2], label='extracted')
+        axs.set_xlim([ts[0], ts[-1]])
         axs.set_ylim([-1, 1])
 
 N_RES_PARAMS = 7
