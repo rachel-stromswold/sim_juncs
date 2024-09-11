@@ -115,7 +115,7 @@ def test_grads(cost_fn, grad_fn, x):
 class signal:
     @staticmethod
     def _fourier_env_formx(freqs, x, herm_n=HERM_N, ang_n=ANG_POLY_N, calc_grads=False):
-        dd = x[3]*(freqs - x[2])
+        dd = x[3]*(freqs - abs(x[2]))
         eargs = x[0] - freqs*x[1]
         for m in range(ang_n):
             eargs += x[HERM_OFF+herm_n+m]*dd**(2*m+3)
@@ -138,10 +138,8 @@ class signal:
         return emags, eargs, dd, demags, cemags
 
     @staticmethod
-    def _do_grad_tests(fs):
-        x0 = np.random.random(ANG_POLY_OFF+ANG_POLY_N)
+    def _do_grad_tests(fs, n_tests=10):
         print("\n====================================\n")
-        print("testing argument gradients at ", x0, "(fs =", fs, ")")
 
         def wrap_eargs(x):
             _, eargs, _, _, _ = signal._fourier_env_formx(fs, x)
@@ -153,24 +151,29 @@ class signal:
             ret[1] = -fs[0]
             for m in range(ANG_POLY_N):
                 ret[ANG_POLY_OFF+m] = np.sum( dd**(2*m+3) )
-                ret[2] -= (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( x[3]*dd**(2*m+2) )
-                ret[3] += (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( (fs-x[2])*dd**(2*m+2) )
+                ret[2] -= np.sign(x[2])*(2*m+3)*x[m+ANG_POLY_OFF]*np.sum( x[3]*dd**(2*m+2) )
+                ret[3] += (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( (fs-abs(x[2]))*dd**(2*m+2) )
             return ret
-        test_grads(wrap_eargs, grad_wrap_eargs, x0)
+        for i in range(n_tests):
+            x0 = np.random.random(ANG_POLY_OFF+ANG_POLY_N)*2 - 1
+            print("testing argument gradients at ", x0, "(fs =", fs, ")")
+            test_grads(wrap_eargs, grad_wrap_eargs, x0)
         print("\n====================================\n")
-        print("testing magnitude gradients at ", x0, "(fs =", fs, ")")
         def wrap_emags(x):
             emags, _, _, _, _ = signal._fourier_env_formx(fs, x)
             return fs[0]*emags[0]
         def grad_wrap_emags(x):
             emags, eargs, dd, demags, cemags = signal._fourier_env_formx(fs, x, calc_grads=True)
             ret = np.zeros(x.shape)
-            ret[2] = -np.sum( fs*demags*x[3] )
-            ret[3] = np.sum( fs*demags*(fs-x[2]) )
+            ret[2] = -np.sign(x[2])*np.sum( fs*demags*x[3] )
+            ret[3] = np.sum( fs*demags*(fs-abs(x[2])) )
             for m in range(HERM_N):
                 ret[HERM_OFF+m] = np.sum( fs*cemags[m,:] )
             return ret
-        test_grads(wrap_emags, grad_wrap_emags, x0)
+        for i in range(n_tests):
+            x0 = np.random.random(ANG_POLY_OFF+ANG_POLY_N)*2 - 1
+            print("testing magnitude gradients at ", x0, "(fs =", fs, ")")
+            test_grads(wrap_emags, grad_wrap_emags, x0)
         print("\n====================================\n")
 
     @staticmethod
@@ -196,6 +199,7 @@ class signal:
         ks *= np.max(vfm)/np.max(k_ser)
         cs = np.dot(herm_conv(x0[2], x0[3], HERM_N), ks)
         x0[HERM_OFF:HERM_OFF+HERM_N] = cs[::2]
+        #x0[HERM_OFF] = cs[0]
 
         #TODO: delete
         '''k_ser, c_ser = np.zeros(freqs.shape), np.zeros(freqs.shape)
@@ -262,6 +266,8 @@ class signal:
                 ret[m+ANG_POLY_OFF] = np.sum( mag_as*dd**(2*m+3) )
                 ret[2] -= (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( mag_as*x[3]*dd**(2*m+2) )
                 ret[3] += (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( mag_as*(freqs-x[2])*dd**(2*m+2) )
+            if x[2] < 0:
+                ret[2] *= -1
             #return ret
             return ret/np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
         if verbose > 4:
@@ -272,6 +278,7 @@ class signal:
         else:
             opt_res = opt.minimize(residuals, x0, jac=grad_res)
             xf = opt_res.x
+            xf[2] = abs(xf[2])
             if verbose > 1:
                 print("optimization message:", opt_res.message)
                 print("x0:\t", x0)
