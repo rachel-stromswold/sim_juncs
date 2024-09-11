@@ -289,18 +289,25 @@ def config_axs(axs, xlab, ylab, leg_loc="upper right", leg_ncol=-1, leg_alpha=0.
         figh = float(h)/(t-b)
         axs.figure.set_size_inches(figw, figh)
 
-def plot_raw_fdom(dt, psig, fname, f_bounds=None):
-    freqs = fft.rfftfreq(len(psig.v_pts), d=dt)
-    vf = 2*fft.rfft(psig.v_pts)
-    if f_bounds is None:
-        f_bounds = [0, psig.f0 + 10*psig.sigma]
-
-    fig, axs = plt.subplots(2)
+def plot_raw_fdom(psig, axs, xlim=None, ylim=None, ylabels=True):
+    freqs = fft.rfftfreq(len(psig.v_pts), d=psig.dt)
+    vf = fft.rfft(psig.v_pts)
+    if xlim is None:
+        xlim = [0, psig.f0 + 4*psig.sigma]
+    if ylim is None:
+        ylim = [0, np.max(vf)*1.5]
+        ylim[0] = -ylim[1]
     # setup labels and annotations 
-    axs[0].set_ylabel('A(f)', color = 'black')
-    axs[0].set_xlim([-f_bounds[1], f_bounds[1]])
-    axs[1].set_xlim(f_bounds)
-    axs[1].set_ylabel('E(f)', color = 'black')
+    if ylabels:
+        axs[0].set_ylabel('A(f)', color = 'black')
+        axs[1].set_ylabel('E(f)', color = 'black')
+    else:
+        axs[0].get_yaxis().set_visible(False)
+        axs[1].get_yaxis().set_visible(False)
+    axs[0].set_xlim([-xlim[1], xlim[1]])
+    axs[0].set_ylim([8*ylim[0], 8*ylim[1]])
+    axs[1].set_xlim(xlim)
+    axs[1].set_ylim(ylim)
     axs[1].set_xlabel('f (1/fs)')
     axs[1].tick_params(axis ='y', labelcolor = 'black')
     axs[1].axvline(freqs[psig.fit_bounds[0]], color='gray', linestyle=':')
@@ -311,6 +318,9 @@ def plot_raw_fdom(dt, psig, fname, f_bounds=None):
     fit_field = psig.get_fenv(freqs-freq_center, field='A')
     axs[0].fill_between(freqs-freq_center, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
     axs[0].fill_between(freqs-freq_center, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
+    axs[0].plot(freqs-freq_center, np.abs(fit_field), color='black')
+    axs[0].axvline(psig.f0-freq_center, color='gray')
+    axs[0].axvline(-freq_center, color='gray')
     #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
     #fit_field = psig.get_fenv(freqs-psig.f0)*np.exp( 1j*(psig.phi - 2*np.pi*psig.t0*freqs) )
     emags, eargs = psig.get_fspace(freqs)
@@ -321,20 +331,23 @@ def plot_raw_fdom(dt, psig, fname, f_bounds=None):
     axs[1].plot(freqs, np.imag(vf), color=PLT_COLORS[1], label='imaginary')
     axs[1].fill_between(freqs, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
     axs[1].fill_between(freqs, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
-    fig.savefig(fname, bbox_inches='tight')
+    axs[1].scatter(freqs, emags**2 + np.abs(vf)**2 - 2*emags*np.abs(vf)*np.cos(eargs-np.angle(vf)))
 
-def plot_raw_tdom(ts, psig, fname):
+def plot_raw_tdom(ts, psig_unopt, psig_opt, fname):
     fig, axs = plt.subplots()
     #get the envelope and perform a fitting
-    axs.plot(ts, psig.v_pts, color=PLT_COLORS[0], label='simulated data')
-    freqs = fft.fftfreq(len(psig.v_pts), d=ts[1]-ts[0])
-    fit_field = fft.ifft( psig.get_fenv(freqs-psig.f0)*np.exp(1j*(psig.phi - 2*np.pi*psig.t0*freqs)) )
-    #fit_field2 = psig.get_tenv(ts)*np.exp(2j*np.pi*(ts-psig.t0)*psig.f0 + 1j*psig.phi)
-    fit_field2 = psig(ts)
-    axs.plot(ts, np.real(fit_field2), color=PLT_COLORS[1], label='extracted pulse')
-    axs.plot(ts, np.real(fit_field), color=PLT_COLORS[2], label='extracted pulse')
+    axs.plot(ts, psig_unopt.v_pts, color='black', label='simulated data')
+    freqs = fft.fftfreq(len(psig_unopt.v_pts), d=ts[1]-ts[0])
+    axs.plot(ts, np.real(psig_unopt(ts)), color=PLT_COLORS[0], label="initial guess")
+    axs.plot(ts, np.real(psig_opt(ts)), color=PLT_COLORS[1], label="full optimization")
+    #now use an envelope times a cosine
+    fit_pulse = np.real( psig_opt.get_tenv(ts, field='A') )
+    #axs.fill_between(ts, np.zeros(ts.shape), fit_pulse, color=PLT_COLORS[1], alpha=0.2)
+    fit_pulse *= np.sqrt(2)*np.sin(2*np.pi*psig_opt.f0*(ts - psig_opt.t0) + psig_opt.phi)
+    axs.plot(ts[1:], np.diff(fit_pulse), color=PLT_COLORS[2])
     axs.set_xlim([ts[0], ts[-1]])
     axs.set_ylim([-1, 1])
+    axs.legend()
     fig.savefig(fname, bbox_inches='tight')
 
 def plot_before_after_phase(ts, vs, fname):
@@ -374,13 +387,16 @@ else:
     fig_name = "{}/fit_{}_{}".format(pf.prefix,clust,j)
     #read the data and set up the signal analyzer
     v_pts, err_2 = pf.get_point_times(clust, j, low_pass=False)
-    psig_before, psig = plot_before_after_phase(pf.t_pts, v_pts, "{}_param_est.svg".format(fig_name))
+    psig_before, psig_after = plot_before_after_phase(pf.t_pts, v_pts, "{}_param_est.svg".format(fig_name))
     #plot frequency space
-    plot_raw_fdom(psig.dt, psig, "{}_raw_fdom.svg".format(fig_name))
+    fig,axs = plt.subplots(2,2)
+    plot_raw_fdom(psig_before, axs[:,0], xlim=[0,1])
+    plot_raw_fdom(psig_after, axs[:,1], xlim=[0,1], ylabels=False)
+    fig.savefig("{}_raw_fdom.svg".format(fig_name), bbox_inches='tight')
     #plot time space
-    plot_raw_tdom(pf.t_pts, psig, "{}_raw_tdom.svg".format(fig_name))
+    plot_raw_tdom(pf.t_pts, psig_before, psig_after, "{}_raw_tdom.svg".format(fig_name))
     #plot the frequency domain envelope information
-    fig, axs = plt.subplots(2)
+    '''fig, axs = plt.subplots(2)
     psig.compare_fspace(axs[0], sym_mode=args.sym_mode, plt_raxs=not args.plot_y_labels)
     axs[0].set_xlim(-0.05, 0.05)
     psig.compare_tspace(axs[1])
@@ -392,4 +408,4 @@ else:
     fig, axs = plt.subplots()
     psig.compare_tspace(axs)
     #config_axs(axs, "$t$ (fs)", "$E(t)$", leg_ncol=2, w=2, h=1.5)
-    fig.savefig("{}_tdom.svg".format(fig_name), bbox_inches='tight')
+    fig.savefig("{}_tdom.svg".format(fig_name), bbox_inches='tight')'''

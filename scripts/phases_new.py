@@ -35,10 +35,10 @@ PLT_COLORS = [
     "#ffa8ff"
 ]
 PHASE_STDS = 2
-verbose = 5
+verbose = 2
 
 '''
-To find starting Hermite-Gaussian coefficients, we use the orthoganality condition \int H_n(a(x-x0))H_m(a(x-x0))e^{-a^2(x-x0)^2{ dx = \sqrt{pi} 2^n n! \delta_{nm}/a. This lets us expand |E(w)| = \sum_n k_n H_n(a(w-w0))e^{-a^2(w-w0)^2}. However, we need terms of the form |E(w)| = \sum_n c_{2n} H_n(a(w-w0))e^{-a^2(w-w0)^2} to ensure that the DC component vanishes. This function constructs a matrix, A, that takes \bm{k} = A\bm{c}. A will always be singular, so a small epsilon*w0 correction is added to the odd diagonals so that A^-1 exists at the cost of no longer making the coefficients exact. This is a small price since we plug the resulting c coefficients into gradient descent.
+To find starting Hermite-Gaussian coefficients, we use the orthoganality condition $\int H_n(a(x-x0))H_m(a(x-x0))e^{-a^2(x-x0)^2{ dx = \sqrt{pi} 2^n n! \delta_{nm}/a$. This lets us expand $|E(w)| = \sum_n k_n H_n(a(w-w0))e^{-a^2(w-w0)^2}$. However, we need terms of the form $|E(w)| = \sum_n c_{2n} H_n(a(w-w0))e^{-a^2(w-w0)^2}$ to ensure that the DC component vanishes. This function constructs a matrix, A, that takes $\bm{k} = A\bm{c}$. A will always be singular, so a small epsilon*w0 correction is added to the odd diagonals so that A^-1 exists at the cost of no longer making the coefficients exact. This is a small price since we plug the resulting c coefficients into gradient descent.
 a: the scale factor for the Hermite Gaussian. This should be a good guess in order to get sane coefficients
 w0: the central frequency for the Hermite Gaussian
 nn: the number of Hermite polynomials to include in the expansion
@@ -129,12 +129,12 @@ class signal:
             for m in range(HERM_N):
                 emags += x[HERM_OFF+m]*HERMS[2*m](dd)
                 demags += x[HERM_OFF+m]*(dd*HERMS[2*m](dd) - HERMS[2*m+1](dd))
-                cemags[m,:] = freqs*HERMS[2*m](dd)*np.exp(-dd**2/2)
-            demags *= freqs*np.exp(-dd**2/2)
+                cemags[m,:] = HERMS[2*m](dd)*np.exp(-dd**2/2)
+            demags *= np.exp(-dd**2/2)
         else:
             for m in range(HERM_N):
                 emags += x[HERM_OFF+m]*HERMS[2*m](dd)
-        emags *= freqs*np.exp(-dd**2/2)
+        emags *= np.exp(-dd**2/2)
         return emags, eargs, dd, demags, cemags
 
     @staticmethod
@@ -161,14 +161,14 @@ class signal:
         print("testing magnitude gradients at ", x0, "(fs =", fs, ")")
         def wrap_emags(x):
             emags, _, _, _, _ = signal._fourier_env_formx(fs, x)
-            return emags[0]
+            return fs[0]*emags[0]
         def grad_wrap_emags(x):
             emags, eargs, dd, demags, cemags = signal._fourier_env_formx(fs, x, calc_grads=True)
             ret = np.zeros(x.shape)
-            ret[2] = -np.sum( demags*x[3] )
-            ret[3] = np.sum( demags*(fs-x[2]) )
+            ret[2] = -np.sum( fs*demags*x[3] )
+            ret[3] = np.sum( fs*demags*(fs-x[2]) )
             for m in range(HERM_N):
-                ret[HERM_OFF+m] = np.sum( cemags[m,:] )
+                ret[HERM_OFF+m] = np.sum( fs*cemags[m,:] )
             return ret
         test_grads(wrap_emags, grad_wrap_emags, x0)
         print("\n====================================\n")
@@ -182,7 +182,7 @@ class signal:
         norm = 1/np.trapz(vfm[1:]/freqs[1:])
         x0[2] = np.trapz(vfm)*norm
         x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)*norm)
-        lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
+        lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 0), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
         dd = x0[3]*(freqs-x0[2])
 
         #now work out the Hermite-Gaussian expansion assuming w0 and alpha=1/sigma are held fixed at the values we just guessed
@@ -250,7 +250,6 @@ class signal:
             emags, eargs, dd, demags, cemags = signal._fourier_env_formx(freqs, x, calc_grads=True)
             emags *= freqs
             demags *= freqs
-            cemags *= freqs
             mag_as = 2*emags*self.vfm*np.sin(eargs-self.vfa)
             mag_gs = 2*( emags - self.vfm*np.cos(eargs-self.vfa) )
             ret[0] = np.sum( mag_as )
@@ -258,24 +257,31 @@ class signal:
             ret[2] = -np.sum( mag_gs*demags*x[3] )
             ret[3] = np.sum( mag_gs*demags*(freqs-x[2]) )
             for i in range(HERM_N):
-                ret[i+HERM_OFF] = np.sum( mag_gs*cemags[i,:] )
+                ret[i+HERM_OFF] = np.sum( freqs*mag_gs*cemags[i,:] )
             for m in range(ANG_POLY_N):
                 ret[m+ANG_POLY_OFF] = np.sum( mag_as*dd**(2*m+3) )
                 ret[2] -= (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( mag_as*x[3]*dd**(2*m+2) )
                 ret[3] += (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( mag_as*(freqs-x[2])*dd**(2*m+2) )
+            #return ret
             return ret/np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
-        test_grads(residuals, grad_res, x0)
+        if verbose > 4:
+            test_grads(residuals, grad_res, x0)
         #finally we perform optimization if specified, otherwise just use the initial guess
         if skip_opt:
             xf = x0
         else:
             opt_res = opt.minimize(residuals, x0, jac=grad_res)
-            if verbose > 4:
+            xf = opt_res.x
+            if verbose > 1:
+                print("optimization message:", opt_res.message)
                 print("x0:\t", x0)
                 print("f(x0):\t", residuals(x0))
-                print("optimization result")
-                print(opt_res)
-            xf = opt_res.x
+                print("x1:\t", xf)
+                print("f(x1):\t", residuals(xf))
+                print("diffs:\t", x0/xf)
+                if verbose > 4:
+                    print("optimization result")
+                    print(opt_res)
         #use the results
         self.phi = xf[0]
         self.t0 = xf[1]/2/np.pi
@@ -289,7 +295,7 @@ class signal:
         x = np.append(x, self.herm_coeffs)
         x = np.append(x, self.poly_coeffs)
         emags, eargs, _, _, _ = signal._fourier_env_formx(freqs, x)
-        return emags, eargs
+        return freqs*emags, eargs
     
     def __call__(self, ts):
         freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
@@ -321,90 +327,6 @@ class signal:
         fenv = self.get_fenv(freqs, field=field)*np.exp(-2j*np.pi*self.t0*freqs)
         return fft.ifft(fenv)
 
-    def plt_raw_fdom(self, fname):
-        freqs = fft.rfftfreq(len(self.v_pts), d=self.dt)
-        fig, axs = plt.subplots(2)
-        # setup labels and annotations
-        axs[1].set_xlabel('f (1/fs)') 
-        axs[0].set_ylabel('A(f)', color = 'black')
-        axs[1].set_ylabel('E(f)', color = 'black')
-        axs[1].tick_params(axis ='y', labelcolor = 'black')
-        axs[1].axvline(freqs[self.fit_bounds[0]], color='gray', linestyle=':')
-        axs[1].axvline(freqs[self.fit_bounds[1]], color='gray', linestyle=':')
-        axs[1].axvline(self.f0, color='gray')
-        #plot the vector potential envelope
-        freq_center = freqs[len(freqs)//2]
-        fit_field = self.get_fenv(freqs-freq_center, field='A')
-        axs[0].fill_between(freqs-freq_center, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
-        axs[0].fill_between(freqs-freq_center, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
-        #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
-        fit_field = self.get_fenv(freqs-self.f0)*np.exp( 1j*(self.phi - 2*np.pi*self.t0*freqs) )
-        axs[1].plot(freqs, self.vfm, color='black')
-        axs[1].plot(freqs, np.abs(fit_field), color='black', linestyle='-.')
-        axs[1].plot(freqs, self.vfm*np.cos(self.vfa), color=PLT_COLORS[0], label='real')
-        axs[1].plot(freqs, self.vfm*np.sin(self.vfa), color=PLT_COLORS[1], label='imaginary')
-        axs[1].fill_between(freqs, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
-        axs[1].fill_between(freqs, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
-        fig.savefig(fname, bbox_inches='tight')
-
-    def plt_raw_tdom(self, ts, axs):
-        #get the envelope and perform a fitting
-        axs.plot(ts, self.v_pts, color=PLT_COLORS[0], label='simulated data')
-        '''freqs = fft.rfftfreq(len(self.v_pts), d=self.dt)
-        fit_field = self.get_fenv(freqs-self.f0)*np.exp(2j*np.pi*(self.phi + freqs*self._fit_shift))
-        axs.plot(ts, np.roll(fft.irfft(fit_field), self.shift_i), color=PLT_COLORS[1], label='extracted')'''
-        freqs = fft.fftfreq(len(self.v_pts), d=self.dt)
-        fit_field = fft.ifft( self.get_fenv(freqs-self.f0)*np.exp(1j*(self.phi - 2*np.pi*self.t0*freqs)) )
-        fit_field2 = self.get_tenv(ts)*np.exp(2j*np.pi*(ts-self.t0)*self.f0 + 1j*self.phi)
-        axs.plot(ts, np.real(fit_field), color=PLT_COLORS[1], label='extracted pulse')
-        axs.plot(ts, np.real(fit_field2), color=PLT_COLORS[2], label='extracted pulse', linestyle=':')
-        axs.set_xlim([ts[0], ts[-1]])
-        axs.set_ylim([-1, 1])
-
-    def compare_fspace(self, ts, axs, sym_mode='sym-o', plt_raxs=True):
-        freqs = fft.fftfreq(len(self.v_pts), d=self.dt)
-        #make unsymmeterized envelope plots
-        axs.plot(fft.fftshift(freqs), fft.fftshift(np.abs(self.get_fenv(freqs, field='E'))), color=PLT_COLORS[0], label='|a(ω)|')
-        axs.plot(fft.fftshift(freqs), fft.fftshift(np.abs(self.get_fenv(freqs, field='A'))), color=PLT_COLORS[1], label='|a(ω)|')
-        #plot the symmeterized envelope for comparison
-        '''self.calc_envelope(sym_mode=sym_mode)
-        env = self.get_envelope()
-        axs.plot(fft.fftshift(freqs), fft.fftshift(np.abs(self.env_fourier)), color='blue', linestyle='--')
-        axs.plot(fft.fftshift(freqs), fft.fftshift(np.abs(self.vec_env_fourier)), color='orange', linestyle='--')'''
-        '''ax2 = axs.twinx()
-        ax2.tick_params(axis ='y', labelcolor='green')
-        ext_angles = fft.fftshift(np.angle(self.vec_env_fourier))
-        ax2.plot(fft.fftshift(freqs), [fix_angle(a)/np.pi for a in ext_angles], color='green', linestyle='--')
-        #figure out the actual angles for comparison
-        pad_n = (0, self.vfa.shape[0]-2+self.v_pts.shape[0]%2)
-        actual_angles = fft.fftshift( np.roll(np.pad(np.angle(self.vf)-self.phi, pad_n), -self.f0) )
-        ax2.plot(fft.fftshift(freqs), [fix_angle(a)/np.pi for a in actual_angles], color='green', label='arg[$a(ω)$]')
-        ax2.set_ylim(-1, 1)
-        if not plt_raxs:
-            ax2.get_yaxis().set_visible(False)'''
-
-    def compare_tspace(self, ts, axs):
-        '''freqs = fft.fftfreq(len(self.v_pts), d=self.dt)
-        env = self.get_fenv(freqs, field='E')
-        max_field_t = ts[np.argmax(self.v_pts)]
-        #get the signal from a(t)e^(i(\omega_0(t-t_0) + \phi)) + c.c.
-        sig_direct_re = np.real(env)*np.cos(2*np.pi*self.f0*(ts-self.t0) + self.phi)
-        sig_direct_im = np.imag(env)*np.sin(2*np.pi*self.f0*(ts-self.t0) + self.phi)
-        axs.plot(ts, self.v_pts, color='black', label='simulated')'''
-        axs.plot(ts, self.v_pts, color=PLT_COLORS[0], label='simulated data')
-        #first plot the envelope
-        env = self.get_tenv(ts, field='E')
-        #now plot the wave
-        env = self.get_tenv(ts, field='A')
-        #axs.fill_between(ts, np.real(env), -np.real(env), color=PLT_COLORS[0], label='Re$[a(t)]$', alpha=0.2)
-        #axs.fill_between(ts, np.imag(env), -np.imag(env), color=PLT_COLORS[1], label='Im$[a(t)]$', alpha=0.2)
-        fit_ser = env*np.sin(2*np.pi*(ts-self.t0)*self.f0 + self.phi)/2/np.pi
-        axs.plot(ts, fit_ser, color='red', label='extracted', linestyle='-.')
-        fit_ser = np.diff(fit_ser)/self.dt
-        #fit_ser = np.roll(fit_ser, self.shift_i)
-        axs.plot(ts[:-1], fit_ser, color=PLT_COLORS[2], label='extracted')
-        axs.set_xlim([ts[0], ts[-1]])
-        axs.set_ylim([-1, 1])
 
 N_RES_PARAMS = 7
 class cluster_res:
