@@ -7,6 +7,7 @@ import h5py
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+matplotlib.use('qtagg')
 from scipy.stats import linregress
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -288,15 +289,19 @@ def config_axs(axs, xlab, ylab, leg_loc="upper right", leg_ncol=-1, leg_alpha=0.
         figh = float(h)/(t-b)
         axs.figure.set_size_inches(figw, figh)
 
-def plot_raw_fdom(dt, psig, fname):
+def plot_raw_fdom(dt, psig, fname, f_bounds=None):
     freqs = fft.rfftfreq(len(psig.v_pts), d=dt)
     vf = 2*fft.rfft(psig.v_pts)
+    if f_bounds is None:
+        f_bounds = [0, psig.f0 + 10*psig.sigma]
 
     fig, axs = plt.subplots(2)
-    # setup labels and annotations
-    axs[1].set_xlabel('f (1/fs)') 
+    # setup labels and annotations 
     axs[0].set_ylabel('A(f)', color = 'black')
+    axs[0].set_xlim([-f_bounds[1], f_bounds[1]])
+    axs[1].set_xlim(f_bounds)
     axs[1].set_ylabel('E(f)', color = 'black')
+    axs[1].set_xlabel('f (1/fs)')
     axs[1].tick_params(axis ='y', labelcolor = 'black')
     axs[1].axvline(freqs[psig.fit_bounds[0]], color='gray', linestyle=':')
     axs[1].axvline(freqs[psig.fit_bounds[1]], color='gray', linestyle=':')
@@ -307,7 +312,9 @@ def plot_raw_fdom(dt, psig, fname):
     axs[0].fill_between(freqs-freq_center, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
     axs[0].fill_between(freqs-freq_center, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
     #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
-    fit_field = psig.get_fenv(freqs-psig.f0)*np.exp( 1j*(psig.phi - 2*np.pi*psig.t0*freqs) )
+    #fit_field = psig.get_fenv(freqs-psig.f0)*np.exp( 1j*(psig.phi - 2*np.pi*psig.t0*freqs) )
+    emags, eargs = psig.get_fspace(freqs)
+    fit_field = emags*np.exp(1j*eargs)
     axs[1].plot(freqs, np.abs(vf), color='black')
     axs[1].plot(freqs, np.abs(fit_field), color='black', linestyle='-.')
     axs[1].plot(freqs, np.real(vf), color=PLT_COLORS[0], label='real')
@@ -322,12 +329,38 @@ def plot_raw_tdom(ts, psig, fname):
     axs.plot(ts, psig.v_pts, color=PLT_COLORS[0], label='simulated data')
     freqs = fft.fftfreq(len(psig.v_pts), d=ts[1]-ts[0])
     fit_field = fft.ifft( psig.get_fenv(freqs-psig.f0)*np.exp(1j*(psig.phi - 2*np.pi*psig.t0*freqs)) )
-    fit_field2 = psig.get_tenv(ts)*np.exp(2j*np.pi*(ts-psig.t0)*psig.f0 + 1j*psig.phi)
-    axs.plot(ts, np.real(fit_field), color=PLT_COLORS[1], label='extracted pulse')
-    axs.plot(ts, np.real(fit_field2), color=PLT_COLORS[2], label='extracted pulse', linestyle=':')
+    #fit_field2 = psig.get_tenv(ts)*np.exp(2j*np.pi*(ts-psig.t0)*psig.f0 + 1j*psig.phi)
+    fit_field2 = psig(ts)
+    axs.plot(ts, np.real(fit_field2), color=PLT_COLORS[1], label='extracted pulse')
+    axs.plot(ts, np.real(fit_field), color=PLT_COLORS[2], label='extracted pulse')
     axs.set_xlim([ts[0], ts[-1]])
     axs.set_ylim([-1, 1])
     fig.savefig(fname, bbox_inches='tight')
+
+def plot_before_after_phase(ts, vs, fname):
+    freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
+    #get signals
+    psig_unopt = phases.signal(ts, vs, skip_opt=True)
+    psig_opt = phases.signal(ts, vs, skip_opt=False)
+    dat_series = phases.fix_angle_seq(psig_unopt.vfa, scan_n=4)
+    _, fit_series_0 = psig_unopt.get_fspace(freqs)
+    _, fit_series_1 = psig_opt.get_fspace(freqs)
+    #set up the plot
+    fig, axs = plt.subplots()
+    axs.axvline(freqs[psig_unopt.fit_bounds[0]], color='gray', linestyle=':')
+    axs.axvline(freqs[psig_unopt.fit_bounds[1]], color='gray', linestyle=':')
+    axs.axvline(psig_unopt.f0, color=PLT_COLORS[0])
+    axs.axvline(psig_opt.f0, color=PLT_COLORS[1])
+    scale = np.max(psig_unopt.vfa)-np.min(psig_unopt.vfa)
+    axs.set_ylim(-scale, scale)
+    #plot each series and annotate
+    axs.plot(freqs, dat_series, color='black', label="simulation")
+    axs.plot(freqs, fit_series_0, color=PLT_COLORS[0], label="initial guess")
+    axs.plot(freqs, fit_series_1, color=PLT_COLORS[1], label="full optimization")
+    axs.annotate('$\\varphi = ${:.2f}, $t_0 = ${:.2f} fs'.format(psig_opt.phi, psig_opt.t0), xy=(0,10), xytext=(0.2, 0.80), xycoords='figure fraction')
+    axs.legend()
+    fig.savefig(fname, bbox_inches='tight')
+    return psig_unopt, psig_opt
 
 pf = phases.phase_finder(args.fname, prefix=args.prefix, pass_alpha=args.lowpass, keep_n=-1)
 if args.point == '':
@@ -341,13 +374,10 @@ else:
     fig_name = "{}/fit_{}_{}".format(pf.prefix,clust,j)
     #read the data and set up the signal analyzer
     v_pts, err_2 = pf.get_point_times(clust, j, low_pass=False)
-    fig, axs = plt.subplots()
-    psig = phases.signal(pf.t_pts, v_pts, phase_axs=axs)
-    config_axs(axs, "ω (1/fs)", "arg[E(ω)]/2π", leg_loc="lower right")
-    fig.savefig("{}_param_est.svg".format(fig_name), bbox_inches='tight')
-    #setup the plots
+    psig_before, psig = plot_before_after_phase(pf.t_pts, v_pts, "{}_param_est.svg".format(fig_name))
+    #plot frequency space
     plot_raw_fdom(psig.dt, psig, "{}_raw_fdom.svg".format(fig_name))
-    #config_axs(raw_ax, "$ω$ (1/fs)", "|$E(ω)$|", leg_alpha=1, w=6, h=2.5)
+    #plot time space
     plot_raw_tdom(pf.t_pts, psig, "{}_raw_tdom.svg".format(fig_name))
     #plot the frequency domain envelope information
     fig, axs = plt.subplots(2)

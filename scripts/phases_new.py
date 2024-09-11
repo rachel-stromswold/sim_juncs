@@ -174,14 +174,6 @@ class signal:
         print("\n====================================\n")
 
     @staticmethod
-    def fourier_env_form(freqs, phi, t0, f0, alpha, herm_coeffs, ang_poly_coeffs):
-        x = np.array([phi, t0, f0, alpha])
-        x = np.append(x, herm_coeffs)
-        x = np.append(x, ang_poly_coeffs)
-        emags, eargs, _, _, _ = signal._fourier_env_formx(freqs, x)
-        return emags, eargs
-
-    @staticmethod
     def _guess_params(freqs, vfm, vfa):
         x0 = np.zeros(ANG_POLY_OFF+ANG_POLY_N)
 
@@ -198,11 +190,22 @@ class signal:
         k_ser = np.zeros(freqs.shape)
         ks = np.zeros(2*HERM_N)
         for m in range(2*HERM_N):
-            ks[m] = np.trapz(vfm*HERMS[m](dd)*np.exp(-dd**2/2), dx=df)/herm_den
+            ks[m] = np.trapezoid(vfm*HERMS[m](dd)*np.exp(-dd**2/2), dx=df)/herm_den
             k_ser += ks[m]*HERMS[m](dd)*np.exp(-dd**2/2)
             herm_den *= 2*(m+1)
-        ks = np.dot(herm_conv(x0[2], x0[3], HERM_N), ks*np.max(vfm)/np.max(k_ser))
-        x0[HERM_OFF:HERM_OFF+HERM_N] = ks[::2]
+        ks *= np.max(vfm)/np.max(k_ser)
+        cs = np.dot(herm_conv(x0[2], x0[3], HERM_N), ks)
+        x0[HERM_OFF:HERM_OFF+HERM_N] = cs[::2]
+
+        #TODO: delete
+        '''k_ser, c_ser = np.zeros(freqs.shape), np.zeros(freqs.shape)
+        for i in range(HERM_N):
+            k_ser += (ks[2*i]*HERMS[2*i](dd) + ks[2*i+1]*HERMS[2*i+1](dd))*np.exp(-dd**2/2)
+            c_ser += freqs*cs[2*i]*HERMS[2*i](dd)*np.exp(-dd**2/2)
+        plt.plot(dd, vfm)
+        plt.plot(dd, k_ser*np.max(vfm)/np.max(k_ser))
+        plt.plot(dd, c_ser*np.max(vfm)/np.max(c_ser))
+        plt.show()'''
 
         #fit the derivative of the phase to a polynomial of (f-f0)^2/sigma^2 so that only odd powers will appear when we integrate
         dd = dd[lo_fi:hi_fi]
@@ -220,43 +223,15 @@ class signal:
         x0[0] = ang_opt_res.x[0] + x0[1]*x0[2]
         for m in range(ANG_POLY_N):
             x0[ANG_POLY_OFF+m] = ang_opt_res.x[m+2]
-        #now using the selected frequency range, estimate the phase by performing linear regression
-        '''lr_res = linregress(freqs[lo_fi:hi_fi], vfa[lo_fi:hi_fi])
-        guess_t0 = -lr_res.slope
-        guess_phi = fix_angle(lr_res.intercept - lr_res.slope*freqs[lo_fi])
-        x0[0] = guess_phi
-        x0[1] = guess_t0'''
-
-        '''slope_den = 1
-        for m in range(ANG_POLY_N):
-            nn = 2*m+2
-            slope_den *= nn+1
-            if nn >= hi_fi - lo_fi:
-                break
-            lr_res = linregress(dd[lo_fi:hi_fi-nn], np.diff(vfa[lo_fi:hi_fi], nn))
-            x0[ANG_POLY_OFF+m] = lr_res.slope/slope_den'''
-        #TODO: delete
-        fig,axs = plt.subplots(2)
-        fit = ang_opt_res.x[0]*np.ones(dd.shape)
-        for m in range(ANG_POLY_N+1):
-            fit += ang_opt_res.x[m+1]*dd**(2*m+1)
-        emags, eargs, _, _, _ = signal._fourier_env_formx(freqs[lo_fi:hi_fi], x0)
-        emags *= freqs[lo_fi:hi_fi]
-        axs[0].scatter(dd, vfa)
-        axs[0].plot(dd, fit)
-        axs[0].plot(dd, eargs)
-        axs[1].scatter(freqs[lo_fi:hi_fi], (emags/vfm)**2 + 1 - 2*emags*np.cos(eargs-vfa)/vfm)
-        #axs[1].scatter(freqs[lo_fi:hi_fi], np.abs(eargs-2*np.pi*vfa))
-        fig.savefig("/tmp/blah/rawthingy.svg")
 
         return x0, lo_fi, hi_fi
 
-    def __init__(self, t_pts, v_pts, fname=None, thin=1, phase_axs=None):
+    def __init__(self, t_pts, v_pts, skip_opt=False):
         self.dt = t_pts[1] - t_pts[0]
         self.v_pts = v_pts
         #take the fourier transform       
         freqs = fft.rfftfreq(len(v_pts), d=self.dt)
-        vf0 = 2*fft.rfft(v_pts)
+        vf0 = fft.rfft(v_pts)
         self.vfm = np.abs(vf0)
         self.vfa = np.angle(vf0)
         #get guesses for initial parameters based on heuristics
@@ -289,43 +264,37 @@ class signal:
                 ret[2] -= (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( mag_as*x[3]*dd**(2*m+2) )
                 ret[3] += (2*m+3)*x[m+ANG_POLY_OFF]*np.sum( mag_as*(freqs-x[2])*dd**(2*m+2) )
             return ret/np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
-        #finally we perform optimization
         test_grads(residuals, grad_res, x0)
-        opt_res = opt.minimize(residuals, x0, jac=grad_res)
-        if verbose > 4:
-            print("x0:\t", x0)
-            print("f(x0):\t", residuals(x0))
-            print("optimization result")
-            print(opt_res)
-        #opt_res.x = x0
+        #finally we perform optimization if specified, otherwise just use the initial guess
+        if skip_opt:
+            xf = x0
+        else:
+            opt_res = opt.minimize(residuals, x0, jac=grad_res)
+            if verbose > 4:
+                print("x0:\t", x0)
+                print("f(x0):\t", residuals(x0))
+                print("optimization result")
+                print(opt_res)
+            xf = opt_res.x
         #use the results
-        self.phi = opt_res.x[0]
-        self.t0 = opt_res.x[1]/2/np.pi
-        self.f0 = opt_res.x[2]
-        self.sigma = 1/opt_res.x[3]
-        self.herm_coeffs = opt_res.x[HERM_OFF:HERM_OFF+HERM_N]
-        self.poly_coeffs = opt_res.x[ANG_POLY_OFF:ANG_POLY_OFF+ANG_POLY_N]
-        #generate plots
-        if phase_axs is not None:
-            #dat_series = [fix_angle(ang) for ang in self.vfa]
-            dat_series = fix_angle_seq(self.vfa, scan_n=4)
-            _, fit_series_0, _, _, _ = signal._fourier_env_formx(freqs, x0)
-            _, fit_series_1, _, _, _ = signal._fourier_env_formx(freqs, opt_res.x)
-            fit_series_0 = fit_series_0
-            fit_series_1 = fit_series_1
-            '''fit_series_0 = fix_angle(x0[0] - x0[1]*freqs)/np.pi
-            fit_series_1 = fix_angle(opt_res.x[0] - opt_res.x[1]*freqs)/np.pi'''
-            phase_axs.axvline(freqs[self.fit_bounds[0]], color='gray', linestyle=':')
-            phase_axs.axvline(freqs[self.fit_bounds[1]], color='gray', linestyle=':')
-            phase_axs.axvline(self.f0, color='gray')
-            phase_axs.plot(freqs, dat_series, color='black', label="simulation")
-            phase_axs.plot(freqs, fit_series_0, color=PLT_COLORS[0], linestyle='--', label="linear regression")
-            phase_axs.plot(freqs, fit_series_1, color=PLT_COLORS[1], linestyle='--', label="full optimization")
-            phase_axs.annotate('$\\varphi = ${:.2f}, $t_0 = ${:.2f} fs'.format(self.phi, self.t0), xy=(0,0), xytext=(0.2, 0.80), xycoords='figure fraction')
-            #phase_axs.set_xlim(freqs[0], freqs[1])
-            scale = np.max(self.vfa)-np.min(self.vfa)
-            phase_axs.set_ylim(-scale, scale)
-            phase_axs.legend()
+        self.phi = xf[0]
+        self.t0 = xf[1]/2/np.pi
+        self.f0 = xf[2]
+        self.sigma = 1/xf[3]
+        self.herm_coeffs = xf[HERM_OFF:HERM_OFF+HERM_N]
+        self.poly_coeffs = xf[ANG_POLY_OFF:ANG_POLY_OFF+ANG_POLY_N]
+
+    def get_fspace(self, freqs):
+        x = np.array([self.phi, 2*np.pi*self.t0, self.f0, 1/self.sigma])
+        x = np.append(x, self.herm_coeffs)
+        x = np.append(x, self.poly_coeffs)
+        emags, eargs, _, _, _ = signal._fourier_env_formx(freqs, x)
+        return emags, eargs
+    
+    def __call__(self, ts):
+        freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
+        emags, eargs = self.get_fspace(freqs)
+        return fft.irfft(emags*np.exp(1j*eargs))
 
     def get_fenv(self, freqs, field='E'):
         '''
@@ -333,7 +302,10 @@ class signal:
         freqs: the frequencies for which the field is computed
         field: if set to 'E' (default) compute the electric field, otherwise compute the envelope for the vector potential
         '''
-        emags, eargs = signal.fourier_env_form(freqs, 0, 0, 0, 1/self.sigma, self.herm_coeffs, self.poly_coeffs)
+        x = np.array([0, 0, 0, 1/self.sigma])
+        x = np.append(x, self.herm_coeffs)
+        x = np.append(x, self.poly_coeffs)
+        emags, eargs, _, _, _ = signal._fourier_env_formx(freqs, x)
         if field == 'E':
             return 2*(freqs+self.f0)*emags*np.exp(1j*eargs)
         return 2*emags*np.exp(1j*eargs)
