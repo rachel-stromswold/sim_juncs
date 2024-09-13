@@ -126,8 +126,11 @@ def plot_raw_tdom(ts, vs, psig_unopt, psig_opt, fname):
     if psig_unopt is not None:
         axs.plot(ts, np.real(psig_unopt(ts)), color=PLT_COLORS[0], label="initial guess")
     axs.plot(ts, np.real(psig_opt(ts)), color=PLT_COLORS[1], label="full optimization")
+    axs.axvline(psig_opt.t0, color='gray')
     #now use an envelope times a cosine
     fit_pulse = np.real( psig_opt.get_tenv(ts, field='A') )
+    tenv = np.abs(psig_opt.get_tenv(ts, field='E'))
+    axs.fill_between(ts, -tenv, tenv, color=PLT_COLORS[1], alpha=0.2)
     #axs.fill_between(ts, np.zeros(ts.shape), fit_pulse, color=PLT_COLORS[1], alpha=0.2)
     fit_pulse *= np.sqrt(2)*np.sin(2*np.pi*psig_opt.f0*(ts - psig_opt.t0) + psig_opt.phi)
     axs.plot(ts[1:], np.diff(fit_pulse), color=PLT_COLORS[2])
@@ -135,41 +138,6 @@ def plot_raw_tdom(ts, vs, psig_unopt, psig_opt, fname):
     axs.set_ylim([-1, 1])
     axs.legend()
     fig.savefig(fname, bbox_inches='tight')
-
-def make_heatmap(ax, imdat, title, label, rng=None, cmap='viridis', vlines=[], xlabels=[[],[]], ylabels=[[],[]], w=-1):
-    ax.set_title(title)
-    if len(xlabels[0]) == 0:
-        ax.get_xaxis().set_visible(False)
-    else:
-        ax.set_xticks(xlabels[0])
-        ax.set_xticklabels(xlabels[1])
-    if len(ylabels[0]) == 0:
-        ax.get_yaxis().set_visible(False)
-    else:
-        ax.set_yticks(ylabels[0])
-        ax.set_yticklabels(ylabels[1])
-    for xx in vlines:
-        ax.axvline(x=xx, color='gray')
-    #do plots
-    if rng is None:
-        im = ax.imshow(imdat, cmap=cmap)
-    else:
-        im = ax.imshow(imdat, vmin=rng[0], vmax=rng[1], cmap=cmap)
-    return im
-    if args.plot_cbar:
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        plt.colorbar(im, cax=cax)
-        cax.set_ylabel(label)
-    #adjust the size of the plot
-    if w > 0:
-        l = ax.figure.subplotpars.left
-        r = ax.figure.subplotpars.right
-        t = ax.figure.subplotpars.top
-        b = ax.figure.subplotpars.bottom
-        figw = float(w)/(r-l)
-        figh = figw*(t-b)/(r-l)
-        ax.figure.set_size_inches(figw, figh)
 
 class cluster_reader:
     '''
@@ -249,9 +217,9 @@ class cluster_reader:
                 #save figures if specified
                 if save_fit_figs:
                     fig, axs = plt.subplots(2)
-                    plot_raw_fdom(psig, axs)
+                    plot_raw_fdom(self.t_pts, v_pts, psig, axs, xlim=[0,1])
                     fig.savefig("{}/fit_figs/ffit_{}_{}.svg".format(self.prefix, clust, j))
-                    plot_raw_tdom(self.t_pts, None, psig, "{}/fit_figs/tfit_{}_{}_raw.svg".format(self.prefix, clust, j))
+                    plot_raw_tdom(self.t_pts, v_pts, None, psig, "{}/fit_figs/tfit_{}_{}_raw.svg".format(self.prefix, clust, j))
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
         t_avg = t_dif/clust_len/len(self.clust_names)
         print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_avg))
@@ -264,9 +232,9 @@ class cluster_reader:
         err_2 = 0.02
         return np.array(self.f[clust][points[ind]]['time']['Re']), err_2
 
-    def make_heatmap(self, ax, parameter, vlines=[]):
+    def make_heatmap(self, ax, parameter, vlines=[], xlabels=[[],[]], ylabels=[[],[]], rng=[], cmap="viridis", plot_cbar=True):
         imdat = None
-        if parameter == 'phi':
+        if parameter == 'phase':
             imdat = self._raw_data[:,:,0]
         elif parameter == 'residual':
             imdat = self.residuals
@@ -277,11 +245,11 @@ class cluster_reader:
         elif parameter == 'sigma':
             imdat = 1/self._raw_data[:,:,2]
         elif parameter == 'amplitude':
-            imdat = np.zeros((self._raw_data.shape[0],self._raw_data.shape[1]))
+            imdat = np.zeros((self._raw_data.shape[0], self._raw_data.shape[1]))
             for i in range(self._raw_data.shape[0]):
                 for j in range(self._raw_data.shape[1]):
                     sig = phases.signal(None, None, herm_n=self.herm_n, ang_n=self.ang_n, skip_opt=True, x0=self._raw_data[i,j,:])
-                    imdat[i,j] = np.max(sig.get_tenv(self.t_pts))
+                    imdat[i,j] = np.max(np.abs(sig.get_tenv(self.t_pts)))
         elif parameter[:17] == 'Hermite amplitude':
             ind = int( parameter[17:] )
             if ind % 2 == 1:
@@ -299,11 +267,33 @@ class cluster_reader:
         else:
             print("Error: unrecognized parameter!")
         imdat = np.append(imdat, np.flip(imdat, axis=1), axis=1)
-        im = make_heatmap(ax, imdat, "", parameter, cmap='twilight_shifted', vlines=vlines)
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        plt.colorbar(im, cax=cax)
-        cax.set_ylabel(parameter)
+
+        if len(xlabels[0]) == 0:
+            ax.get_xaxis().set_visible(False)
+        else:
+            ax.set_xticks(xlabels[0])
+            ax.set_xticklabels(xlabels[1])
+
+        if len(ylabels[0]) == 0:
+            ax.get_yaxis().set_visible(False)
+        else:
+            ax.set_yticks(ylabels[0])
+            ax.set_yticklabels(ylabels[1])
+
+        for xx in vlines:
+            ax.axvline(x=xx, color='gray')
+        #do plots
+        if len(rng) == 2:
+            im = ax.imshow(imdat, vmin=rng[0], vmax=rng[1], cmap=cmap)
+        else:
+            im = ax.imshow(imdat, cmap=cmap)
+
+        if plot_cbar:
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            plt.colorbar(im, cax=cax)
+            cax.set_ylabel(parameter)
+        return im
     
 def plot_before_after_phase(ts, vs, fname):
     freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
@@ -336,9 +326,12 @@ if args.point == '':
     x_ext = int( (cr._pts[0,-1,0] - cr._pts[0,0,0])/dx )
     vlines = [x_ext - args.gap_width/dx, x_ext + args.gap_width/dx]
 
+    phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
+    cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
+
     fig, axs = plt.subplots(2, gridspec_kw={'hspace':0.2})
-    cr.make_heatmap(axs[0], "amplitude", vlines=vlines)
-    cr.make_heatmap(axs[1], "phi", vlines=vlines)
+    cr.make_heatmap(axs[0], "amplitude", vlines=vlines, cmap='magma')
+    cr.make_heatmap(axs[1], "phase", vlines=vlines, cmap=cmap)
     #fig.tight_layout()
     fig.savefig(args.prefix+"/heatmap_{}.svg".format(args.fname.split('.')[0]), bbox_inches='tight')
     plt.close(fig)

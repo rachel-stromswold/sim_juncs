@@ -7,17 +7,19 @@ from scipy.special import hermite
 #from scipy.fft import ifft, fft, fftfreq
 import scipy.fft as fft
 import scipy.signal as ssig
+import matplotlib.pyplot as plt
 
 '''     fitting paramaters       '''
 EPSILON = 0.01
-HERM_N = 3 #use the first HERM_N even hermite polynomials (i.e. HERM_N=1 uses just H_e0(w), HERM_N=2 adds H_e2(w) and so on) 
+HERM_N = 20 #use the first HERM_N even hermite polynomials (i.e. HERM_N=1 uses just H_e0(w), HERM_N=2 adds H_e2(w) and so on) 
 HERMS = [hermite(n) for n in range(2*HERM_N+2)]
 HERM_SCALE = np.sqrt(2)
 HERM_SCALE=1
 HERM_OFF = 4
-POLY_FIT_DEVS = 2 #the number of gaussian standard deviations to take when fitting the angles
-ANG_POLY_OFF = HERM_OFF + HERM_N
+POLY_FIT_DEVS = 8 #the number of gaussian standard deviations to take when fitting the angles
 ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in the polynomial for the angle. i.e. arg(a(w)) = \phi - \omega t_0 + \sum_{n=1}^{ANG_POLY_N} \omega^{2n+1} t_n
+
+NOISY_N_PEAKS = 2
 
 verbose = 2
 
@@ -161,7 +163,7 @@ class signal:
         print("\n====================================\n")
 
     @staticmethod
-    def _guess_params(freqs, vfm, vfa, herm_n, ang_n):
+    def _guess_params(freqs, vfm, vfa, herm_n, ang_n, check_noise=True):
         ang_off = HERM_OFF + herm_n
         x0 = np.zeros(ang_off+ang_n)
 
@@ -169,9 +171,30 @@ class signal:
         #estimate the central frequency and envelope width in frequency space
         norm = 1/np.trapz(vfm[1:]/freqs[1:])
         x0[2] = np.trapz(vfm)*norm
-        x0[3] = 1/np.sqrt(np.trapz(vfm*freqs)*norm - x0[2]**2)
-        lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 0), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
+        x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)*norm - x0[2]**2)
+        lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
         dd = x0[3]*(freqs-x0[2])
+        #check whether noise was detected using the number of appreciable peaks (magnitude greater than a half of the largest)
+        if check_noise:
+            max_vfm = np.max(vfm)
+            n_big_peaks = 0
+            smallest_big = 0
+            for i in range(1, len(vfm)-1):
+                if vfm[i] > vfm[i-1] and vfm[i] > vfm[i+1]:
+                    if vfm[i]/max_vfm > 0.5:
+                        if n_big_peaks == 0:
+                            smallest_big = freqs[i]
+                        n_big_peaks += 1
+            if n_big_peaks > NOISY_N_PEAKS:
+                #apply a lowpass filter and try again
+                vf = vfm*np.exp(1j*vfa)*np.sinc(x0[3]*(freqs-smallest_big))
+                return signal._guess_params(freqs, np.abs(vf), np.angle(vf), herm_n, ang_n, check_noise=False)
+
+        res = linregress(freqs[lo_fi:hi_fi], vfa[lo_fi:hi_fi])
+        x0[0] = fix_angle(res.intercept)
+        x0[1] = res.slope
+        x0[HERM_OFF] = np.max(vfm)
+        #return x0, lo_fi, hi_fi
 
         #fit the derivative of the phase to a polynomial of (f-f0)^2/sigma^2 so that only odd powers will appear when we integrate
         dd = dd[lo_fi:hi_fi]
@@ -190,12 +213,14 @@ class signal:
             x0[ang_off+m] = ang_opt_res.x[m+2]
 
         #now work out the Hermite-Gaussian expansion assuming w0 and alpha=1/sigma are held fixed at the values we just guessed
-        vfm = vfm*np.cos(vfa - ang_opt_res.x[0] - ang_opt_res.x[1]*dd)
+        #vfm = vfm*np.cos(vfa - ang_opt_res.x[0] - ang_opt_res.x[1]*dd)
         herm_den = 1
         k_ser = np.zeros(dd.shape)
         ks = np.zeros(2*herm_n)
+        cs = np.zeros(2*herm_n)
         for m in range(2*herm_n):
             ks[m] = np.trapezoid(vfm*HERMS[m](dd)*np.exp(-dd**2/2), dx=df)/herm_den
+            cs[m] = np.trapezoid(vfm*HERMS[m](dd)*np.exp(-dd**2/2)/freqs[lo_fi:hi_fi], dx=df)/herm_den
             k_ser += ks[m]*HERMS[m](dd)*np.exp(-dd**2/2)
             herm_den *= 2*(m+1)
         ks *= np.max(vfm)/np.max(k_ser)
@@ -205,10 +230,11 @@ class signal:
 
         #TODO: delete
         '''k_ser, c_ser = np.zeros(dd.shape), np.zeros(dd.shape)
-        for i in range(HERM_N):
+        for i in range(herm_n):
             k_ser += (ks[2*i]*HERMS[2*i](dd) + ks[2*i+1]*HERMS[2*i+1](dd))*np.exp(-dd**2/2)
             c_ser += freqs[lo_fi:hi_fi]*cs[2*i]*HERMS[2*i](dd)*np.exp(-dd**2/2)
-        plt.plot(dd, vfm)
+        plt.plot(dd, vfm, color='black')
+        plt.plot(dd, vfm*np.sinc(dd))
         plt.plot(dd, k_ser*np.max(vfm)/np.max(k_ser))
         plt.plot(dd, c_ser*np.max(vfm)/np.max(c_ser))
         plt.show()'''
@@ -282,7 +308,8 @@ class signal:
                     print("optimization result")
                     print(opt_res)
         #use the results
-        self.phi = fix_angle(xf[0])
+        xf[0] = fix_angle(xf[0])
+        self.phi = xf[0]
         self.t0 = xf[1]/2/np.pi
         self.f0 = xf[2]
         self.sigma = 1/xf[3]
@@ -290,7 +317,7 @@ class signal:
         self.poly_coeffs = xf[HERM_OFF+self.herm_n:HERM_OFF+self.herm_n+self.ang_n]
         self.x = xf
         if t_pts is not None and v_pts is not None:
-            self.log_residual = residuals(xf)
+            self.cost = residuals(xf)
 
     def get_fspace(self, freqs):
         x = np.array([self.phi, 2*np.pi*self.t0, self.f0, 1/self.sigma])
