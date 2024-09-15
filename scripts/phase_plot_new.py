@@ -35,8 +35,7 @@ N_COLS = 1
 AMP_RANGE = (0, 1.5)
 OMG_RANGE = (0, 4.0)
 SIG_RANGE = (0, 10.0)
-PHI_RANGE = (-1.0, 1.0)
-SKW_RANGE = (-10.0, 50.0)
+PHI_RANGE = (-np.pi, np.pi)
 N_FREQ_COMPS=100
 EPS_0 = 200.6
 #EPS_0 = 2.5
@@ -210,6 +209,7 @@ class cluster_reader:
             self._pts[i,:,1] = np.array(self.f[clust]['locations']['y'])
             self._pts[i,:,2] = np.array(self.f[clust]['locations']['z'])
             for j, point in enumerate(points):
+                print("optimizing point", i, j)
                 v_pts = np.array(self.f[clust][point]['time']['Re'])
                 psig = phases.signal(self.t_pts, v_pts, herm_n=herm_n, ang_n=ang_n)
                 self._raw_data[i,j,:] = psig.x
@@ -298,8 +298,8 @@ class cluster_reader:
 def plot_before_after_phase(ts, vs, fname):
     freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
     #get signals
-    psig_unopt = phases.signal(ts, vs, skip_opt=True)
-    psig_opt = phases.signal(ts, vs, skip_opt=False)
+    psig_unopt = phases.signal(ts, vs, skip_opt=True, ang_n=2)
+    psig_opt = phases.signal(ts, vs, skip_opt=False, ang_n=2)
     dat_series = phases.fix_angle_seq(psig_unopt.vfa, scan_n=4)
     _, fit_series_0 = psig_unopt.get_fspace(freqs)
     _, fit_series_1 = psig_opt.get_fspace(freqs)
@@ -329,14 +329,18 @@ if args.point == '':
     phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
     cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
 
-    fig, axs = plt.subplots(2, gridspec_kw={'hspace':0.2})
+    fig, axs = plt.subplots(2)
     cr.make_heatmap(axs[0], "amplitude", vlines=vlines, cmap='magma')
     cr.make_heatmap(axs[1], "phase", vlines=vlines, cmap=cmap)
     #fig.tight_layout()
-    fig.savefig(args.prefix+"/heatmap_{}.svg".format(args.fname.split('.')[0]), bbox_inches='tight')
+    fig.savefig(args.prefix+"/phase_amp_{}.svg".format(args.fname.split('.')[0]), bbox_inches='tight')
+    plt.close(fig)
+    fig, axs = plt.subplots()
+    cr.make_heatmap(axs, "residual", vlines=vlines, cmap='magma', rng=[-5,0])
+    fig.savefig(args.prefix+"/residual_{}.svg".format(args.fname.split('.')[0]), bbox_inches='tight')
     plt.close(fig)
 else:
-    #phases.signal._do_grad_tests(np.array([0.4]), 3, 1)
+    #phases.signal._do_grad_tests(np.array([0.4]), 3, 2)
     point_arr = args.point.split(",")
     clust = "cluster_"+point_arr[0]
     j = int(point_arr[1])
