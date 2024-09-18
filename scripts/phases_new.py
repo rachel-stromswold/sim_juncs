@@ -3,7 +3,7 @@ import argparse
 import h5py
 import scipy.optimize as opt
 from scipy.stats import linregress
-from scipy.special import hermite
+from scipy.special import hermite, lambertw
 #from scipy.fft import ifft, fft, fftfreq
 import scipy.fft as fft
 import scipy.signal as ssig
@@ -21,7 +21,7 @@ ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in th
 
 NOISY_N_PEAKS = 2
 
-verbose = 2
+verbose = 4
 
 '''
 To find starting Hermite-Gaussian coefficients, we use the orthoganality condition $\int H_n(a(x-x0))H_m(a(x-x0))e^{-a^2(x-x0)^2{ dx = \sqrt{pi} 2^n n! \delta_{nm}/a$. This lets us expand $|E(w)| = \sum_n k_n H_n(a(w-w0))e^{-a^2(w-w0)^2}$. However, we need terms of the form $|E(w)| = \sum_n c_{2n} H_n(a(w-w0))e^{-a^2(w-w0)^2}$ to ensure that the DC component vanishes. This function constructs a matrix, A, that takes $\bm{k} = A\bm{c}$. A will always be singular, so a small epsilon*w0 correction is added to the odd diagonals so that A^-1 exists at the cost of no longer making the coefficients exact. This is a small price since we plug the resulting c coefficients into gradient descent.
@@ -127,6 +127,33 @@ def hess_mul(hess, lin, n):
 def grad_out(g1, g2, n):
     return np.reshape(np.tile(g1, n), (n, n, g1.shape[1]))*np.transpose(np.reshape(np.tile(g2, n), (n, n, g2.shape[1])), axes=(1,0,2))
 
+'''
+Do simulated annealing using the callable log_like
+c_fn: a callable for the log likelihood that accepts a numpy array with shape (x_reg.shape[0])
+x0: a starting location for the sampling
+n_steps: the number of steps to take
+step_size: the size of step to take (a numpy array with the same shape as x0
+'''
+def anneal(c_fn, g_fn, x0, n_steps, step_size, end_beta=100):
+    c_old = c_fn(x0)
+    n_accepted = 0
+    step_size = np.abs(step_size)
+    for i in range(n_steps):
+        beta = end_beta*(i+1)/n_steps
+        x1 = x0 + np.random.normal(0,1)*step_size
+        x1 -= 0.1*g_fn(x1)*step_size
+        c_new = c_fn(x1)
+        u = np.log(np.random.random())
+        if u < beta*(c_old - c_new):
+            n_accepted += 1
+            if verbose > 4:
+                print("accepted move c = {} -> {}".format(c_old, c_new))
+            x0 = x1
+            c_old = c_new
+    if verbose > 2:
+        print("accept probability: ", n_accepted/n_steps)
+    return x0
+
 class signal:
     @staticmethod
     def _fourier_env_formx(fs, x, herm_n=3, ang_n=1, calc_grads=False):
@@ -223,7 +250,71 @@ class signal:
         print("\n====================================\n")
 
     @staticmethod
-    def _guess_params(freqs, vfm, vfa, herm_n, ang_n, check_noise=True):
+    def _guess_params(freqs, vfm, vfa, herm_n, ang_n, check_noise=True, rel_height=0.1):
+        df = freqs[1] - freqs[0]
+        ang_off = HERM_OFF + herm_n
+        x0 = np.zeros(ang_off+ang_n)
+        #estimate the central frequency and envelope width in frequency space
+        div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
+        pis, props = ssig.find_peaks(div_sig, height=rel_height*np.max(div_sig))
+        if len(pis) == 0:
+            raise ValueError("couldn't find any peaks")
+        if len(pis) == 1 or herm_n == 1:
+            x0[2] = freqs[pis[0]]
+            x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)/np.trapz(vfm[1:]/freqs[1:]) - x0[2]**2)
+            x0[HERM_OFF] = props['peak_heights'][0]
+        else:
+            '''order = np.argsort(props['peak_heights'])[-2:]
+            pis = pis[order]
+            x0[2] = 0.5*np.sum(freqs[pis])
+            x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)/np.trapz(div_sig) - x0[2]**2)
+            ratio = 10 - x0[3]**2*(freqs[pis[1]]-freqs[pis[1]])**2
+            x0[HERM_OFF+1] = div_sig[(pis[0]+pis[1])//2]/(ratio-2)
+            x0[HERM_OFF] = ratio*x0[HERM_OFF+1]'''
+            '''f0i = (pis[0]+pis[1])//2
+            ratio = 2*div_sig[f0i]/(div_sig[pis[0]] + div_sig[pis[1]])
+            print(ratio)
+            ratio = np.real( -8*lambertw(-ratio/np.exp(1), k=0) + 2 )
+            print(ratio)
+            x0[2] = freqs[f0i]
+            x0[3] = np.sqrt(10 - ratio)/np.abs(freqs[pis[1]]-x0[2])/2
+            x0[HERM_OFF+1] = div_sig[pis[1]]*np.exp( (x0[3]*(freqs[pis[1]]-x0[2]))**2/2 )/8
+            x0[HERM_OFF] = ratio*x0[HERM_OFF+1]'''
+            norm = 1/np.trapz(div_sig)
+            x0[2] = np.trapz(vfm)*norm
+            x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)*norm - x0[2]**2) 
+            x0[HERM_OFF] = np.max(div_sig)
+            def cost_fn(x):
+                emags, _ = signal._fourier_env_formx(freqs, x, herm_n=herm_n, ang_n=ang_n)
+                return np.sum( (div_sig - emags)**2 )
+                dd = x[0]*(freqs-x[1])
+                return np.sum( (div_sig - (x[2]*HERMS[0](dd) + x[3]*HERMS[2](dd))*np.exp(-dd**2/2))**2 )
+            cost_x = np.array([x0[3], x0[2], x0[HERM_OFF], x0[HERM_OFF+1]])
+            herm_opt_res = opt.minimize(cost_fn, x0)
+            '''print(cost_fn(herm_opt_res.x))
+            x0[2] = herm_opt_res.x[1]
+            x0[3] = herm_opt_res.x[0]
+            x0[HERM_OFF] = herm_opt_res.x[2]
+            x0[HERM_OFF+1] = herm_opt_res.x[3]'''
+            #x0 = herm_opt_res.x
+        lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
+
+        #TODO: delete
+        print(x0)
+        xx = herm_opt_res.x
+        emags, _ = signal._fourier_env_formx(freqs, x0, herm_n=herm_n, ang_n=ang_n)
+        plt.plot(freqs, div_sig)
+        plt.plot(freqs, emags)
+        plt.show()
+
+        #guess the phase and central time
+        res = linregress(freqs[lo_fi:hi_fi], fix_angle_seq(vfa[lo_fi:hi_fi]))
+        x0[0] = fix_angle(res.intercept)
+        x0[1] = -res.slope
+        return x0, lo_fi, hi_fi
+
+    @staticmethod
+    def _guess_params_old(freqs, vfm, vfa, herm_n, ang_n, check_noise=True):
         ang_off = HERM_OFF + herm_n
         x0 = np.zeros(ang_off+ang_n)
 
@@ -314,12 +405,6 @@ class signal:
             self.vfm = np.abs(vf0)
             self.vfa = np.angle(vf0)
             res_norm = np.log(np.sum(self.vfm**2))
-        #get guesses for initial parameters based on heuristics
-        if x0 is not None:
-            lo_fi, hi_fi = 0, 0
-        else:
-            x0, lo_fi, hi_fi = signal._guess_params(freqs, self.vfm, self.vfa, herm_n, ang_n)
-        self.fit_bounds = np.array([lo_fi, hi_fi])
         #construct the cost function and analytic gradients
         def residuals(x):
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
@@ -350,17 +435,29 @@ class signal:
             cc = np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
             gr = grad_res(x)
             return 2*np.sum(ret, axis=2)/cc - np.outer(gr,gr)
+
+        #get guesses for initial parameters based on heuristics
+        if x0 is not None:
+            lo_fi, hi_fi = 0, 0
+        else:
+            x0, lo_fi, hi_fi = signal._guess_params(freqs, self.vfm, self.vfa, herm_n, ang_n)
+            #x0 = anneal(residuals, grad_res, x0, 200, np.sqrt( np.abs(0.5*residuals(x0)/np.diag(hess_res(x0))) ), end_beta=100)
+            x0[2] = abs(x0[2])
+        self.fit_bounds = np.array([lo_fi, hi_fi])
         if verbose > 4:
             test_grads(residuals, grad_res, x0)
             test_hess(residuals, hess_res, x0)
+
         #finally we perform optimization if specified, otherwise just use the initial guess
         if skip_opt:
             xf = x0
         else:
             try:
-                opt_res = opt.minimize(residuals, x0, jac=grad_res, hess=hess_res, method='method')
+                opt_res = opt.minimize(residuals, x0, jac=grad_res, hess=hess_res, method=method)
                 if not opt_res.success:
                     opt_res = opt.minimize(residuals, x0, jac=grad_res)
+                '''ssize = np.sqrt( np.abs(0.5*residuals(x0)/np.diag(hess_res(x0))) )
+                opt_res = opt.basinhopping(residuals, x0, minimizer_kwargs={"method":method, "jac":grad_res, "hess":hess_res}, stepsize=ssize)'''
             except:
                 #use bfgs as a fallback if trust-exact crashes
                 opt_res = opt.minimize(residuals, x0, jac=grad_res)
