@@ -14,6 +14,8 @@ matplotlib.use('qtagg')
 from scipy.stats import linregress
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+np.random.seed(3141592)
+
 PLT_COLORS = [
     "#016876",
     "#cf4f4f",
@@ -98,7 +100,6 @@ def plot_raw_fdom(ts, vs, psig, axs, xlim=None, ylim=None, ylabels=True):
     axs[0].axvline(psig.f0-freq_center, color='gray')
     axs[0].axvline(-freq_center, color='gray')
     #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
-    #fit_field = psig.get_fenv(freqs-psig.f0)*np.exp( 1j*(psig.phi - 2*np.pi*psig.t0*freqs) )
     emags, eargs = psig.get_fspace(freqs)
     fit_field = emags*np.exp(1j*eargs)
     axs[1].plot(freqs, np.abs(vf), color='black')
@@ -181,7 +182,8 @@ class cluster_reader:
         self.n_t_pts = self.f['info']['n_time_points'][0]
         self.t_pts = np.linspace(t_min, t_max, self.n_t_pts)
         #figure out the central frequency
-        self.in_freq = self.f['info']['sources']['wavelen'][0] / .299792458
+        self.in_freq = .299792458 / self.f['info']['sources']['wavelen'][0]
+        self.freq_width = 0.5/np.pi/self.f['info']['sources']['width'][0]
         #try loading precomputed data
         data_name = "{}/dat_{}".format(prefix, fname.split('.')[0])
         data_shape = (len(self.clust_names), clust_len, phases.HERM_OFF+herm_n+ang_n)
@@ -234,22 +236,29 @@ class cluster_reader:
 
     def make_heatmap(self, ax, parameter, vlines=[], xlabels=[[],[]], ylabels=[[],[]], rng=[], cmap="viridis", plot_cbar=True):
         imdat = None
-        if parameter == 'phase':
-            imdat = self._raw_data[:,:,0]
+        if parameter == 'phase' or parameter == 't0' or parameter == 'amplitude':
+            #these parameteters are special sinc they can't be directly read from the raw data but only accessed by a signal object
+            imdat = np.zeros((self._raw_data.shape[0], self._raw_data.shape[1]))
+            for i in range(self._raw_data.shape[0]):
+                for j in range(self._raw_data.shape[1]):
+                    sig = phases.signal(None, None, herm_n=self.herm_n, ang_n=self.ang_n, skip_opt=True, x0=self._raw_data[i,j,:])
+                    if parameter == 'amplitude':
+                        imdat[i,j] = np.max(np.abs(sig.get_tenv(self.t_pts)))
+                    else:
+                        t0, phi = sig.get_eff_t0_phi(self.t_pts)
+                        if parameter == 't0':
+                            imdat[i,j] = t0
+                        else:
+                            imdat[i,j] = phi
         elif parameter == 'residual':
             imdat = self.residuals
         elif parameter == 't0':
+            sig = phases.signal(None, None, herm_n=self.herm_n, ang_n=self.ang_n, skip_opt=True, x0=self._raw_data[i,j,:])
             imdat = self._raw_data[:,:,1]/2/np.pi
         elif parameter == 'f0':
             imdat = self._raw_data[:,:,2]
         elif parameter == 'sigma':
             imdat = 1/self._raw_data[:,:,2]
-        elif parameter == 'amplitude':
-            imdat = np.zeros((self._raw_data.shape[0], self._raw_data.shape[1]))
-            for i in range(self._raw_data.shape[0]):
-                for j in range(self._raw_data.shape[1]):
-                    sig = phases.signal(None, None, herm_n=self.herm_n, ang_n=self.ang_n, skip_opt=True, x0=self._raw_data[i,j,:])
-                    imdat[i,j] = np.max(np.abs(sig.get_tenv(self.t_pts)))
         elif parameter[:17] == 'Hermite amplitude':
             ind = int( parameter[17:] )
             if ind % 2 == 1:
@@ -350,9 +359,9 @@ else:
     v_pts, _ = cr.get_point_times(clust, j)
     psig_before, psig_after = plot_before_after_phase(cr.t_pts, v_pts, "{}_param_est.svg".format(fig_name))
     #plot frequency space
-    fig,axs = plt.subplots(2,2)
-    plot_raw_fdom(cr.t_pts, v_pts, psig_before, axs[:,0], xlim=[0,1])
+    fig,axs = plt.subplots(2,2) 
+    plot_raw_fdom(cr.t_pts, v_pts, psig_before, axs[:,0], xlim=[0,1]) 
     plot_raw_fdom(cr.t_pts, v_pts, psig_after, axs[:,1], xlim=[0,1], ylabels=False)
     fig.savefig("{}_raw_fdom.svg".format(fig_name), bbox_inches='tight')
-    #plot time space
+    #plot time space 
     plot_raw_tdom(cr.t_pts, v_pts, psig_before, psig_after, "{}_raw_tdom.svg".format(fig_name))

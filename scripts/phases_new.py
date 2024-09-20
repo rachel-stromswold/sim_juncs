@@ -16,10 +16,10 @@ HERMS = [hermite(n) for n in range(2*HERM_N+2)]
 HERM_SCALE = np.sqrt(2)
 HERM_SCALE=1
 HERM_OFF = 4
-POLY_FIT_DEVS = 8 #the number of gaussian standard deviations to take when fitting the angles
+POLY_FIT_DEVS = 2 #the number of gaussian standard deviations to take when fitting the angles
 ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in the polynomial for the angle. i.e. arg(a(w)) = \phi - \omega t_0 + \sum_{n=1}^{ANG_POLY_N} \omega^{2n+1} t_n
 
-NOISY_N_PEAKS = 2
+NOISY_N_PEAKS = 4
 
 verbose = 4
 
@@ -157,12 +157,12 @@ def anneal(c_fn, g_fn, x0, n_steps, step_size, end_beta=100):
 class signal:
     @staticmethod
     def _fourier_env_formx(fs, x, herm_n=3, ang_n=1, calc_grads=False):
-        dd = fs - abs(x[2])
+        dm,dp = fs - abs(x[2]), fs + abs(x[2])
         n = x.shape[0]
         eargs = x[0] - fs*x[1]
         ang_off = HERM_OFF+herm_n
         for m in range(ang_n):
-            eargs += x[ang_off+m]*dd**(2*m+3)
+            eargs += x[ang_off+m]*dm**(2*m+3)
         #eargs *= 2*np.pi
         emags = np.zeros(fs.shape[0])
         mag_grads = None
@@ -176,41 +176,41 @@ class signal:
             ang_grads[1,:] = -fs
             ang_hess = np.zeros((n, n, fs.shape[0]))
             for m in range(ang_n):
-                ang_grads[ang_off+m,:] = dd**(2*m+3)
-                ang_grads[2,:] -= np.sign(x[2])*(2*m+3)*x[m+ang_off]*dd**(2*m+2)
-                ang_hess[ang_off+m,2,:] = -np.sign(x[2])*(2*m+3)*dd**(2*m+2)
-                ang_hess[2,ang_off+m,:] = -np.sign(x[2])*(2*m+3)*dd**(2*m+2)
-                ang_hess[2,2,:] += (2*m+3)*(2*m+2)*x[m+ang_off]*dd**(2*m+1)
-                #ang_grads[3,:] += (2*m+3)*x[m+ang_off]*(fs-abs(x[2]))*dd**(2*m+2)
+                ang_grads[ang_off+m,:] = dm**(2*m+3)
+                ang_grads[2,:] -= np.sign(x[2])*(2*m+3)*x[m+ang_off]*dm**(2*m+2)
+                ang_hess[ang_off+m,2,:] = -np.sign(x[2])*(2*m+3)*dm**(2*m+2)
+                ang_hess[2,ang_off+m,:] = ang_hess[ang_off+m,2,:]
+                ang_hess[2,2,:] += (2*m+3)*(2*m+2)*x[m+ang_off]*dm**(2*m+1)
+                #ang_grads[3,:] += (2*m+3)*x[m+ang_off]*(fs-abs(x[2]))*dm**(2*m+2)
             #calculate magnitude gradients
-            dd *= x[3]
+            dm *= x[3]
             mag_grads = np.zeros((n, fs.shape[0]))
             mag_hess = np.zeros((n, n, fs.shape[0]))
             for m in range(herm_n):
-                emags += x[HERM_OFF+m]*HERMS[2*m](dd)
+                emags += x[HERM_OFF+m]*HERMS[2*m](dm)
                 #gradients
-                demag = fs*(dd*HERMS[2*m](dd) - HERMS[2*m+1](dd))*np.exp(-dd**2/2)
-                de2mag = fs*( (1+dd**2)*HERMS[2*m](dd) - 2*dd*HERMS[2*m+1](dd) + HERMS[2*m+2](dd))*np.exp(-dd**2/2)
+                demag = fs*(dm*HERMS[2*m](dm) - HERMS[2*m+1](dm))*np.exp(-dm**2/2)
+                de2mag = fs*( (1+dm**2)*HERMS[2*m](dm) - 2*dm*HERMS[2*m+1](dm) + HERMS[2*m+2](dm))*np.exp(-dm**2/2)
                 mag_grads[2,:] -= np.sign(x[2])*x[3]*x[HERM_OFF+m]*demag
                 mag_grads[3,:] += (fs-abs(x[2]))*x[HERM_OFF+m]*demag
-                mag_grads[HERM_OFF+m,:] = fs*HERMS[2*m](dd)*np.exp(-dd**2/2)
+                mag_grads[HERM_OFF+m,:] = fs*HERMS[2*m](dm)*np.exp(-dm**2/2)
                 #hessian
                 mag_hess[2,2,:] += x[3]**2*x[HERM_OFF+m]*de2mag
                 mag_hess[3,3,:] += (fs-abs(x[2]))**2*x[HERM_OFF+m]*de2mag
-                mag_hess[2,3,:] -= np.sign(x[2])*(x[HERM_OFF+m]*demag + dd*x[HERM_OFF+m]*de2mag)
+                mag_hess[2,3,:] -= np.sign(x[2])*(x[HERM_OFF+m]*demag + dm*x[HERM_OFF+m]*de2mag)
                 mag_hess[3,2,:] = mag_hess[2,3,:]
                 mag_hess[HERM_OFF+m,HERM_OFF+m,:] = 0
                 mag_hess[HERM_OFF+m,2,:] = -np.sign(x[2])*x[3]*demag
                 mag_hess[HERM_OFF+m,3,:] += (fs-abs(x[2]))*demag
                 mag_hess[2,HERM_OFF+m,:] = mag_hess[HERM_OFF+m,2,:]
                 mag_hess[3,HERM_OFF+m,:] = mag_hess[HERM_OFF+m,3,:]
-            emags *= np.exp(-dd**2/2)
+            emags *= np.exp(-dm**2/2)
             return emags, eargs, mag_grads, ang_grads, mag_hess, ang_hess
         else:
-            dd *= x[3]
+            dm *= x[3]
             for m in range(herm_n):
-                emags += x[HERM_OFF+m]*HERMS[2*m](dd)
-            emags *= np.exp(-dd**2/2)
+                emags += x[HERM_OFF+m]*HERMS[2*m](dm)
+            emags *= np.exp(-dm**2/2)
         return emags, eargs
 
 
@@ -250,67 +250,39 @@ class signal:
         print("\n====================================\n")
 
     @staticmethod
-    def _guess_params(freqs, vfm, vfa, herm_n, ang_n, check_noise=True, rel_height=0.1):
+    def _guess_params(freqs, vfm, vfa, herm_n, ang_n, check_noise=True, rel_height=0.1, f0_hint=-1):
         df = freqs[1] - freqs[0]
         ang_off = HERM_OFF + herm_n
         x0 = np.zeros(ang_off+ang_n)
         #estimate the central frequency and envelope width in frequency space
         div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
-        pis, props = ssig.find_peaks(div_sig, height=rel_height*np.max(div_sig))
-        if len(pis) == 0:
-            raise ValueError("couldn't find any peaks")
-        if len(pis) == 1 or herm_n == 1:
-            x0[2] = freqs[pis[0]]
-            x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)/np.trapz(vfm[1:]/freqs[1:]) - x0[2]**2)
-            x0[HERM_OFF] = props['peak_heights'][0]
-        else:
-            '''order = np.argsort(props['peak_heights'])[-2:]
-            pis = pis[order]
-            x0[2] = 0.5*np.sum(freqs[pis])
-            x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)/np.trapz(div_sig) - x0[2]**2)
-            ratio = 10 - x0[3]**2*(freqs[pis[1]]-freqs[pis[1]])**2
-            x0[HERM_OFF+1] = div_sig[(pis[0]+pis[1])//2]/(ratio-2)
-            x0[HERM_OFF] = ratio*x0[HERM_OFF+1]'''
-            '''f0i = (pis[0]+pis[1])//2
-            ratio = 2*div_sig[f0i]/(div_sig[pis[0]] + div_sig[pis[1]])
-            print(ratio)
-            ratio = np.real( -8*lambertw(-ratio/np.exp(1), k=0) + 2 )
-            print(ratio)
-            x0[2] = freqs[f0i]
-            x0[3] = np.sqrt(10 - ratio)/np.abs(freqs[pis[1]]-x0[2])/2
-            x0[HERM_OFF+1] = div_sig[pis[1]]*np.exp( (x0[3]*(freqs[pis[1]]-x0[2]))**2/2 )/8
-            x0[HERM_OFF] = ratio*x0[HERM_OFF+1]'''
-            norm = 1/np.trapz(div_sig)
-            x0[2] = np.trapz(vfm)*norm
-            x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)*norm - x0[2]**2) 
-            x0[HERM_OFF] = np.max(div_sig)
-            def cost_fn(x):
-                emags, _ = signal._fourier_env_formx(freqs, x, herm_n=herm_n, ang_n=ang_n)
-                return np.sum( (div_sig - emags)**2 )
-                dd = x[0]*(freqs-x[1])
-                return np.sum( (div_sig - (x[2]*HERMS[0](dd) + x[3]*HERMS[2](dd))*np.exp(-dd**2/2))**2 )
-            cost_x = np.array([x0[3], x0[2], x0[HERM_OFF], x0[HERM_OFF+1]])
-            herm_opt_res = opt.minimize(cost_fn, x0)
-            '''print(cost_fn(herm_opt_res.x))
-            x0[2] = herm_opt_res.x[1]
-            x0[3] = herm_opt_res.x[0]
-            x0[HERM_OFF] = herm_opt_res.x[2]
-            x0[HERM_OFF+1] = herm_opt_res.x[3]'''
-            #x0 = herm_opt_res.x
+        norm = 1/np.trapz(div_sig)
+        x0[2] = np.trapz(div_sig*freqs)*norm
+        x0[3] = 1/np.sqrt(np.trapz(div_sig*freqs**2)*norm - x0[2]**2) 
+        x0[HERM_OFF] = np.max(div_sig)
         lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
-
-        #TODO: delete
-        print(x0)
-        xx = herm_opt_res.x
-        emags, _ = signal._fourier_env_formx(freqs, x0, herm_n=herm_n, ang_n=ang_n)
-        plt.plot(freqs, div_sig)
-        plt.plot(freqs, emags)
-        plt.show()
+        peaks, props = ssig.find_peaks(div_sig, height=np.max(div_sig)*rel_height)
+        if check_noise and len(peaks) > NOISY_N_PEAKS:
+            if f0_hint <= 0:
+                f0_hint = freqs[peaks[0]]
+            if verbose > 2:
+                print("noisy signal detected applying bandpass filter around f={}, w={}".format(f0_hint, x0[3]))
+            vf = vfm*np.exp(1j*vfa)*np.sinc(x0[3]*(freqs-f0_hint))
+            return signal._guess_params(freqs, np.abs(vf), np.angle(vf), herm_n, ang_n, check_noise=False)
+        '''elif len(peaks) > 1:
+            #sort peaks in descending order of height
+            x0[2] = np.sum(freqs[peaks]*props["peak_heights"])/np.sum(props["peak_heights"])
+            dd = x0[3]*(freqs-x0[2])
+            herm_den = np.sqrt(np.pi)
+            for m in range(herm_n):
+                x0[HERM_OFF+m] = np.trapezoid(div_sig*HERMS[2*m](dd)*np.exp(-dd**2/2), dx=df*x0[3])/herm_den
+                herm_den *= 4*(m+1)*(m+2)'''
 
         #guess the phase and central time
         res = linregress(freqs[lo_fi:hi_fi], fix_angle_seq(vfa[lo_fi:hi_fi]))
         x0[0] = fix_angle(res.intercept)
         x0[1] = -res.slope
+
         return x0, lo_fi, hi_fi
 
     @staticmethod
@@ -408,19 +380,13 @@ class signal:
         #construct the cost function and analytic gradients
         def residuals(x):
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
-            emags, eargs = signal._fourier_env_formx(freqs, x, herm_n=self.herm_n, ang_n=self.ang_n)
-            emags *= freqs
-            #return np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
-            return np.log( np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa)) ) - res_norm
-        def grad_res(x):
-            #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
-            ret = np.zeros(x.shape)
+            grad = np.zeros(x.shape)
             emags, eargs, grad_mag, grad_ang, _, _ = signal._fourier_env_formx(freqs, x, herm_n=self.herm_n, ang_n=self.ang_n, calc_grads=True)
             emags *= freqs
             mag_as = np.reshape(np.tile(emags*self.vfm*np.sin(eargs-self.vfa), x.shape[0]), (x.shape[0], emags.shape[0]))
             mag_gs = np.reshape(np.tile(emags-self.vfm*np.cos(eargs-self.vfa), x.shape[0]), (x.shape[0], emags.shape[0]))
             cc = np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
-            return 2*np.sum(  mag_as*grad_ang + mag_gs*grad_mag, axis=1)/cc
+            return np.log(cc)-res_norm, 2*np.sum(mag_as*grad_ang + mag_gs*grad_mag, axis=1)/cc
         def hess_res(x):
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
             n = x.shape[0]
@@ -453,14 +419,14 @@ class signal:
             xf = x0
         else:
             try:
-                opt_res = opt.minimize(residuals, x0, jac=grad_res, hess=hess_res, method=method)
+                opt_res = opt.minimize(residuals, x0, jac=True, hess=hess_res, method=method)
                 if not opt_res.success:
-                    opt_res = opt.minimize(residuals, x0, jac=grad_res)
+                    opt_res = opt.minimize(residuals, x0, jac=True)
                 '''ssize = np.sqrt( np.abs(0.5*residuals(x0)/np.diag(hess_res(x0))) )
                 opt_res = opt.basinhopping(residuals, x0, minimizer_kwargs={"method":method, "jac":grad_res, "hess":hess_res}, stepsize=ssize)'''
             except:
                 #use bfgs as a fallback if trust-exact crashes
-                opt_res = opt.minimize(residuals, x0, jac=grad_res)
+                opt_res = opt.minimize(residuals, x0, jac=True)
             xf = opt_res.x
             xf[2] = abs(xf[2])
             if verbose > 1:
@@ -482,7 +448,7 @@ class signal:
         self.poly_coeffs = xf[HERM_OFF+self.herm_n:HERM_OFF+self.herm_n+self.ang_n]
         self.x = xf
         if t_pts is not None and v_pts is not None:
-            self.cost = residuals(xf)
+            self.cost = residuals(xf)[0]
 
     def get_fspace(self, freqs):
         x = np.array([self.phi, 2*np.pi*self.t0, self.f0, 1/self.sigma])
@@ -520,3 +486,11 @@ class signal:
         freqs = fft.fftfreq(len(ts), d=dt)
         fenv = self.get_fenv(freqs, field=field)*np.exp(-2j*np.pi*self.t0*freqs)
         return fft.ifft(fenv)
+
+    '''
+    Extract the effective phase and central time by redefining t0 to be the average of the time envelope
+    '''
+    def get_eff_t0_phi(self, ts):
+        t0 = np.trapz(self.get_tenv(ts)*ts)/np.trapz(self.get_tenv(ts))
+        phi = 2*np.pi*self.f0*(t0 - self.t0) + self.phi
+        return t0, phi
