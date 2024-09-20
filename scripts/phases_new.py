@@ -1,6 +1,5 @@
+from functools import partial
 import numpy as np
-import argparse
-import h5py
 import scipy.optimize as opt
 from scipy.stats import linregress
 from scipy.special import hermite, lambertw
@@ -21,7 +20,7 @@ ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in th
 
 NOISY_N_PEAKS = 4
 
-verbose = 4
+verbose = 5
 
 '''
 To find starting Hermite-Gaussian coefficients, we use the orthoganality condition $\int H_n(a(x-x0))H_m(a(x-x0))e^{-a^2(x-x0)^2{ dx = \sqrt{pi} 2^n n! \delta_{nm}/a$. This lets us expand $|E(w)| = \sum_n k_n H_n(a(w-w0))e^{-a^2(w-w0)^2}$. However, we need terms of the form $|E(w)| = \sum_n c_{2n} H_n(a(w-w0))e^{-a^2(w-w0)^2}$ to ensure that the DC component vanishes. This function constructs a matrix, A, that takes $\bm{k} = A\bm{c}$. A will always be singular, so a small epsilon*w0 correction is added to the odd diagonals so that A^-1 exists at the cost of no longer making the coefficients exact. This is a small price since we plug the resulting c coefficients into gradient descent.
@@ -84,7 +83,8 @@ Given a cost function cost_fn and an analytic gradient grad_fn, check that the a
 '''
 def test_grads(cost_fn, grad_fn, x):
     if verbose < 1:
-        return
+        return None
+    success = True
     an_g = grad_fn(x)
     num_g = np.zeros(x.shape)
     for i in range(x.shape[0]):
@@ -93,17 +93,20 @@ def test_grads(cost_fn, grad_fn, x):
         num_g[i] = ( cost_fn(x + ei) - cost_fn(x - ei) )/ei[i]/2
         if num_g[i] and np.abs( (num_g[i]-an_g[i])/num_g[i] ) > 0.01:
             print("Warning! disagreement between gradients on axis", i, num_g[i], an_g[i])
+            success = False
     if (verbose > 4): 
         print("gradients at x0:")
         print("\tnumeric:\t", num_g)
         print("\tanalytic:\t", an_g)
+    return success
 
 '''
 Given a cost function cost_fn and an analytic gradient grad_fn, check that the analytic and numeric hessians approximately match
 '''
 def test_hess(cost_fn, hess_fn, x):
     if verbose < 1:
-        return
+        return None
+    success = True
     n = x.shape[0]
     an_h = hess_fn(x)
     num_h = np.zeros((n, n))
@@ -117,10 +120,12 @@ def test_hess(cost_fn, hess_fn, x):
             num_h[j,i] = num_h[i,j]
             if num_h[i,j]**2 > 1e-8 and np.abs( (num_h[i,j]-an_h[i,j])/num_h[i,j] ) > 0.01:
                 print("Warning! disagreement between hessians on axes", i, j, num_h[i,j], an_h[i,j])
+                success = False
     if (verbose > 4): 
         print("hessians at x0:")
         print("\tnumeric:\t", num_h)
         print("\tanalytic:\t", an_h)
+    return success
 
 def hess_mul(hess, lin, n):
     return hess*np.reshape(np.tile(lin, n**2), (n, n, lin.shape[0]))
@@ -156,61 +161,63 @@ def anneal(c_fn, g_fn, x0, n_steps, step_size, end_beta=100):
 
 class signal:
     @staticmethod
-    def _fourier_env_formx(fs, x, herm_n=3, ang_n=1, calc_grads=False):
-        dm,dp = fs - abs(x[2]), fs + abs(x[2])
+    def _fourier_env_formx(freqs, x, herm_n=3, ang_n=1, calc_grads=False):
+        nf = freqs.shape[0]
+        fs = np.tile(freqs, 2).reshape((2,nf))
+        sign_dw = np.ones((2,nf))
+        sign_dw[0,:] *= -1
+        dw = fs[:,:] + sign_dw*abs(x[2])
+        #calculate arguments
         n = x.shape[0]
         eargs = x[0] - fs*x[1]
+        eargs[1,:] -= 2*x[0]
         ang_off = HERM_OFF+herm_n
         for m in range(ang_n):
-            eargs += x[ang_off+m]*dm**(2*m+3)
+            eargs += x[ang_off+m]*dw**(2*m+3)
         #eargs *= 2*np.pi
-        emags = np.zeros(fs.shape[0])
-        mag_grads = None
-        ang_grads = None
-        mag_hess = None
-        ang_hess = None
+        emags = np.zeros(fs.shape)
         if calc_grads:
             #calculate angle gradients
-            ang_grads = np.zeros((n, fs.shape[0]))
-            ang_grads[0,:] = 1 
-            ang_grads[1,:] = -fs
-            ang_hess = np.zeros((n, n, fs.shape[0]))
+            ang_grads = np.zeros((2, n, freqs.shape[0]))
+            ang_grads[0,0,:] = 1
+            ang_grads[1,0,:] = -1
+            ang_grads[:,1,:] = -fs
+            ang_hess = np.zeros((2, n, n, nf))
             for m in range(ang_n):
-                ang_grads[ang_off+m,:] = dm**(2*m+3)
-                ang_grads[2,:] -= np.sign(x[2])*(2*m+3)*x[m+ang_off]*dm**(2*m+2)
-                ang_hess[ang_off+m,2,:] = -np.sign(x[2])*(2*m+3)*dm**(2*m+2)
-                ang_hess[2,ang_off+m,:] = ang_hess[ang_off+m,2,:]
-                ang_hess[2,2,:] += (2*m+3)*(2*m+2)*x[m+ang_off]*dm**(2*m+1)
-                #ang_grads[3,:] += (2*m+3)*x[m+ang_off]*(fs-abs(x[2]))*dm**(2*m+2)
+                ang_grads[:,ang_off+m,:] = dw**(2*m+3)
+                ang_grads[:,2,:] += sign_dw*np.sign(x[2])*(2*m+3)*x[m+ang_off]*dw**(2*m+2)
+                ang_hess[:,ang_off+m,2,:] = sign_dw*np.sign(x[2])*(2*m+3)*dw**(2*m+2)
+                ang_hess[:,2,ang_off+m,:] = ang_hess[:,ang_off+m,2,:]
+                ang_hess[:,2,2,:] += (2*m+3)*(2*m+2)*x[m+ang_off]*dw**(2*m+1)
+                #ang_grads[3,:] += (2*m+3)*x[m+ang_off]*(fs-abs(x[2]))*dw**(2*m+2)
             #calculate magnitude gradients
-            dm *= x[3]
-            mag_grads = np.zeros((n, fs.shape[0]))
-            mag_hess = np.zeros((n, n, fs.shape[0]))
+            dw *= x[3]
+            mag_grads = np.zeros((2, n, nf))
+            mag_hess = np.zeros((2, n, n, nf))
             for m in range(herm_n):
-                emags += x[HERM_OFF+m]*HERMS[2*m](dm)
+                emags += x[HERM_OFF+m]*HERMS[2*m](dw)
                 #gradients
-                demag = fs*(dm*HERMS[2*m](dm) - HERMS[2*m+1](dm))*np.exp(-dm**2/2)
-                de2mag = fs*( (1+dm**2)*HERMS[2*m](dm) - 2*dm*HERMS[2*m+1](dm) + HERMS[2*m+2](dm))*np.exp(-dm**2/2)
-                mag_grads[2,:] -= np.sign(x[2])*x[3]*x[HERM_OFF+m]*demag
-                mag_grads[3,:] += (fs-abs(x[2]))*x[HERM_OFF+m]*demag
-                mag_grads[HERM_OFF+m,:] = fs*HERMS[2*m](dm)*np.exp(-dm**2/2)
+                demag = fs*(dw*HERMS[2*m](dw) - HERMS[2*m+1](dw))*np.exp(-dw**2/2)
+                de2mag = fs*( (1+dw**2)*HERMS[2*m](dw) - 2*dw*HERMS[2*m+1](dw) + HERMS[2*m+2](dw))*np.exp(-dw**2/2)
+                mag_grads[:,2,:] += sign_dw*np.sign(x[2])*x[3]*x[HERM_OFF+m]*demag
+                mag_grads[:,3,:] += dw*x[HERM_OFF+m]*demag/x[3]
+                mag_grads[:,HERM_OFF+m,:] = fs*HERMS[2*m](dw)*np.exp(-dw**2/2)
                 #hessian
-                mag_hess[2,2,:] += x[3]**2*x[HERM_OFF+m]*de2mag
-                mag_hess[3,3,:] += (fs-abs(x[2]))**2*x[HERM_OFF+m]*de2mag
-                mag_hess[2,3,:] -= np.sign(x[2])*(x[HERM_OFF+m]*demag + dm*x[HERM_OFF+m]*de2mag)
-                mag_hess[3,2,:] = mag_hess[2,3,:]
-                mag_hess[HERM_OFF+m,HERM_OFF+m,:] = 0
-                mag_hess[HERM_OFF+m,2,:] = -np.sign(x[2])*x[3]*demag
-                mag_hess[HERM_OFF+m,3,:] += (fs-abs(x[2]))*demag
-                mag_hess[2,HERM_OFF+m,:] = mag_hess[HERM_OFF+m,2,:]
-                mag_hess[3,HERM_OFF+m,:] = mag_hess[HERM_OFF+m,3,:]
-            emags *= np.exp(-dm**2/2)
+                mag_hess[:,2,2,:] += x[3]**2*x[HERM_OFF+m]*de2mag
+                mag_hess[:,3,3,:] += dw**2*x[HERM_OFF+m]*de2mag/x[3]**2
+                mag_hess[:,2,3,:] += sign_dw*np.sign(x[2])*(x[HERM_OFF+m]*demag + dw*x[HERM_OFF+m]*de2mag)
+                mag_hess[:,3,2,:] = mag_hess[:,2,3,:]
+                mag_hess[:,HERM_OFF+m,2,:] = sign_dw*np.sign(x[2])*x[3]*demag
+                mag_hess[:,2,HERM_OFF+m,:] = mag_hess[:,HERM_OFF+m,2,:]
+                mag_hess[:,HERM_OFF+m,3,:] += dw*demag/x[3]
+                mag_hess[:,3,HERM_OFF+m,:] = mag_hess[:,HERM_OFF+m,3,:]
+            emags *= np.exp(-dw**2/2)
             return emags, eargs, mag_grads, ang_grads, mag_hess, ang_hess
         else:
-            dm *= x[3]
+            dw *= x[3]
             for m in range(herm_n):
-                emags += x[HERM_OFF+m]*HERMS[2*m](dm)
-            emags *= np.exp(-dm**2/2)
+                emags += x[HERM_OFF+m]*HERMS[2*m](dw)
+            emags *= np.exp(-dw**2/2)
         return emags, eargs
 
 
@@ -218,35 +225,47 @@ class signal:
     def _do_grad_tests(fs, herm_n, ang_n, n_tests=10):
         print("\n====================================\n")
         ang_off = HERM_OFF+herm_n
-        def wrap_eargs(x):
+        def wrap_eargs(x, dim=0):
             _, eargs = signal._fourier_env_formx(fs, x)
-            return np.sum(eargs)
-        def grad_wrap_eargs(x):
+            return np.sum(eargs[dim,:])
+        def grad_wrap_eargs(x, dim=0):
             _, _, _, ang_grad, _, _ = signal._fourier_env_formx(fs, x, calc_grads=True)
-            return np.sum(ang_grad, axis=1)
-        def hess_wrap_eargs(x):
+            return np.sum(ang_grad[dim,:,:], axis=1)
+        def hess_wrap_eargs(x, dim=0):
             _, _, _, _, _, ang_hess = signal._fourier_env_formx(fs, x, calc_grads=True)
-            return np.sum(ang_hess, axis=2)
+            return np.sum(ang_hess[dim,:,:,:], axis=2)
         for i in range(n_tests):
             x0 = np.random.random(ang_off+ang_n)*2 - 1
             print("testing argument gradients at ", x0, "(fs =", fs, ")")
-            test_grads(wrap_eargs, grad_wrap_eargs, x0)
-            test_hess(wrap_eargs, hess_wrap_eargs, x0)
+            success = test_grads(wrap_eargs, grad_wrap_eargs, x0)
+            success *= test_hess(wrap_eargs, hess_wrap_eargs, x0)
+            success *= test_grads(partial(wrap_eargs,dim=1), partial(grad_wrap_eargs,dim=1), x0)
+            success *= test_hess(partial(wrap_eargs,dim=1), partial(hess_wrap_eargs,dim=1), x0)
+            if success:
+                print("\033[92mSuccess!\033[0m")
+            else:
+                print("\033[31mFailure!\033[0m")
         print("\n====================================\n")
-        def wrap_emags(x):
+        def wrap_emags(x, dim=0):
             emags, _ = signal._fourier_env_formx(fs, x)
-            return np.sum(fs*emags)
-        def grad_wrap_emags(x):
+            return np.sum(fs*emags[dim,:])
+        def grad_wrap_emags(x, dim=0):
             _, _, mag_grad, _, _, _ = signal._fourier_env_formx(fs, x, calc_grads=True)
-            return np.sum(mag_grad, axis=1)
-        def hess_wrap_emags(x):
+            return np.sum(mag_grad[dim,:,:], axis=1)
+        def hess_wrap_emags(x, dim=0):
             _, _, _, _, mag_hess, _ = signal._fourier_env_formx(fs, x, calc_grads=True)
-            return np.sum(mag_hess, axis=2)
+            return np.sum(mag_hess[dim,:,:,:], axis=2)
         for i in range(n_tests):
             x0 = np.random.random(ang_off+ang_n)*2 - 1
             print("testing magnitude gradients at ", x0, "(fs =", fs, ")")
-            test_grads(wrap_emags, grad_wrap_emags, x0)
-            test_hess(wrap_emags, hess_wrap_emags, x0)
+            success = test_grads(wrap_emags, grad_wrap_emags, x0)
+            success *= test_hess(wrap_emags, hess_wrap_emags, x0)
+            success *= test_grads(partial(wrap_emags,dim=1), partial(grad_wrap_emags,dim=1), x0)
+            success *= test_hess(partial(wrap_emags,dim=1), partial(hess_wrap_emags,dim=1), x0)
+            if success:
+                print("\033[92mSuccess!\033[0m")
+            else:
+                print("\033[31mFailure!\033[0m")
         print("\n====================================\n")
 
     @staticmethod
@@ -382,7 +401,10 @@ class signal:
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
             grad = np.zeros(x.shape)
             emags, eargs, grad_mag, grad_ang, _, _ = signal._fourier_env_formx(freqs, x, herm_n=self.herm_n, ang_n=self.ang_n, calc_grads=True)
-            emags *= freqs
+            emags = freqs*emags[0,:]
+            eargs = eargs[0,:]
+            grad_mag = grad_mag[0,:,:]
+            grad_ang = grad_ang[0,:,:]
             mag_as = np.reshape(np.tile(emags*self.vfm*np.sin(eargs-self.vfa), x.shape[0]), (x.shape[0], emags.shape[0]))
             mag_gs = np.reshape(np.tile(emags-self.vfm*np.cos(eargs-self.vfa), x.shape[0]), (x.shape[0], emags.shape[0]))
             cc = np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
@@ -392,14 +414,19 @@ class signal:
             n = x.shape[0]
             #ret = np.zeros((n,n))
             emags, eargs, grad_mag, grad_ang, hess_mag, hess_ang = signal._fourier_env_formx(freqs, x, herm_n=self.herm_n, ang_n=self.ang_n, calc_grads=True)
-            emags *= freqs
+            emags = freqs*emags[0,:]
+            eargs = eargs[0,:]
+            grad_mag = grad_mag[0,:,:]
+            grad_ang = grad_ang[0,:,:]
+            hess_mag = hess_mag[0,:,:,:]
+            hess_ang = hess_ang[0,:,:,:]
             phase_prod = np.reshape(np.tile(self.vfm*np.exp(1j*(eargs-self.vfa)), n**2), (n,n,emags.shape[0]))
             ret = hess_mul(hess_mag, emags, n) + grad_out(grad_mag, grad_mag, n)
             ret += np.imag(phase_prod)*(grad_out(grad_mag,grad_ang,n)+grad_out(grad_ang,grad_mag,n)+hess_mul(hess_ang,emags,n))
             ret += np.real(phase_prod)*(hess_mul(grad_out(grad_ang,grad_ang,n),emags,n)-hess_mag)
             #return 2*np.sum(ret, axis=2)
             cc = np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
-            gr = grad_res(x)
+            gr = residuals(x)[1]
             return 2*np.sum(ret, axis=2)/cc - np.outer(gr,gr)
 
         #get guesses for initial parameters based on heuristics
@@ -411,8 +438,12 @@ class signal:
             x0[2] = abs(x0[2])
         self.fit_bounds = np.array([lo_fi, hi_fi])
         if verbose > 4:
-            test_grads(residuals, grad_res, x0)
-            test_hess(residuals, hess_res, x0)
+            success = test_grads(lambda x: residuals(x)[0], lambda x: residuals(x)[1], x0)
+            success *= test_hess(lambda x: residuals(x)[0], hess_res, x0)
+            if success:
+                print("\033[92mSuccess!\033[0m")
+            else:
+                print("\033[31mFailure!\033[0m")
 
         #finally we perform optimization if specified, otherwise just use the initial guess
         if skip_opt:
@@ -451,11 +482,12 @@ class signal:
             self.cost = residuals(xf)[0]
 
     def get_fspace(self, freqs):
+        #TODO: include negative frequency terms
         x = np.array([self.phi, 2*np.pi*self.t0, self.f0, 1/self.sigma])
         x = np.append(x, self.herm_coeffs)
         x = np.append(x, self.poly_coeffs)
         emags, eargs = signal._fourier_env_formx(freqs, x)
-        return freqs*emags, eargs
+        return freqs*emags[0,:], eargs[0,:]
     
     def __call__(self, ts):
         freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
@@ -472,6 +504,8 @@ class signal:
         x = np.append(x, self.herm_coeffs)
         x = np.append(x, self.poly_coeffs)
         emags, eargs = signal._fourier_env_formx(freqs, x)
+        emags = emags[0,:]
+        eargs = eargs[0,:]
         if field == 'E':
             return 2*(freqs+self.f0)*emags*np.exp(1j*eargs)
         return 2*emags*np.exp(1j*eargs)
