@@ -20,7 +20,7 @@ ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in th
 
 NOISY_N_PEAKS = 4
 
-verbose = 5
+verbose = 4
 
 '''
 To find starting Hermite-Gaussian coefficients, we use the orthoganality condition $\int H_n(a(x-x0))H_m(a(x-x0))e^{-a^2(x-x0)^2{ dx = \sqrt{pi} 2^n n! \delta_{nm}/a$. This lets us expand $|E(w)| = \sum_n k_n H_n(a(w-w0))e^{-a^2(w-w0)^2}$. However, we need terms of the form $|E(w)| = \sum_n c_{2n} H_n(a(w-w0))e^{-a^2(w-w0)^2}$ to ensure that the DC component vanishes. This function constructs a matrix, A, that takes $\bm{k} = A\bm{c}$. A will always be singular, so a small epsilon*w0 correction is added to the odd diagonals so that A^-1 exists at the cost of no longer making the coefficients exact. This is a small price since we plug the resulting c coefficients into gradient descent.
@@ -82,16 +82,17 @@ def fix_angle_seq(angles, center_ind=0, scan_n=1):
 Given a cost function cost_fn and an analytic gradient grad_fn, check that the analytic and numeric gradients approximately match
 '''
 def test_grads(cost_fn, grad_fn, x):
+    nx = x.shape[0]
     if verbose < 1:
         return None
     success = True
     an_g = grad_fn(x)
-    num_g = np.zeros(x.shape)
-    for i in range(x.shape[0]):
-        ei = np.zeros(x.shape[0])
-        ei[i] = 0.001
+    num_g = np.zeros(an_g.shape)
+    for i in range(nx):
+        ei = np.zeros(nx)
+        ei[i] = EPSILON**2
         num_g[i] = ( cost_fn(x + ei) - cost_fn(x - ei) )/ei[i]/2
-        if num_g[i] and np.abs( (num_g[i]-an_g[i])/num_g[i] ) > 0.01:
+        if num_g[i]**2 > 1e-8 and np.abs( (num_g[i]-an_g[i])/num_g[i] ) > EPSILON:
             print("Warning! disagreement between gradients on axis", i, num_g[i], an_g[i])
             success = False
     if (verbose > 4): 
@@ -112,13 +113,13 @@ def test_hess(cost_fn, hess_fn, x):
     num_h = np.zeros((n, n))
     for i in range(n):
         ei = np.zeros(n)
-        ei[i] = 0.0001
+        ei[i] = EPSILON**2
         for j in range(i, n):
             ej = np.zeros(n)
-            ej[j] = 0.0001
+            ej[j] = EPSILON**2
             num_h[i,j] = 0.25*( cost_fn(x+ei+ej) - cost_fn(x+ei-ej) - cost_fn(x-ei+ej) + cost_fn(x-ei-ej) )/ei[i]/ej[j]
             num_h[j,i] = num_h[i,j]
-            if num_h[i,j]**2 > 1e-8 and np.abs( (num_h[i,j]-an_h[i,j])/num_h[i,j] ) > 0.01:
+            if num_h[i,j]**2 > 1e-8 and np.abs( (num_h[i,j]-an_h[i,j])/num_h[i,j] ) > EPSILON:
                 print("Warning! disagreement between hessians on axes", i, j, num_h[i,j], an_h[i,j])
                 success = False
     if (verbose > 4): 
@@ -130,7 +131,7 @@ def test_hess(cost_fn, hess_fn, x):
 def hess_mul(hess, lin, n):
     return hess*np.reshape(np.tile(lin, n**2), (n, n, lin.shape[0]))
 def grad_out(g1, g2, n):
-    return np.reshape(np.tile(g1, n), (n, n, g1.shape[1]))*np.transpose(np.reshape(np.tile(g2, n), (n, n, g2.shape[1])), axes=(1,0,2))
+    return np.tile(g1, n).reshape(n, n, g1.shape[1])*np.transpose(np.tile(g2, n).reshape(n, n, g2.shape[1]), axes=(1,0,2))
 
 '''
 Do simulated annealing using the callable log_like
@@ -164,8 +165,7 @@ class signal:
     def _fourier_env_formx(freqs, x, herm_n=3, ang_n=1, calc_grads=False):
         nf = freqs.shape[0]
         fs = np.tile(freqs, 2).reshape((2,nf))
-        sign_dw = np.ones((2,nf))
-        sign_dw[0,:] *= -1
+        sign_dw = np.meshgrid(np.ones(nf), np.array([-1,1]))[1]
         dw = fs[:,:] + sign_dw*abs(x[2])
         #calculate arguments
         n = x.shape[0]
@@ -197,11 +197,11 @@ class signal:
             for m in range(herm_n):
                 emags += x[HERM_OFF+m]*HERMS[2*m](dw)
                 #gradients
-                demag = fs*(dw*HERMS[2*m](dw) - HERMS[2*m+1](dw))*np.exp(-dw**2/2)
-                de2mag = fs*( (1+dw**2)*HERMS[2*m](dw) - 2*dw*HERMS[2*m+1](dw) + HERMS[2*m+2](dw))*np.exp(-dw**2/2)
+                demag = sign_dw*fs*(dw*HERMS[2*m](dw) - HERMS[2*m+1](dw))*np.exp(-dw**2/2)
+                de2mag = sign_dw*fs*( (1+dw**2)*HERMS[2*m](dw) - 2*dw*HERMS[2*m+1](dw) + HERMS[2*m+2](dw))*np.exp(-dw**2/2)
                 mag_grads[:,2,:] += sign_dw*np.sign(x[2])*x[3]*x[HERM_OFF+m]*demag
                 mag_grads[:,3,:] += dw*x[HERM_OFF+m]*demag/x[3]
-                mag_grads[:,HERM_OFF+m,:] = fs*HERMS[2*m](dw)*np.exp(-dw**2/2)
+                mag_grads[:,HERM_OFF+m,:] = sign_dw*fs*HERMS[2*m](dw)*np.exp(-dw**2/2)
                 #hessian
                 mag_hess[:,2,2,:] += x[3]**2*x[HERM_OFF+m]*de2mag
                 mag_hess[:,3,3,:] += dw**2*x[HERM_OFF+m]*de2mag/x[3]**2
@@ -211,13 +211,13 @@ class signal:
                 mag_hess[:,2,HERM_OFF+m,:] = mag_hess[:,HERM_OFF+m,2,:]
                 mag_hess[:,HERM_OFF+m,3,:] += dw*demag/x[3]
                 mag_hess[:,3,HERM_OFF+m,:] = mag_hess[:,HERM_OFF+m,3,:]
-            emags *= np.exp(-dw**2/2)
+            emags *= sign_dw*np.exp(-dw**2/2)
             return emags, eargs, mag_grads, ang_grads, mag_hess, ang_hess
         else:
             dw *= x[3]
             for m in range(herm_n):
                 emags += x[HERM_OFF+m]*HERMS[2*m](dw)
-            emags *= np.exp(-dw**2/2)
+            emags *= sign_dw*np.exp(-dw**2/2)
         return emags, eargs
 
 
@@ -278,7 +278,7 @@ class signal:
         norm = 1/np.trapz(div_sig)
         x0[2] = np.trapz(div_sig*freqs)*norm
         x0[3] = 1/np.sqrt(np.trapz(div_sig*freqs**2)*norm - x0[2]**2) 
-        x0[HERM_OFF] = np.max(div_sig)
+        x0[HERM_OFF] = -np.max(div_sig)
         lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
         peaks, props = ssig.find_peaks(div_sig, height=np.max(div_sig)*rel_height)
         if check_noise and len(peaks) > NOISY_N_PEAKS:
@@ -330,12 +330,12 @@ class signal:
             if n_big_peaks > NOISY_N_PEAKS:
                 #apply a lowpass filter and try again
                 vf = vfm*np.exp(1j*vfa)*np.sinc(x0[3]*(freqs-smallest_big))
-                return signal._guess_params(freqs, np.abs(vf), np.angle(vf), herm_n, ang_n, check_noise=False)
+                return signal._guess_params_old(freqs, np.abs(vf), np.angle(vf), herm_n, ang_n, check_noise=False)
 
         res = linregress(freqs[lo_fi:hi_fi], vfa[lo_fi:hi_fi])
         x0[0] = fix_angle(res.intercept)
         x0[1] = res.slope
-        x0[HERM_OFF] = np.max(vfm)
+        x0[HERM_OFF] = -np.max(vfm)
         #return x0, lo_fi, hi_fi
 
         #fit the derivative of the phase to a polynomial of (f-f0)^2/sigma^2 so that only odd powers will appear when we integrate
@@ -367,7 +367,7 @@ class signal:
             herm_den *= 2*(m+1)
         ks *= np.max(vfm)/np.max(k_ser)
         cs = np.dot(herm_conv(x0[2], x0[3], herm_n), ks)
-        x0[HERM_OFF:HERM_OFF+herm_n] = cs[::2]
+        x0[HERM_OFF:HERM_OFF+herm_n] = -cs[::2]
         #x0[HERM_OFF] = cs[0]
 
         #TODO: delete
@@ -383,7 +383,7 @@ class signal:
 
         return x0, lo_fi, hi_fi
 
-    def __init__(self, t_pts, v_pts, herm_n=3, ang_n=1, skip_opt=False, x0=None, method='trust-exact'):
+    def __init__(self, t_pts, v_pts, herm_n=3, ang_n=1, skip_opt=False, x0=None, method='trust-exact', discard_negative=False):
         self.herm_n = herm_n
         self.ang_n = ang_n
         ang_off = HERM_OFF+herm_n
@@ -396,48 +396,84 @@ class signal:
             self.vfm = np.abs(vf0)
             self.vfa = np.angle(vf0)
             res_norm = np.log(np.sum(self.vfm**2))
+            vfm2 = np.tile(self.vfm, 2).reshape(2, freqs.shape[0])
+            vfa2 = np.tile(self.vfa, 2).reshape(2, freqs.shape[0])
+        nx,nf = HERM_OFF+herm_n+ang_n, freqs.shape[0]
+        def res_term(emags, eargs):
+            return emags**2 + vfm2**2
+            - 2*emags*vfm2*np.cos(eargs-vfa2)
+            + 2*emags*np.cos(np.tile(eargs[1,:]-eargs[0,:],2).reshape(2, emags.shape[0]))
+        self.discard_negative = discard_negative
         #construct the cost function and analytic gradients
         def residuals(x):
+            #np.tile(a, (2,1)).reshape((2,2,10))
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
             grad = np.zeros(x.shape)
+            sign_dw = np.meshgrid(np.ones(nf), np.array([-1,1]))[1]
             emags, eargs, grad_mag, grad_ang, _, _ = signal._fourier_env_formx(freqs, x, herm_n=self.herm_n, ang_n=self.ang_n, calc_grads=True)
-            emags = freqs*emags[0,:]
-            eargs = eargs[0,:]
-            grad_mag = grad_mag[0,:,:]
-            grad_ang = grad_ang[0,:,:]
-            mag_as = np.reshape(np.tile(emags*self.vfm*np.sin(eargs-self.vfa), x.shape[0]), (x.shape[0], emags.shape[0]))
-            mag_gs = np.reshape(np.tile(emags-self.vfm*np.cos(eargs-self.vfa), x.shape[0]), (x.shape[0], emags.shape[0]))
-            cc = np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
-            return np.log(cc)-res_norm, 2*np.sum(mag_as*grad_ang + mag_gs*grad_mag, axis=1)/cc
+            emags *= freqs
+            if discard_negative:
+                mag_gs = np.tile(emags[0,:] - self.vfm*np.cos(eargs[0,:]-self.vfa), nx).reshape(nx, freqs.shape[0])
+                mag_as = np.tile(emags[0,:]*self.vfm*np.sin(eargs[0,:]-self.vfa), nx).reshape(nx, freqs.shape[0])
+                cc = np.sum( self.vfm**2 + emags[0,:]**2 - 2*emags[0,:]*self.vfm*np.cos(eargs[0,:]-self.vfa) )
+                return cc, 2*np.sum(mag_as*grad_ang[0,:,:] + mag_gs*grad_mag[0,:,:], axis=1)
+            else:
+                mag_gs = emags - vfm2*np.cos(eargs-vfa2) + emags[::-1,:]*np.cos(eargs[1,:]-eargs[0,:])
+                mag_as = emags*vfm2*np.sin(eargs-vfa2) - sign_dw*np.prod(emags,axis=0)*np.sin(np.sum(sign_dw*eargs,axis=0))
+                mag_as = np.repeat(mag_as, nx, axis=0).reshape(2, nx, nf)
+                mag_gs = np.repeat(mag_gs, nx, axis=0).reshape(2, nx, nf)
+                cc = np.sum( self.vfm**2
+                            + np.sum(emags**2 - 2*emags*vfm2*np.cos(eargs-vfa2),axis=0)
+                            + 2*np.prod(emags,axis=0)*np.cos(np.sum(sign_dw*eargs,axis=0))
+                            )
+                return cc, 2*np.sum(np.sum(mag_as*grad_ang + mag_gs*grad_mag, axis=0), axis=1)
+            #return np.log(cc)-res_norm, 2*np.sum(np.sum(mag_as*grad_ang + mag_gs*grad_mag,axis=0),axis=1)/cc
         def hess_res(x):
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
-            n = x.shape[0]
-            #ret = np.zeros((n,n))
             emags, eargs, grad_mag, grad_ang, hess_mag, hess_ang = signal._fourier_env_formx(freqs, x, herm_n=self.herm_n, ang_n=self.ang_n, calc_grads=True)
-            emags = freqs*emags[0,:]
-            eargs = eargs[0,:]
-            grad_mag = grad_mag[0,:,:]
-            grad_ang = grad_ang[0,:,:]
-            hess_mag = hess_mag[0,:,:,:]
-            hess_ang = hess_ang[0,:,:,:]
-            phase_prod = np.reshape(np.tile(self.vfm*np.exp(1j*(eargs-self.vfa)), n**2), (n,n,emags.shape[0]))
-            ret = hess_mul(hess_mag, emags, n) + grad_out(grad_mag, grad_mag, n)
-            ret += np.imag(phase_prod)*(grad_out(grad_mag,grad_ang,n)+grad_out(grad_ang,grad_mag,n)+hess_mul(hess_ang,emags,n))
-            ret += np.real(phase_prod)*(hess_mul(grad_out(grad_ang,grad_ang,n),emags,n)-hess_mag)
-            #return 2*np.sum(ret, axis=2)
-            cc = np.sum(emags**2 + self.vfm**2 - 2*emags*self.vfm*np.cos(eargs-self.vfa))
+            emags *= freqs
+            sign_dw = np.meshgrid(np.ones(nf), np.array([-1,1]))[1]
+            sign_2dw = np.repeat(sign_dw, nx, axis=0).reshape(2,nx,nf)
+            ts_include = 2
+            if discard_negative:
+                ts_include = 1
+            ret = np.zeros((nx, nx, nf))
+            cc = np.sum(self.vfm**2)
+            for i in range(ts_include):
+                phase_prod = np.tile(self.vfm*np.exp(1j*(eargs[i,:]-self.vfa)), nx**2).reshape((nx,nx,nf))
+                ret += hess_mul(hess_mag[i,:,:], emags[i,:], nx) + grad_out(grad_mag[i,:,:], grad_mag[i,:], nx)
+                ret += np.imag(phase_prod)*(grad_out(grad_mag[i,:,:],grad_ang[i,:,:],nx)+grad_out(grad_ang[i,:,:],grad_mag[i,:,:],nx)+hess_mul(hess_ang[i,:,:,:], emags[i,:],nx))
+                ret += np.real(phase_prod)*(hess_mul(grad_out(grad_ang[i,:,:],grad_ang[i,:,:],nx),emags[i,:],nx)-hess_mag[i,:,:,:])
+                cc += np.sum(emags[i,:]**2 - 2*emags[i,:]*self.vfm*np.cos(eargs[i,:]-self.vfa))
+            if not discard_negative:
+                c10, s10 = np.cos(eargs[1,:]-eargs[0,:]), np.sin(eargs[1,:]-eargs[0,:])
+                cc += np.sum(2*np.prod(emags, axis=0)*np.cos(eargs[1,:]-eargs[0,:]))
+                ret += hess_mul(hess_mag[0,:,:,:], emags[1,:]*c10, nx)
+                ret += hess_mul(hess_mag[1,:,:,:], emags[0,:]*c10, nx)
+                ret += hess_mul(grad_out(grad_mag[0,:,:], grad_mag[1,:,:], nx), c10, nx)
+                ret += hess_mul(grad_out(grad_mag[1,:,:], grad_mag[0,:,:], nx), c10, nx)
+                ret += hess_mul(grad_out(grad_ang[0,:,:],np.sum(sign_2dw*grad_ang, axis=0),nx), np.prod(emags,axis=0)*c10, nx)
+                ret -= hess_mul(grad_out(grad_ang[1,:,:],np.sum(sign_2dw*grad_ang, axis=0),nx), np.prod(emags,axis=0)*c10, nx)
+                ret -= hess_mul(grad_out(grad_mag[0,:,:], np.sum(sign_2dw*grad_ang, axis=0), nx), emags[1,:]*s10, nx)
+                ret -= hess_mul(grad_out(grad_mag[1,:,:], np.sum(sign_2dw*grad_ang, axis=0), nx), emags[0,:]*s10, nx)
+                ret -= hess_mul(grad_out(np.sum(sign_2dw*grad_ang, axis=0), grad_mag[0,:,:], nx), emags[1,:]*s10, nx)
+                ret -= hess_mul(grad_out(np.sum(sign_2dw*grad_ang, axis=0), grad_mag[1,:,:], nx), emags[0,:]*s10, nx)
+                ret -= hess_mul(hess_ang[1,:,:,:], emags[0,:]*emags[1,:]*s10, nx)
+                ret += hess_mul(hess_ang[0,:,:,:], emags[0,:]*emags[1,:]*s10, nx)
             gr = residuals(x)[1]
-            return 2*np.sum(ret, axis=2)/cc - np.outer(gr,gr)
+            return 2*np.sum(ret, axis=2)
+            #return 2*np.sum(ret, axis=2)/cc - np.outer(gr,gr)
 
         #get guesses for initial parameters based on heuristics
         if x0 is not None:
             lo_fi, hi_fi = 0, 0
         else:
-            x0, lo_fi, hi_fi = signal._guess_params(freqs, self.vfm, self.vfa, herm_n, ang_n)
+            x0, lo_fi, hi_fi = signal._guess_params_old(freqs, self.vfm, self.vfa, herm_n, ang_n)
             #x0 = anneal(residuals, grad_res, x0, 200, np.sqrt( np.abs(0.5*residuals(x0)/np.diag(hess_res(x0))) ), end_beta=100)
             x0[2] = abs(x0[2])
+
         self.fit_bounds = np.array([lo_fi, hi_fi])
-        if verbose > 4:
+        if verbose > 3:
             success = test_grads(lambda x: residuals(x)[0], lambda x: residuals(x)[1], x0)
             success *= test_hess(lambda x: residuals(x)[0], hess_res, x0)
             if success:
@@ -487,12 +523,13 @@ class signal:
         x = np.append(x, self.herm_coeffs)
         x = np.append(x, self.poly_coeffs)
         emags, eargs = signal._fourier_env_formx(freqs, x)
-        return freqs*emags[0,:], eargs[0,:]
+        if self.discard_negative:
+            return freqs*emags[0,:]*np.exp(1j*eargs[0,:])
+        return freqs*np.sum(emags*np.exp(1j*eargs), axis=0)
     
     def __call__(self, ts):
         freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
-        emags, eargs = self.get_fspace(freqs)
-        return fft.irfft(emags*np.exp(1j*eargs))
+        return fft.irfft( self.get_fspace(freqs) )
 
     def get_fenv(self, freqs, field='E'):
         '''
