@@ -51,7 +51,7 @@ parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian 
 parser.add_argument('--fname', type=str, help='h5 file to read', default='field_samples.h5')
 parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
 parser.add_argument('--recompute', action='store_true', help='If set, then phase estimation is recomputed. Otherwise, information is read from files saved in <prefix>', default=False)
-parser.add_argument('--plot-cbar', action='store_true', help='If set, then plot the color bar for images', default=False)
+parser.add_argument('--pad', action='store_true', help='If set, then plot the color bar for images', default=False)
 parser.add_argument('--plot-y-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--plot-x-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
 parser.add_argument('--plot-legend', action='store_true', help='If set, then plot the y axis labels', default=False)
@@ -100,8 +100,7 @@ def plot_raw_fdom(ts, vs, psig, axs, xlim=None, ylim=None, ylabels=True):
     axs[0].axvline(psig.f0-freq_center, color='gray')
     axs[0].axvline(-freq_center, color='gray')
     #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
-    emags, eargs = psig.get_fspace(freqs)
-    fit_field = emags*np.exp(1j*eargs)
+    fit_field = psig.get_fspace(freqs)
     axs[1].plot(freqs, np.abs(vf), color='black')
     axs[1].plot(freqs, np.abs(fit_field), color='black', linestyle='-.')
     axs[1].plot(freqs, np.real(vf), color=PLT_COLORS[0], label='real')
@@ -115,7 +114,7 @@ def plot_raw_fdom(ts, vs, psig, axs, xlim=None, ylim=None, ylabels=True):
     r_ax.set_xlim(xlim)
     r_ax.set_ylim([0, 2*ylim[1]])
     r_ax.tick_params(axis ='y', labelcolor = 'green')'''
-    residuals = np.sqrt( emags**2 + np.abs(vf)**2 - 2*emags*np.abs(vf)*np.cos(eargs-np.angle(vf)) )
+    residuals = np.abs(fit_field - vf)
     r_ax.scatter(freqs, residuals, color=PLT_COLORS[2])
 
 def plot_raw_tdom(ts, vs, psig_unopt, psig_opt, fname):
@@ -146,7 +145,7 @@ class cluster_reader:
     width: the width of the junction
     height: the thickness of the junction
     '''
-    def __init__(self, fname, clust_range=[], prefix='.', herm_n=3, ang_n=1, recompute=False, save_fit_figs=False):
+    def __init__(self, fname, clust_range=[], prefix='.', herm_n=3, ang_n=1, recompute=False, save_fit_figs=False, pad=True):
         #otherwise, recalculate
         self.prefix = prefix
         self.herm_n = herm_n
@@ -180,10 +179,22 @@ class cluster_reader:
         t_max = self.f['info']['time_bounds'][1]
         self.dt = self.f['info']['time_bounds'][2]
         self.n_t_pts = self.f['info']['n_time_points'][0]
+        if pad:
+            next_b2 = int(np.ceil(np.log(self.n_t_pts)/np.log(2)))
+            self._pad_n = (1 << next_b2) - self.n_t_pts
+            t_max += self.dt*self._pad_n
+            self.n_t_pts += self._pad_n
+        else:
+            self._pad_n = 0
         self.t_pts = np.linspace(t_min, t_max, self.n_t_pts)
         #figure out the central frequency
-        self.in_freq = .299792458 / self.f['info']['sources']['wavelen'][0]
-        self.freq_width = 0.5/np.pi/self.f['info']['sources']['width'][0]
+        srcinfo = self.f['info']['sources']
+        self.in_freq = .299792458 / srcinfo['wavelen'][0]
+        self.freq_width = 0.5/np.pi/srcinfo['width'][0]
+        if phases.verbose > 0:
+            print("setting up paramater reader:")
+            print("\ttime bounds = ({}, {}) in {} pts".format(t_min, t_max, self.n_t_pts))
+            print("\tprior f0 = {}±{}".format(self.in_freq, self.freq_width))
         #try loading precomputed data
         data_name = "{}/dat_{}".format(prefix, fname.split('.')[0])
         data_shape = (len(self.clust_names), clust_len, phases.HERM_OFF+herm_n+ang_n)
@@ -212,7 +223,7 @@ class cluster_reader:
             self._pts[i,:,2] = np.array(self.f[clust]['locations']['z'])
             for j, point in enumerate(points):
                 print("optimizing point", i, j)
-                v_pts = np.array(self.f[clust][point]['time']['Re'])
+                v_pts = np.append(np.array(self.f[clust][point]['time']['Re']), np.zeros(self._pad_n))
                 psig = phases.signal(self.t_pts, v_pts, herm_n=herm_n, ang_n=ang_n)
                 self._raw_data[i,j,:] = psig.x
                 self.residuals[i,j] = psig.cost
@@ -222,6 +233,7 @@ class cluster_reader:
                     plot_raw_fdom(self.t_pts, v_pts, psig, axs, xlim=[0,1])
                     fig.savefig("{}/fit_figs/ffit_{}_{}.svg".format(self.prefix, clust, j))
                     plot_raw_tdom(self.t_pts, v_pts, None, psig, "{}/fit_figs/tfit_{}_{}_raw.svg".format(self.prefix, clust, j))
+                    plt.close('all')
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
         t_avg = t_dif/clust_len/len(self.clust_names)
         print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_avg))
@@ -232,7 +244,8 @@ class cluster_reader:
         #fetch a list of points and their associated coordinates
         points = list(self.f[clust].keys())[1:]
         err_2 = 0.02
-        return np.array(self.f[clust][points[ind]]['time']['Re']), err_2
+        v_pts = np.append(np.array(self.f[clust][points[ind]]['time']['Re']), np.zeros(self._pad_n))
+        return v_pts, err_2
 
     def make_heatmap(self, ax, parameter, vlines=[], xlabels=[[],[]], ylabels=[[],[]], rng=[], cmap="viridis", plot_cbar=True):
         imdat = None
@@ -249,7 +262,7 @@ class cluster_reader:
                         if parameter == 't0':
                             imdat[i,j] = t0
                         else:
-                            imdat[i,j] = phi
+                            imdat[i,j] = phases.fix_angle(phi)
         elif parameter == 'residual':
             imdat = self.residuals
         elif parameter == 't0':
@@ -304,33 +317,32 @@ class cluster_reader:
             cax.set_ylabel(parameter)
         return im
     
-def plot_before_after_phase(ts, vs, fname):
+def plot_before_after_phase(ts, vs, fname, x0=None):
     freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
     #get signals
-    psig_unopt = phases.signal(ts, vs, skip_opt=True, ang_n=2)
-    psig_opt = phases.signal(ts, vs, skip_opt=False, ang_n=2)
-    dat_series = phases.fix_angle_seq(psig_unopt.vfa, scan_n=4)
-    _, fit_series_0 = psig_unopt.get_fspace(freqs)
-    _, fit_series_1 = psig_opt.get_fspace(freqs)
+    psig_unopt = phases.signal(ts, vs, skip_opt=True, x0=x0)
+    psig_opt = phases.signal(ts, vs, skip_opt=False, x0=x0)
+    fit_series_0 = psig_unopt.get_fspace(freqs)
+    fit_series_1 = psig_opt.get_fspace(freqs)
     #set up the plot
     fig, axs = plt.subplots()
     axs.axvline(freqs[psig_unopt.fit_bounds[0]], color='gray', linestyle=':')
     axs.axvline(freqs[psig_unopt.fit_bounds[1]], color='gray', linestyle=':')
     axs.axvline(psig_unopt.f0, color=PLT_COLORS[0])
     axs.axvline(psig_opt.f0, color=PLT_COLORS[1])
-    scale = np.max(psig_unopt.vfa)-np.min(psig_unopt.vfa)
-    axs.set_ylim(-scale, scale)
+    axs.set_xlim(0, freqs[-1]/2)
+    axs.set_ylim(-np.pi, np.pi)
     #plot each series and annotate
-    axs.plot(freqs, dat_series, color='black', label="simulation")
-    axs.plot(freqs, fit_series_0, color=PLT_COLORS[0], label="initial guess")
-    axs.plot(freqs, fit_series_1, color=PLT_COLORS[1], label="full optimization")
+    axs.scatter(freqs, phases.fix_angle(psig_unopt.vfa), color='black', label="simulation")
+    axs.plot(freqs, np.angle(fit_series_0), color=PLT_COLORS[0], label="initial guess")
+    axs.plot(freqs, np.angle(fit_series_1), color=PLT_COLORS[1], label="full optimization")
     axs.annotate('$\\varphi = ${:.2f}, $t_0 = ${:.2f} fs'.format(psig_opt.phi, psig_opt.t0), xy=(0,10), xytext=(0.2, 0.80), xycoords='figure fraction')
     axs.legend()
     fig.savefig(fname, bbox_inches='tight')
     return psig_unopt, psig_opt
 
 if args.point == '':
-    cr = cluster_reader(args.fname, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
+    cr = cluster_reader(args.fname, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs, herm_n=1)
     dx = cr._pts[0,1,0] - cr._pts[0,0,0]
     x_ext = int( (cr._pts[0,-1,0] - cr._pts[0,0,0])/dx )
     vlines = [x_ext - args.gap_width/dx, x_ext + args.gap_width/dx]
@@ -338,15 +350,20 @@ if args.point == '':
     phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
     cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
 
+    name_append = args.fname.split('.')[0]
     fig, axs = plt.subplots(2)
-    cr.make_heatmap(axs[0], "amplitude", vlines=vlines, cmap='magma')
-    cr.make_heatmap(axs[1], "phase", vlines=vlines, cmap=cmap)
+    cr.make_heatmap(axs[0], "amplitude", vlines=vlines, cmap='magma', rng=[0,1])
+    cr.make_heatmap(axs[1], "phase", vlines=vlines, cmap=cmap, rng=[-np.pi, np.pi])
     #fig.tight_layout()
-    fig.savefig(args.prefix+"/phase_amp_{}.svg".format(args.fname.split('.')[0]), bbox_inches='tight')
+    fig.savefig(args.prefix+"/htmp_phase_amp_{}.svg".format(name_append), bbox_inches='tight')
     plt.close(fig)
     fig, axs = plt.subplots()
     cr.make_heatmap(axs, "residual", vlines=vlines, cmap='magma', rng=[-5,0])
-    fig.savefig(args.prefix+"/residual_{}.svg".format(args.fname.split('.')[0]), bbox_inches='tight')
+    fig.savefig(args.prefix+"/htmp_residual_{}.svg".format(name_append), bbox_inches='tight')
+    plt.close(fig)
+    fig, axs = plt.subplots()
+    cr.make_heatmap(axs, "f0", vlines=vlines, cmap=cmap, rng=[-1,1])
+    fig.savefig(args.prefix+"/htmp_f0_{}.svg".format(name_append), bbox_inches='tight')
     plt.close(fig)
 else:
     #phases.signal._do_grad_tests(np.array([0.4]), 3, 2)
@@ -357,7 +374,7 @@ else:
     cr = cluster_reader(args.fname, clust_range=[0,0], prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
     #read the data and set up the signal analyzer
     v_pts, _ = cr.get_point_times(clust, j)
-    psig_before, psig_after = plot_before_after_phase(cr.t_pts, v_pts, "{}_param_est.svg".format(fig_name))
+    psig_before, psig_after = plot_before_after_phase(cr.t_pts, v_pts, "{}_param_est.svg".format(fig_name))#, x0=cr.x0)
     #plot frequency space
     fig,axs = plt.subplots(2,2) 
     plot_raw_fdom(cr.t_pts, v_pts, psig_before, axs[:,0], xlim=[0,1]) 
