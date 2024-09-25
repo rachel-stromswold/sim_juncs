@@ -21,7 +21,7 @@ ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in th
 
 NOISY_N_PEAKS = 4
 
-verbose = 1
+verbose = 4
 
 '''
 To find starting Hermite-Gaussian coefficients, we use the orthoganality condition $\int H_n(a(x-x0))H_m(a(x-x0))e^{-a^2(x-x0)^2{ dx = \sqrt{pi} 2^n n! \delta_{nm}/a$. This lets us expand $|E(w)| = \sum_n k_n H_n(a(w-w0))e^{-a^2(w-w0)^2}$. However, we need terms of the form $|E(w)| = \sum_n c_{2n} H_n(a(w-w0))e^{-a^2(w-w0)^2}$ to ensure that the DC component vanishes. This function constructs a matrix, A, that takes $\bm{k} = A\bm{c}$. A will always be singular, so a small epsilon*w0 correction is added to the odd diagonals so that A^-1 exists at the cost of no longer making the coefficients exact. This is a small price since we plug the resulting c coefficients into gradient descent.
@@ -270,6 +270,62 @@ class signal:
         print("\n====================================\n")
 
     @staticmethod
+    def _guess_params_opt(freqs, vfm, vfa, herm_n, ang_n, check_noise=True, rel_height=0.1, f0_hint=-1):
+        df = freqs[1] - freqs[0]
+        div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
+        mag_x = np.zeros(herm_n+2)
+        norm = 1/np.trapz(div_sig)
+        mag_x[0] = np.trapz(div_sig*freqs)*norm
+        mag_x[1] = 1/np.sqrt(np.trapz(div_sig*freqs**2)*norm - mag_x[0]**2)
+        mag_x[2] = -np.max(div_sig)
+
+        if check_noise:
+            peaks, props = ssig.find_peaks(div_sig, height=np.max(div_sig)*rel_height)
+            if len(peaks) > NOISY_N_PEAKS:
+                if f0_hint <= 0:
+                    f0_hint = freqs[peaks[0]]
+                if verbose > 2:
+                    print("noisy signal detected applying bandpass filter around f={}, w={}".format(f0_hint, mag_x[1]))
+                vf = vfm*np.exp(1j*vfa)*np.sinc(mag_x[1]*(freqs-f0_hint))
+                return signal._guess_params_opt(freqs, np.abs(vf), np.angle(vf), herm_n, ang_n, check_noise=False)
+
+        def mag_res(x):
+            emags, _, mag_grads, _, _, _ = signal._fourier_env_formx(freqs, np.append(np.zeros(2), x), herm_n, 0, calc_grads=True)
+            emags = freqs*emags[0,:]
+            cc = np.sum( (emags-vfm)**2 )
+            return cc, 2*np.sum(mag_grads[0,2:]*np.tile(emags-vfm, herm_n+2).reshape(herm_n+2, freqs.shape[0]), axis=1)
+        def mag_hess(x):
+            emags, _, grad_mag, _, hess_mag, _ = signal._fourier_env_formx(freqs, np.append(np.zeros(2), x), herm_n, 0, calc_grads=True)
+            emags *= freqs
+            return 2*np.sum(hess_mul(hess_mag[0,2:,2:], (emags[0,:]-vfm), herm_n+2) + grad_out(grad_mag[0,2:,:], grad_mag[0,2:,:], herm_n+2), axis=2)
+
+        t_start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+        opt_res = opt.minimize(mag_res, mag_x, jac=True, hess=mag_hess, method='trust-exact')
+        if verbose > 1:
+            t_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)-t_start
+            print("initial optimization {} in {} ns".format("succeeded" if opt_res.success else "failed", t_ns))
+            if verbose > 3:
+                print(opt_res)
+
+        #TODO:delete
+        '''emags_before, _ = signal._fourier_env_formx(freqs, np.append(np.zeros(2), mag_x), herm_n, 0, calc_grads=False)
+        emags_after, _  = signal._fourier_env_formx(freqs, np.append(np.zeros(2), opt_res.x), herm_n, 0, calc_grads=False)
+        plt.plot(freqs, vfm)
+        plt.plot(freqs, freqs*emags_before[0,:])
+        plt.plot(freqs, freqs*emags_after[0,:])
+        plt.show()'''
+
+        x0 = np.zeros(HERM_OFF+herm_n+ang_n)
+        x0[2:HERM_OFF+herm_n] = opt_res.x
+        x0[2] = abs(x0[2])
+        lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
+        #now guess angles
+        res = linregress(freqs[lo_fi:hi_fi], fix_angle_seq(vfa[lo_fi:hi_fi]))
+        x0[0] = fix_angle(res.intercept)
+        x0[1] = -res.slope
+        return x0, lo_fi, hi_fi
+
+    @staticmethod
     def _guess_params(freqs, vfm, vfa, herm_n, ang_n, check_noise=True, rel_height=0.1, f0_hint=-1):
         df = freqs[1] - freqs[0]
         ang_off = HERM_OFF + herm_n
@@ -475,7 +531,7 @@ class signal:
         if x0 is not None:
             lo_fi, hi_fi = 0, 0
         else:
-            x0, lo_fi, hi_fi = signal._guess_params(freqs, self.vfm, self.vfa, herm_n, ang_n)
+            x0, lo_fi, hi_fi = signal._guess_params_opt(freqs, self.vfm, self.vfa, herm_n, ang_n)
             #x0 = anneal(residuals, x0, 200, np.sqrt( np.abs(0.5*residuals(x0)[0]/np.diag(hess_res(x0))) ), end_beta=100)
         x0[2] = abs(x0[2])
 
@@ -510,7 +566,7 @@ class signal:
                 print("\033[31mOptimization failed!\033[0m")
             xf = opt_res.x
             xf[2] = abs(xf[2])
-            if verbose > 1:
+            if verbose > 2:
                 print("optimization message:", opt_res.message)
                 print("x0:\t", x0)
                 print("f(x0):\t", residuals(x0))

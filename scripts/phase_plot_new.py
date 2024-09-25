@@ -195,6 +195,8 @@ class cluster_reader:
             print("setting up paramater reader:")
             print("\ttime bounds = ({}, {}) in {} pts".format(t_min, t_max, self.n_t_pts))
             print("\tprior f0 = {}±{}".format(self.in_freq, self.freq_width))
+        '''def log_prior(x):
+            like = (x[2] - self.in_freq)**2/2/self.freq_width**2'''
         #try loading precomputed data
         data_name = "{}/dat_{}".format(prefix, fname.split('.')[0])
         data_shape = (len(self.clust_names), clust_len, phases.HERM_OFF+herm_n+ang_n)
@@ -316,30 +318,6 @@ class cluster_reader:
             plt.colorbar(im, cax=cax)
             cax.set_ylabel(parameter)
         return im
-    
-def plot_before_after_phase(ts, vs, fname, x0=None):
-    freqs = fft.rfftfreq(len(ts), d=ts[1]-ts[0])
-    #get signals
-    psig_unopt = phases.signal(ts, vs, skip_opt=True, x0=x0)
-    psig_opt = phases.signal(ts, vs, skip_opt=False, x0=x0)
-    fit_series_0 = psig_unopt.get_fspace(freqs)
-    fit_series_1 = psig_opt.get_fspace(freqs)
-    #set up the plot
-    fig, axs = plt.subplots()
-    axs.axvline(freqs[psig_unopt.fit_bounds[0]], color='gray', linestyle=':')
-    axs.axvline(freqs[psig_unopt.fit_bounds[1]], color='gray', linestyle=':')
-    axs.axvline(psig_unopt.f0, color=PLT_COLORS[0])
-    axs.axvline(psig_opt.f0, color=PLT_COLORS[1])
-    axs.set_xlim(0, freqs[-1]/2)
-    axs.set_ylim(-np.pi, np.pi)
-    #plot each series and annotate
-    axs.scatter(freqs, phases.fix_angle(psig_unopt.vfa), color='black', label="simulation")
-    axs.plot(freqs, np.angle(fit_series_0), color=PLT_COLORS[0], label="initial guess")
-    axs.plot(freqs, np.angle(fit_series_1), color=PLT_COLORS[1], label="full optimization")
-    axs.annotate('$\\varphi = ${:.2f}, $t_0 = ${:.2f} fs'.format(psig_opt.phi, psig_opt.t0), xy=(0,10), xytext=(0.2, 0.80), xycoords='figure fraction')
-    axs.legend()
-    fig.savefig(fname, bbox_inches='tight')
-    return psig_unopt, psig_opt
 
 if args.point == '':
     cr = cluster_reader(args.fname, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs, herm_n=1)
@@ -374,7 +352,32 @@ else:
     cr = cluster_reader(args.fname, clust_range=[0,0], prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
     #read the data and set up the signal analyzer
     v_pts, _ = cr.get_point_times(clust, j)
-    psig_before, psig_after = plot_before_after_phase(cr.t_pts, v_pts, "{}_param_est.svg".format(fig_name))#, x0=cr.x0)
+
+
+    #plot phases before and after optimization
+    freqs = fft.rfftfreq(len(cr.t_pts), d=cr.t_pts[1]-cr.t_pts[0])
+    #get signals
+    psig_before = phases.signal(cr.t_pts, v_pts, skip_opt=True)
+    psig_after  = phases.signal(cr.t_pts, v_pts, skip_opt=False)
+    fit_series_0 = psig_before.get_fspace(freqs)
+    fit_series_1 = psig_after.get_fspace(freqs)
+    #set up the plot
+    fig, axs = plt.subplots()
+    axs.axvline(freqs[psig_before.fit_bounds[0]], color='gray', linestyle=':')
+    axs.axvline(freqs[psig_before.fit_bounds[1]], color='gray', linestyle=':')
+    axs.axvline(psig_before.f0, color=PLT_COLORS[0])
+    axs.axvline(psig_after.f0, color=PLT_COLORS[1])
+    axs.set_xlim(0, freqs[-1]/2)
+    axs.set_ylim(-np.pi, np.pi)
+    #plot each series and annotate
+    axs.scatter(freqs, phases.fix_angle(psig_before.vfa), color='black', label="simulation")
+    axs.plot(freqs, np.angle(fit_series_0), color=PLT_COLORS[0], label="initial guess")
+    axs.plot(freqs, np.angle(fit_series_1), color=PLT_COLORS[1], label="full optimization")
+    axs.annotate('$\\varphi = ${:.2f}, $t_0 = ${:.2f} fs'.format(psig_after.phi, psig_after.t0), xy=(0,10), xytext=(0.2, 0.80), xycoords='figure fraction')
+    axs.legend()
+    fig.savefig("{}_param_est.svg".format(fig_name), bbox_inches='tight')
+    plt.close(fig)
+
     #plot frequency space
     fig,axs = plt.subplots(2,2) 
     plot_raw_fdom(cr.t_pts, v_pts, psig_before, axs[:,0], xlim=[0,1]) 
