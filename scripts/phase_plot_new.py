@@ -1,5 +1,5 @@
 import phases_new as phases
-import utils
+from functools import partial
 import argparse
 import time
 import pickle
@@ -11,7 +11,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 matplotlib.use('qtagg')
-from scipy.stats import linregress
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 np.random.seed(3141592)
@@ -52,20 +51,17 @@ parser.add_argument('--fname', type=str, help='h5 file to read', default='field_
 parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
 parser.add_argument('--recompute', action='store_true', help='If set, then phase estimation is recomputed. Otherwise, information is read from files saved in <prefix>', default=False)
 parser.add_argument('--pad', action='store_true', help='If set, then plot the color bar for images', default=False)
-parser.add_argument('--plot-y-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
-parser.add_argument('--plot-x-labels', action='store_true', help='If set, then plot the y axis labels', default=False)
-parser.add_argument('--plot-legend', action='store_true', help='If set, then plot the y axis labels', default=False)
+parser.add_argument('--use-prior', action='store_true', help='If set, then plot then use priors for f0', default=False)
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
-parser.add_argument('--sym-mode', help='Type of symmeterization mode to use', default="sym-o")
-parser.add_argument('--f0-mode', help='Type of central frequency estimate to use', default="avg")
+parser.add_argument('--herm-n', type=int, help='number of Hermite-Gaussian terms to include in fits', default=3)
+parser.add_argument('--ang-n', type=int, help='half the degree of the polynomial used for fitting', default=3)
 parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
 parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
-parser.add_argument('--diel-const', type=float, help='dielectric constant of material', default=3.5)
-parser.add_argument('--lowpass', type=float, help='If optimizations fail, then the phase finder tries them again after applying a lowpass filter to the timeseries. This parameter specifies the strength of the lowpass filter. If this script is crashing, then try increasing this parameter.', default=1.0)
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--point', type=str, help='if specified (as a comma separated tuple where the first index is the cluster number and the second is the point index) make a plot of fit parameters for a single point', default='')
-parser.add_argument('--slice-dir', type=str, help='prefix to use when opening files', default='x')
 args = parser.parse_args()
+
+NX = phases.HERM_OFF + args.herm_n + args.ang_n
 
 def plot_raw_fdom(ts, vs, psig, axs, xlim=None, ylim=None, ylabels=True):
     freqs = fft.rfftfreq(len(vs), d=ts[1]-ts[0])
@@ -138,6 +134,12 @@ def plot_raw_tdom(ts, vs, psig_unopt, psig_opt, fname):
     axs.legend()
     fig.savefig(fname, bbox_inches='tight')
 
+def log_prior(x, f0=0, scale=0, herm_n=1, ang_n=1):
+    gd, hs = np.zeros(NX), np.zeros((NX,NX))
+    gd[2] = scale*(f0 - x[2])
+    hs[2,2] = -scale
+    return -scale*(x[2] - f0)**2/2, gd, hs
+
 class cluster_reader:
     '''
     Initialize a phase finder reading from the  specified by fname and a juction width and gap specified by width and height respectively.
@@ -145,7 +147,7 @@ class cluster_reader:
     width: the width of the junction
     height: the thickness of the junction
     '''
-    def __init__(self, fname, clust_range=[], prefix='.', herm_n=3, ang_n=1, recompute=False, save_fit_figs=False, pad=True):
+    def __init__(self, fname, herm_n, ang_n, use_prior=False, clust_range=[], prefix='.', recompute=False, save_fit_figs=False, pad=True):
         #otherwise, recalculate
         self.prefix = prefix
         self.herm_n = herm_n
@@ -197,6 +199,10 @@ class cluster_reader:
             print("\tprior f0 = {}±{}".format(self.in_freq, self.freq_width))
         '''def log_prior(x):
             like = (x[2] - self.in_freq)**2/2/self.freq_width**2'''
+        if use_prior:
+            self.lp = partial(log_prior, f0=self.in_freq, scale=1/self.freq_width**2, herm_n=herm_n, ang_n=ang_n)
+        else:
+            self.lp = None
         #try loading precomputed data
         data_name = "{}/dat_{}".format(prefix, fname.split('.')[0])
         data_shape = (len(self.clust_names), clust_len, phases.HERM_OFF+herm_n+ang_n)
@@ -226,7 +232,7 @@ class cluster_reader:
             for j, point in enumerate(points):
                 print("optimizing point", i, j)
                 v_pts = np.append(np.array(self.f[clust][point]['time']['Re']), np.zeros(self._pad_n))
-                psig = phases.signal(self.t_pts, v_pts, herm_n=herm_n, ang_n=ang_n)
+                psig = phases.signal(self.t_pts, v_pts, herm_n=herm_n, ang_n=ang_n, log_prior=self.lp)
                 self._raw_data[i,j,:] = psig.x
                 self.residuals[i,j] = psig.cost
                 #save figures if specified
@@ -319,8 +325,12 @@ class cluster_reader:
             cax.set_ylabel(parameter)
         return im
 
+clust_range=[]
+if args.point != '':
+    clust_range=[0,0]
+cr = cluster_reader(args.fname, args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
+
 if args.point == '':
-    cr = cluster_reader(args.fname, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs, herm_n=1)
     dx = cr._pts[0,1,0] - cr._pts[0,0,0]
     x_ext = int( (cr._pts[0,-1,0] - cr._pts[0,0,0])/dx )
     vlines = [x_ext - args.gap_width/dx, x_ext + args.gap_width/dx]
@@ -349,16 +359,12 @@ else:
     clust = "cluster_"+point_arr[0]
     j = int(point_arr[1])
     fig_name = "{}/fit_{}_{}".format(args.prefix, clust, j)
-    cr = cluster_reader(args.fname, clust_range=[0,0], prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
     #read the data and set up the signal analyzer
     v_pts, _ = cr.get_point_times(clust, j)
-
-
-    #plot phases before and after optimization
     freqs = fft.rfftfreq(len(cr.t_pts), d=cr.t_pts[1]-cr.t_pts[0])
     #get signals
-    psig_before = phases.signal(cr.t_pts, v_pts, skip_opt=True)
-    psig_after  = phases.signal(cr.t_pts, v_pts, skip_opt=False)
+    psig_before = phases.signal(cr.t_pts, v_pts, skip_opt=True, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp)
+    psig_after  = phases.signal(cr.t_pts, v_pts, skip_opt=False, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp)
     fit_series_0 = psig_before.get_fspace(freqs)
     fit_series_1 = psig_after.get_fspace(freqs)
     #set up the plot

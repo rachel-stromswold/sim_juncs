@@ -21,7 +21,7 @@ ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in th
 
 NOISY_N_PEAKS = 4
 
-verbose = 4
+verbose = 1
 
 '''
 To find starting Hermite-Gaussian coefficients, we use the orthoganality condition $\int H_n(a(x-x0))H_m(a(x-x0))e^{-a^2(x-x0)^2{ dx = \sqrt{pi} 2^n n! \delta_{nm}/a$. This lets us expand $|E(w)| = \sum_n k_n H_n(a(w-w0))e^{-a^2(w-w0)^2}$. However, we need terms of the form $|E(w)| = \sum_n c_{2n} H_n(a(w-w0))e^{-a^2(w-w0)^2}$ to ensure that the DC component vanishes. This function constructs a matrix, A, that takes $\bm{k} = A\bm{c}$. A will always be singular, so a small epsilon*w0 correction is added to the odd diagonals so that A^-1 exists at the cost of no longer making the coefficients exact. This is a small price since we plug the resulting c coefficients into gradient descent.
@@ -198,11 +198,11 @@ class signal:
             for m in range(herm_n):
                 emags += x[HERM_OFF+m]*HERMS[2*m](dw)
                 #gradients
-                demag = sign_dw*fs*(dw*HERMS[2*m](dw) - HERMS[2*m+1](dw))*np.exp(-dw**2/2)
-                de2mag = sign_dw*fs*( (1+dw**2)*HERMS[2*m](dw) - 2*dw*HERMS[2*m+1](dw) + HERMS[2*m+2](dw))*np.exp(-dw**2/2)
+                demag = sign_dw*(dw*HERMS[2*m](dw) - HERMS[2*m+1](dw))*np.exp(-dw**2/2)
+                de2mag = sign_dw*( (1+dw**2)*HERMS[2*m](dw) - 2*dw*HERMS[2*m+1](dw) + HERMS[2*m+2](dw))*np.exp(-dw**2/2)
                 mag_grads[:,2,:] += sign_dw*np.sign(x[2])*x[3]*x[HERM_OFF+m]*demag
                 mag_grads[:,3,:] += dw*x[HERM_OFF+m]*demag/x[3]
-                mag_grads[:,HERM_OFF+m,:] = sign_dw*fs*HERMS[2*m](dw)*np.exp(-dw**2/2)
+                mag_grads[:,HERM_OFF+m,:] = sign_dw*HERMS[2*m](dw)*np.exp(-dw**2/2)
                 #hessian
                 mag_hess[:,2,2,:] += x[3]**2*x[HERM_OFF+m]*de2mag
                 mag_hess[:,3,3,:] += dw**2*x[HERM_OFF+m]*de2mag/x[3]**2
@@ -249,7 +249,7 @@ class signal:
         print("\n====================================\n")
         def wrap_emags(x, dim=0):
             emags, _ = signal._fourier_env_formx(fs, x, herm_n, ang_n)
-            return np.sum(fs*emags[dim,:])
+            return np.sum(emags[dim,:])
         def grad_wrap_emags(x, dim=0):
             _, _, mag_grad, _, _, _ = signal._fourier_env_formx(fs, x, herm_n, ang_n, calc_grads=True)
             return np.sum(mag_grad[dim,:,:], axis=1)
@@ -290,17 +290,16 @@ class signal:
                 return signal._guess_params_opt(freqs, np.abs(vf), np.angle(vf), herm_n, ang_n, check_noise=False)
 
         def mag_res(x):
-            emags, _, mag_grads, _, _, _ = signal._fourier_env_formx(freqs, np.append(np.zeros(2), x), herm_n, 0, calc_grads=True)
-            emags = freqs*emags[0,:]
-            cc = np.sum( (emags-vfm)**2 )
-            return cc, 2*np.sum(mag_grads[0,2:]*np.tile(emags-vfm, herm_n+2).reshape(herm_n+2, freqs.shape[0]), axis=1)
+            emags, _, mag_grads, _, _, _ = signal._fourier_env_formx(freqs[1:], np.append(np.zeros(2), x), herm_n, 0, calc_grads=True)
+            cc = np.sum( (emags[0,:]-div_sig[1:])**2 )
+            return cc, 2*np.sum(mag_grads[0,2:]*np.tile(emags[0,:]-div_sig[1:], herm_n+2).reshape(herm_n+2, freqs.shape[0]-1), axis=1)
         def mag_hess(x):
             emags, _, grad_mag, _, hess_mag, _ = signal._fourier_env_formx(freqs, np.append(np.zeros(2), x), herm_n, 0, calc_grads=True)
-            emags *= freqs
-            return 2*np.sum(hess_mul(hess_mag[0,2:,2:], (emags[0,:]-vfm), herm_n+2) + grad_out(grad_mag[0,2:,:], grad_mag[0,2:,:], herm_n+2), axis=2)
+            return 2*np.sum(hess_mul(hess_mag[0,2:,2:], (emags[0,:]-div_sig), herm_n+2) + grad_out(grad_mag[0,2:,:], grad_mag[0,2:,:], herm_n+2), axis=2)
 
         t_start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-        opt_res = opt.minimize(mag_res, mag_x, jac=True, hess=mag_hess, method='trust-exact')
+        test_grads(lambda x: mag_res(x)[0], lambda x: mag_res(x)[1], mag_x)
+        opt_res = opt.minimize(mag_res, mag_x, jac=True)
         if verbose > 1:
             t_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)-t_start
             print("initial optimization {} in {} ns".format("succeeded" if opt_res.success else "failed", t_ns))
@@ -310,9 +309,9 @@ class signal:
         #TODO:delete
         '''emags_before, _ = signal._fourier_env_formx(freqs, np.append(np.zeros(2), mag_x), herm_n, 0, calc_grads=False)
         emags_after, _  = signal._fourier_env_formx(freqs, np.append(np.zeros(2), opt_res.x), herm_n, 0, calc_grads=False)
-        plt.plot(freqs, vfm)
-        plt.plot(freqs, freqs*emags_before[0,:])
-        plt.plot(freqs, freqs*emags_after[0,:])
+        plt.plot(freqs, div_sig)
+        plt.plot(freqs, emags_before[0,:])
+        plt.plot(freqs, emags_after[0,:])
         plt.show()'''
 
         x0 = np.zeros(HERM_OFF+herm_n+ang_n)
@@ -475,6 +474,7 @@ class signal:
             grad = np.zeros(x.shape)
             emags, eargs, grad_mag, grad_ang, _, _ = signal._fourier_env_formx(freqs, x, self.herm_n, self.ang_n, calc_grads=True)
             emags *= freqs
+            grad_mag *= freqs
             if discard_negative:
                 mag_gs = np.tile(emags[0,:]-self.vfm*np.cos(eargs[0,:]-self.vfa), nx).reshape(nx, freqs.shape[0])
                 mag_as = np.tile(emags[0,:]*self.vfm*np.sin(eargs[0,:]-self.vfa), nx).reshape(nx, freqs.shape[0])
@@ -492,11 +492,13 @@ class signal:
                 gcc = 2*np.sum(np.sum(mag_as*grad_ang + mag_gs*grad_mag, axis=0), axis=1)
             #return cc, gcc
             lp = log_prior(x)
-            return np.log(cc) + lp[0] - res_norm, gcc/cc + lp[1]
+            return np.log(cc) - lp[0] - res_norm, gcc/cc - lp[1]
         def hess_res(x):
             #phi=x[0], t_0=x[1], f_0=x[2], 1/sigma=x[3], c_0=x[4],..., t_1=x[4]...
             emags, eargs, grad_mag, grad_ang, hess_mag, hess_ang = signal._fourier_env_formx(freqs, x, self.herm_n, self.ang_n, calc_grads=True)
             emags *= freqs
+            grad_mag *= freqs
+            hess_mag *= freqs
             sign_dw = np.meshgrid(np.ones(nf), np.array([-1,1]))[1]
             sign_2dw = np.repeat(sign_dw, nx, axis=0).reshape(2,nx,nf)
             ret = np.zeros((nx, nx, nf))
@@ -525,7 +527,7 @@ class signal:
             gr = residuals(x)[1]
             #return 2*np.sum(ret, axis=2)
             lp = log_prior(x)
-            return 2*np.sum(ret, axis=2)/cc - np.outer(gr,gr) + lp[2]
+            return 2*np.sum(ret, axis=2)/cc - np.outer(gr,gr) - lp[2]
 
         #get guesses for initial parameters based on heuristics
         if x0 is not None:
@@ -558,7 +560,7 @@ class signal:
                 if not opt_res.success:
                     opt_res = opt.minimize(residuals, x0, jac=True)
                 '''ssize = np.sqrt( np.abs(0.5*residuals(x0)/np.diag(hess_res(x0))) )
-                opt_res = opt.basinhopping(residuals, x0, minimizer_kwargs={"method":method, "jac":True})'''
+                opt_res = opt.basinhopping(residuals, x0, minimizer_kwargs={"method":method, "jac":True, hess:hess_res})'''
             except:
                 #use bfgs as a fallback if trust-exact crashes
                 opt_res = opt.minimize(residuals, x0, jac=True)
