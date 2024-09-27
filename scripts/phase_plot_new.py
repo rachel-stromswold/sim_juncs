@@ -10,7 +10,7 @@ import h5py
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
-matplotlib.use('qtagg')
+#matplotlib.use('qtagg')
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 np.random.seed(3141592)
@@ -55,8 +55,8 @@ parser.add_argument('--use-prior', action='store_true', help='If set, then plot 
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
 parser.add_argument('--herm-n', type=int, help='number of Hermite-Gaussian terms to include in fits', default=3)
 parser.add_argument('--ang-n', type=int, help='half the degree of the polynomial used for fitting', default=3)
-parser.add_argument('--gap-width', type=float, help='junction width', default=0.1)
-parser.add_argument('--gap-thick', type=float, help='junction thickness', default=0.2)
+parser.add_argument('--gap-width', type=float, help='junction width (in meep units)', default=0.1)
+parser.add_argument('--gap-thick', type=float, help='junction thickness (in meep units)', default=0.2)
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--point', type=str, help='if specified (as a comma separated tuple where the first index is the cluster number and the second is the point index) make a plot of fit parameters for a single point', default='')
 args = parser.parse_args()
@@ -180,7 +180,7 @@ class cluster_reader:
         t_min = self.f['info']['time_bounds'][0]
         t_max = self.f['info']['time_bounds'][1]
         self.dt = self.f['info']['time_bounds'][2]
-        self.n_t_pts = self.f['info']['n_time_points'][0]
+        self.n_t_pts = int(self.f['info']['n_time_points'][0])
         if pad:
             next_b2 = int(np.ceil(np.log(self.n_t_pts)/np.log(2)))
             self._pad_n = (1 << next_b2) - self.n_t_pts
@@ -196,7 +196,7 @@ class cluster_reader:
         if phases.verbose > 0:
             print("setting up paramater reader:")
             print("\ttime bounds = ({}, {}) in {} pts".format(t_min, t_max, self.n_t_pts))
-            print("\tprior f0 = {}±{}".format(self.in_freq, self.freq_width))
+            print("\tprior f0 = {}\\pm{}".format(self.in_freq, self.freq_width))
         '''def log_prior(x):
             like = (x[2] - self.in_freq)**2/2/self.freq_width**2'''
         if use_prior:
@@ -204,7 +204,7 @@ class cluster_reader:
         else:
             self.lp = None
         #try loading precomputed data
-        data_name = "{}/dat_{}".format(prefix, fname.split('.')[0])
+        data_name = "{}/dat_{}".format(prefix, fname.split('/')[-1].split('.')[0])
         data_shape = (len(self.clust_names), clust_len, phases.HERM_OFF+herm_n+ang_n)
         if not recompute and os.path.exists(data_name):
             with open(data_name, 'rb') as dat_f:
@@ -333,17 +333,18 @@ class cluster_reader:
 clust_range=[]
 if args.point != '':
     clust_range=[0,0]
+print("loading ", args.fname)
 cr = cluster_reader(args.fname, args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
 
 if args.point == '':
     dx = cr._pts[0,1,0] - cr._pts[0,0,0]
     x_ext = int( (cr._pts[0,-1,0] - cr._pts[0,0,0])/dx )
-    vlines = [x_ext - args.gap_width/dx, x_ext + args.gap_width/dx]
+    vlines = [x_ext - args.gap_width/2/dx, x_ext + args.gap_width/2/dx + 1]
 
     phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
     cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
 
-    name_append = args.fname.split('.')[0]
+    name_append = args.fname.split('/')[-1].split('.')[0]
     fig, axs = plt.subplots(2)
     cr.make_heatmap(axs[0], "amplitude", vlines=vlines, cmap='magma', rng=[0,1])
     cr.make_heatmap(axs[1], "phase", vlines=vlines, cmap=cmap, rng=[-np.pi, np.pi])
@@ -355,7 +356,7 @@ if args.point == '':
     fig.savefig(args.prefix+"/htmp_residual_{}.svg".format(name_append), bbox_inches='tight')
     plt.close(fig)
     fig, axs = plt.subplots()
-    cr.make_heatmap(axs, "f0", vlines=vlines, cmap='magma', rng=[0,1])
+    cr.make_heatmap(axs, "f0", vlines=vlines, cmap='magma', rng=[max(0,cr.in_freq-2*cr.freq_width),cr.in_freq+2*cr.freq_width])
     fig.savefig(args.prefix+"/htmp_f0_{}.svg".format(name_append), bbox_inches='tight')
     plt.close(fig)
 else:

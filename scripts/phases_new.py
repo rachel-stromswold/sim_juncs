@@ -274,9 +274,9 @@ class signal:
         df = freqs[1] - freqs[0]
         div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
         mag_x = np.zeros(herm_n+2)
-        norm = 1/np.trapezoid(div_sig)
-        mag_x[0] = np.trapezoid(div_sig*freqs)*norm
-        mag_x[1] = 1/np.sqrt(np.trapezoid(div_sig*freqs**2)*norm - mag_x[0]**2)
+        norm = 1/np.trapz(div_sig)
+        mag_x[0] = np.trapz(div_sig*freqs)*norm
+        mag_x[1] = 1/np.sqrt(np.trapz(div_sig*freqs**2)*norm - mag_x[0]**2)
         mag_x[2] = -np.max(div_sig)
 
         if check_noise:
@@ -319,6 +319,8 @@ class signal:
         x0[2] = abs(x0[2])
         lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
         #now guess angles
+        if hi_fi <= lo_fi:
+            return x0, 1, 2
         res = linregress(freqs[lo_fi:hi_fi], fix_angle_seq(vfa[lo_fi:hi_fi]))
         x0[0] = fix_angle(res.intercept)
         x0[1] = -res.slope
@@ -331,9 +333,9 @@ class signal:
         x0 = np.zeros(ang_off+ang_n)
         #estimate the central frequency and envelope width in frequency space
         div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
-        norm = 1/np.trapezoid(div_sig)
-        x0[2] = np.trapezoid(div_sig*freqs)*norm
-        x0[3] = 1/np.sqrt(np.trapezoid(div_sig*freqs**2)*norm - x0[2]**2) 
+        norm = 1/np.trapz(div_sig)
+        x0[2] = np.trapz(div_sig*freqs)*norm
+        x0[3] = 1/np.sqrt(np.trapz(div_sig*freqs**2)*norm - x0[2]**2) 
         x0[HERM_OFF] = -np.max(div_sig)
         lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
         peaks, props = ssig.find_peaks(div_sig, height=np.max(div_sig)*rel_height)
@@ -350,7 +352,7 @@ class signal:
             dd = x0[3]*(freqs-x0[2])
             herm_den = np.sqrt(np.pi)
             for m in range(herm_n):
-                x0[HERM_OFF+m] = np.trapezoid(div_sig*HERMS[2*m](dd)*np.exp(-dd**2/2), dx=df*x0[3])/herm_den
+                x0[HERM_OFF+m] = np.trapz(div_sig*HERMS[2*m](dd)*np.exp(-dd**2/2), dx=df*x0[3])/herm_den
                 herm_den *= 4*(m+1)*(m+2)'''
 
         #guess the phase and central time
@@ -367,9 +369,9 @@ class signal:
 
         df = freqs[1] - freqs[0]
         #estimate the central frequency and envelope width in frequency space
-        norm = 1/np.trapezoid(vfm[1:]/freqs[1:])
-        x0[2] = np.trapezoid(vfm)*norm
-        x0[3] = 2/np.sqrt(np.trapezoid(vfm*freqs)*norm - x0[2]**2)
+        norm = 1/np.trapz(vfm[1:]/freqs[1:])
+        x0[2] = np.trapz(vfm)*norm
+        x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)*norm - x0[2]**2)
         lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
         dd = x0[3]*(freqs-x0[2])
         #check whether noise was detected using the number of appreciable peaks (magnitude greater than a half of the largest)
@@ -417,8 +419,8 @@ class signal:
         ks = np.zeros(2*herm_n)
         cs = np.zeros(2*herm_n)
         for m in range(2*herm_n):
-            ks[m] = np.trapezoid(vfm*HERMS[m](dd)*np.exp(-dd**2/2), dx=df)/herm_den
-            cs[m] = np.trapezoid(vfm*HERMS[m](dd)*np.exp(-dd**2/2)/freqs[lo_fi:hi_fi], dx=df)/herm_den
+            ks[m] = np.trapz(vfm*HERMS[m](dd)*np.exp(-dd**2/2), dx=df)/herm_den
+            cs[m] = np.trapz(vfm*HERMS[m](dd)*np.exp(-dd**2/2)/freqs[lo_fi:hi_fi], dx=df)/herm_den
             k_ser += ks[m]*HERMS[m](dd)*np.exp(-dd**2/2)
             herm_den *= 2*(m+1)
         ks *= np.max(vfm)/np.max(k_ser)
@@ -556,7 +558,13 @@ class signal:
             xf = x0
         else:
             try:
-                opt_res = opt.minimize(residuals, x0, jac=True, hess=hess_res, method='trust-exact')
+                n_calls = 1
+                def print_cb(x):
+                    if n_calls % 5 == 0:
+                        print("#", end="")
+                    n_calls += 1
+                opt_res = opt.minimize(residuals, x0, jac=True, hess=hess_res, method='trust-exact', callback=print_cb)
+                print(" ")
                 if not opt_res.success:
                     opt_res = opt.minimize(residuals, x0, jac=True)
                 '''ssize = np.sqrt( np.abs(0.5*residuals(x0)/np.diag(hess_res(x0))) )
@@ -590,7 +598,9 @@ class signal:
             self.cost = residuals(xf)[0]
             self.residual = self.cost + log_prior(xf)[0]
             if verbose > 0:
-                print( "R^2 = ", 1-np.exp(self.residual) )
+                print( "R^2 = ", 1-np.exp(self.residual), "n_it = ", opt_res.nit )
+        if verbose > 1:
+            print("nfev =", opt_res.nfev, "njev =", opt_res.njev, "nhev =", opt_res.njev)
 
     def get_fspace(self, freqs):
         #TODO: include negative frequency terms
@@ -638,6 +648,6 @@ class signal:
     '''
     def get_eff_t0_phi(self, ts):
         tenv = np.abs(self.get_tenv(ts))
-        t0 = np.trapezoid(tenv*ts)/np.trapezoid(tenv)
+        t0 = np.trapz(tenv*ts)/np.trapz(tenv)
         phi = 2*np.pi*self.f0*(t0 - self.t0) + self.phi
         return t0, phi
