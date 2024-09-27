@@ -78,6 +78,7 @@ typedef struct {
 
 void allocate(data_arr* dat);
 void make_data_arr(data_arr* dat, _ulong size);
+void make_data_arr_zeros(data_arr* dat, _ulong b_size);
 void resize(data_arr* dat, _ulong new_size);
 void cleanup_data_arr(data_arr* dat);
 void add_point(data_arr* dat, complex val);

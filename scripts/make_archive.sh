@@ -1,21 +1,30 @@
 #!/bin/bash
 
+res_dir="/scratch/$(whoami)/results"
 prefix=$(timedatectl | awk '$1 == "Local" {tmp=$4"_"$5;gsub(/[-,:]/, "_", tmp);print "reses_"tmp}')
 
 echo "copying files to $prefix"
 
 #copy all of the plots
-cp -r /scratch/sstromsw/junc_simuls results/$prefix
+src_dir="/scratch/$(whoami)"
+if [ $# -ge 1 ]; then
+    src_dir="$src_dir/$1"
+else
+    src_dir="$src_dir/junc_simuls"
+fi
+cp -r $src_dir "$res_dir/$prefix"
 
 #move the log files into the archive
 for fname in *.out; do
-    mv "$fname" "results/$prefix/$fname"
+    mv "$fname" "$res_dir/$prefix/$fname"
 done
 
 #copy whatever parameters were used for the simulation
-cp run.sh "results/$prefix/run.sh"
-cp params.conf "results/$prefix/params.conf"
-cp junc_template.geom "results/$prefix/junc_template.geom"
+cp run.sh "$res_dir/$prefix/run.sh"
+cp params.conf "$res_dir/$prefix/params.conf"
+for jfname in junc*; do
+    cp "$jfname" "$res_dir/$prefix/$jfname.geom"
+done
 
 #make the archive
-tar -cvf results/"$prefix".tar.gz results/$prefix
+tar -cvf $res_dir/"$prefix".tar.gz $res_dir/$prefix

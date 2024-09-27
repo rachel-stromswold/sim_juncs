@@ -39,13 +39,28 @@ _ftype abs(complex z) {
 // ================================ data struct ================================
 
 /**
- * Initialize an empty data array
+ * Initialize an empty data array with enough memory allocated to hold b_size elements
  */
-void make_data_arr(data_arr* dat, _ulong size) {
+void make_data_arr(data_arr* dat, _ulong b_size) {
     if (dat) {
-	dat->size = size;
-	dat->buf_size = size;
-	dat->buf = (complex*)malloc(sizeof(complex)*dat->buf_size);
+	dat->size = 0;
+	dat->buf_size = b_size;
+	dat->buf = (complex*)malloc(sizeof(complex)*b_size);
+	//check to make sure allocation was successful
+	if (!dat->buf) {
+	    dat->buf_size = 0;
+	}
+    }
+}
+
+/**
+ * Initialize an data array of size b_size that is initialized with zeros
+ */
+void make_data_arr_zeros(data_arr* dat, _ulong b_size) {
+    if (dat) {
+	dat->size = b_size;
+	dat->buf_size = b_size;
+	dat->buf = (complex*)calloc(b_size, sizeof(complex));
 	//check to make sure allocation was successful
 	if (!dat->buf) {
 	    dat->size = 0;
@@ -102,7 +117,7 @@ complex& data_arr::operator[](size_t i) {
 data_arr::data_arr(std::vector<complex> in_pts) {
     size = in_pts.size();
     buf_size = size;
-    buf = (complex*)malloc(buf_size);
+    buf = (complex*)malloc(sizeof(complex)*buf_size);
     //check to make sure allocation was successful
     if (!buf) {
 	size = 0;
@@ -223,7 +238,7 @@ int pw_mult(data_arr a, const data_arr b) {
 	tmp_re = a.buf[k].re*b.buf[k].re - a.buf[k].im*b.buf[k].im;
 	tmp_im = a.buf[k].re*b.buf[k].im + a.buf[k].im*b.buf[k].re;
 	a.buf[k].re = tmp_re;
-	a.buf[k].re = tmp_im;
+	a.buf[k].im = tmp_im;
     }
     return 0;
 }
@@ -384,8 +399,8 @@ void part_fft(dat_helper help, _ulong span, _ulong rem) {
 	_ulong new_span = 2*span;
 
 	//recursively take left and right branches in the remainder
-	part_rfft(help, new_span, rem);
-	part_rfft(help, new_span, rem+span);
+	part_fft(help, new_span, rem);
+	part_fft(help, new_span, rem+span);
 	/*for (_ulong k = 0; k < tmp_sto.size; ++k) {
 	    help.sto.buf[k] += ( sto_left.buf[k] + sto_right.buf[k]*c_exp(-I*phase_fact*span) )*c_exp(-I*phase_fact*span*k);
 	}*/
@@ -402,9 +417,7 @@ data_arr fft(const data_arr dat) {
 
     //allocate space for the final result
     data_arr final_result;
-    make_data_arr(&final_result, truncated_size);
-    complex null_val = {0.0, 0.0};
-    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+    make_data_arr_zeros(&final_result, truncated_size);
 
     //make a helper object that keeps track of information over recursive steps
     dat_helper help = {dat, truncated_size, 2*(_ftype)M_PI/dat.size, final_result};
@@ -423,9 +436,7 @@ data_arr ifft(const data_arr dat) {
 
     //allocate space for the final result
     data_arr final_result;
-    make_data_arr(&final_result, truncated_size);
-    complex null_val = {0.0, 0.0};
-    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+    make_data_arr_zeros(&final_result, truncated_size);
 
     //make a helper object that keeps track of information over recursive steps
     dat_helper help = {dat, truncated_size, -2*(_ftype)M_PI/dat.size, final_result};
@@ -444,9 +455,7 @@ data_arr rfft(const data_arr dat) {
 
     //allocate space for the final result
     data_arr final_result;
-    make_data_arr(&final_result, truncated_size/2);
-    complex null_val = {0.0, 0.0};
-    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+    make_data_arr_zeros(&final_result, truncated_size/2);
 
     //make a helper object that keeps track of information over recursive steps
     dat_helper help = {dat, truncated_size, 2*(_ftype)M_PI/dat.size, final_result};
@@ -465,9 +474,7 @@ data_arr irfft(const data_arr dat) {
 
     //allocate space for the final result
     data_arr final_result;
-    make_data_arr(&final_result, truncated_size/2);
-    complex null_val = {0.0, 0.0};
-    for (_ulong k = 0; k < final_result.size; ++k) final_result.buf[k] = null_val;
+    make_data_arr_zeros(&final_result, truncated_size/2);
 
     //make a helper object that keeps track of information over recursive steps
     dat_helper help = {dat, truncated_size, 2*(_ftype)M_PI/dat.size, final_result};

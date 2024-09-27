@@ -24,6 +24,8 @@
 #define CAM_Y	1.1
 #define CAM_Z	1.1
 
+#define LIGHT_SPEED	0.299792458
+
 #define CLUSTER_NAME "cluster_"
 #define POINT_NAME "point_"
 
@@ -45,7 +47,7 @@ typedef struct {
 } region_scale_pair;
 
 //TODO: place this in context to handle this more elegantly
-context context_from_settings(parse_settings& args);
+context context_from_settings(const parse_settings& args);
 
 /**
  * This is identical to the simple_material_function, but each term is multiplied by a constant scalar
@@ -103,28 +105,30 @@ public:
     //double cutoff;
     double amplitude;
 
-    source_info(value info, parse_ercode* ercode);
+    source_info(value info, parse_ercode& ercode);
 };
 
 // Gaussian-envelope source with given frequency, width, peak-time, cutoff and phase
 class gaussian_src_time_phase : public meep::src_time {
 public:
-    gaussian_src_time_phase(double f, double fwidth, double phase, double s = 5.0);
+    //gaussian_src_time_phase(double f, double fwidth, double phase, double s = 5.0);
     gaussian_src_time_phase(double f, double w, double phase, double start_time, double end_time);
-    virtual ~gaussian_src_time_phase() {}
+    //virtual ~gaussian_src_time_phase() {}
 
     virtual std::complex<double> dipole(double time) const;
     virtual double last_time() const { return float(peak_time + cutoff); };
     virtual src_time *clone() const { return new gaussian_src_time_phase(*this); }
     virtual bool is_equal(const src_time &t) const;
     virtual std::complex<double> frequency() const { return omega/(2*M_PI); }
-    virtual double get_fwidth() const { return fwidth; };
-    virtual void set_fwidth(double fw) { fwidth = fw; };
+    virtual double get_omega() const { return omega; };
+    virtual double get_width() const { return width; };
+    virtual double get_fwidth() const { return 1.0/width; };
+    virtual void set_width(double w) { width = w; };
     virtual void set_frequency(std::complex<double> f) { omega = 2*M_PI*real(f); }
     std::complex<double> fourier_transform(const double f);
 
 private:
-    double omega, fwidth, width, phi, peak_time, cutoff;
+    double omega, width, phi, peak_time, cutoff;
     std::complex<double> amp;
 };
 
@@ -137,7 +141,7 @@ struct sto_vec {
 
 class bound_geom {
 public:
-    bound_geom(const parse_settings& s, context con, parse_ercode* ercode=NULL);
+    bound_geom(const parse_settings& s, parse_ercode* ercode=NULL);
     ~bound_geom();
     std::vector<meep::vec> get_monitor_locs() { return monitor_locs; }
     std::vector<std::vector<complex>> get_field_times() { return field_times; }
@@ -157,8 +161,8 @@ public:
 
 #ifdef DEBUG_INFO
     std::vector<drude_suscept> parse_susceptibilities(value val, int* er);
-    meep::structure* structure_from_settings(const parse_settings& s, scene& problem, parse_ercode* ercode);
-    parse_ercode parse_monitors(composite_object* comp);
+    meep::structure* structure_from_settings(const parse_settings& s, scene& problem);
+    parse_ercode parse_monitors(value vl);
 #endif
 
 private:
@@ -185,7 +189,7 @@ private:
     double len;
     double z_center;
     double eps_scale;
-    _uint dump_span = 20;
+    _uint save_span = 20;
     bool dump_raw = false;
 
 #ifndef DEBUG_INFO

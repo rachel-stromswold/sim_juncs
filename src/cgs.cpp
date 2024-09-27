@@ -18,20 +18,6 @@ void object::rescale(const vec3& components) {
     trans_mat = trans_mat*(components.make_diagonal());
 }
 
-uint32_t lcg(uint32_t state) { return state*1664525 + 1013904223; }//LCG PRNG with parameters from Numerical Recipes
-vec3 random_vec(uint32_t* sto_state, double range) {
-    vec3 ret;
-    uint32_t state = *sto_state;
-    state = lcg(state);
-    ret.el[0] = (double)range*state/UINT32_MAX;
-    state = lcg(state);
-    ret.el[1] = (double)range*state/UINT32_MAX;
-    state = lcg(state);
-    ret.el[2] = (double)range*state/UINT32_MAX;
-    *sto_state = lcg(state);
-    return ret;
-}
-
 /** ======================================================== sphere ======================================================== **/
 
 sphere::sphere(vec3& p_center, double p_rad, int p_invert) : object(p_invert) {
@@ -133,15 +119,160 @@ int cylinder::in(const vec3& r) {
 
 /** ======================================================== composite_object ======================================================== **/
 
-composite_object::composite_object(combine_type p_cmb) {
+parse_ercode make_object(context* inst, object** ptr, object_type* type, int p_invert, stack<mat3x3>& transform_stack) {
+    parse_ercode er = E_SUCCESS;
+    value type_val = inst->lookup("__type__");
+    if (type_val.type == VAL_STR) {
+	if (strcmp(type_val.val.s, "Box") == 0) {
+	    parse_ercode er1;
+	    value pt_1 = inst->lookup("pt_1").cast_to(VAL_3VEC, er1);
+	    value pt_2 = inst->lookup("pt_2").cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS || er1 != E_SUCCESS) {
+		printf("Error: Box() supplied value that was not a valid vector");
+		if (er == E_SUCCESS) er = er1;
+		goto clean_box;
+	    }
+	    if (ptr) *ptr = new box(*(pt_1.val.v), *(pt_2.val.v), p_invert);
+	    if (type) *type = CGS_BOX;
+clean_box:
+	    cleanup_val(&pt_1);
+	    cleanup_val(&pt_2);
+	    return er;
+	} else if (strcmp(type_val.val.s, "Plane") == 0) {
+	    value offset = inst->lookup("offset");
+	    if (offset.type != VAL_NUM) { er = E_BAD_TYPE; return er; }
+	    value normal = inst->lookup("normal").cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS)
+		goto clean_plane;
+	    if (ptr) *ptr = new plane(*(normal.val.v), offset.val.x, p_invert);
+	    if (type) *type = CGS_PLANE;
+clean_plane:
+	    cleanup_val(&normal);
+	    return er;
+	} else if (strcmp(type_val.val.s, "Sphere") == 0) {
+	    value radius = inst->lookup("radius");
+	    if (radius.type != VAL_NUM) { er = E_BAD_TYPE; return er; }
+	    value center = inst->lookup("center").cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS)
+		goto clean_sphere;
+	    if (ptr) *ptr = new sphere(*(center.val.v), radius.val.x, p_invert);
+	    if (type) *type = CGS_SPHERE;
+clean_sphere:
+	    cleanup_val(&center);
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Cylinder") == 0) {
+	    value h = inst->lookup("h");
+	    value r1 = inst->lookup("r1");
+	    value r2 = inst->lookup("r2");
+	    if (h.type != VAL_NUM || r1.type != VAL_NUM || r2.type != VAL_NUM) { er = E_BAD_TYPE; return er; }
+	    value center = inst->lookup("center").cast_to(VAL_3VEC, er);
+	    if (er != E_SUCCESS)
+		goto clean_cylinder;
+	    if (ptr) *ptr = new cylinder(*(center.val.v), h.val.x, r1.val.x, r2.val.x, p_invert);
+	    if (type) *type = CGS_CYLINDER;
+clean_cylinder:
+	    cleanup_val(&center);
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Union") == 0) {
+	    value gv = inst->lookup("geometry");
+	    if (gv.type != VAL_LIST) { er = E_BAD_TYPE; return er; }
+	    if (ptr) *ptr = new composite_object(CGS_UNION, gv.val.l, gv.n_els, p_invert, transform_stack);
+	    if (type) *type = CGS_COMPOSITE;
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Intersect") == 0) {
+	    value gv = inst->lookup("geometry");
+	    if (gv.type != VAL_LIST) { er = E_BAD_TYPE; return er; }
+	    if (ptr) *ptr = new composite_object(CGS_INTERSECT, gv.val.l, gv.n_els, p_invert, transform_stack);
+	    if (type) *type = CGS_COMPOSITE;
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Complement") == 0) {
+	    if (ptr) *ptr = NULL;
+	    if (type) *type = CGS_COMP_INVERT;
+	    return E_SUCCESS;
+	} else if (strcmp(type_val.val.s, "Rotate") == 0) {
+	    if (ptr) *ptr = NULL;
+	    if (type) *type = CGS_COMP_ROTATE;
+	    return E_SUCCESS;
+	}
+    }
+    if (ptr) *ptr = NULL;
+    if (type) *type = CGS_UNDEF;
+    return E_BAD_VALUE;
+}
+
+composite_object::composite_object(combine_type p_cmb) : object(false) {
     children[0] = NULL;
     children[1] = NULL;
     cmb = p_cmb;
 }
 
+void composite_object::append(composite_object** lc_ptr, object* obj, object_type type, bool is_last) {
+    if (!lc_ptr) return;
+    if ((*lc_ptr)->get_child_l() == NULL) {
+	(*lc_ptr)->add_child(0, obj, type);
+    } else if (is_last) {
+	(*lc_ptr)->add_child(1, obj, type);
+    } else {
+	composite_object* ncobj = new composite_object(cmb);
+	(*lc_ptr)->add_child(1, ncobj, CGS_COMPOSITE);
+	*lc_ptr = ncobj;
+	(*lc_ptr)->add_child(0, obj, type);
+    }
+}
+
+void composite_object::init_from_list(value* l, size_t n, stack<mat3x3>& transform_stack) {
+    //setup reading of the geometry
+    object_stack tree_pos;
+    stack<block_type> blk_stack;
+    block_type last_type = BLK_UNDEF;
+    composite_object* last_comp = this;
+    int invert = 0;
+    //keep track of transformations
+    mat3x3 trans_mat = mat3x3::id();
+    for (size_t i = 1; i <= transform_stack.size(); ++i) {
+	trans_mat = trans_mat*transform_stack.peek(i);
+    }
+    for (size_t i = 0; i < n; ++i) {
+	value g_obj = l[i];
+	if (g_obj.type == VAL_INST) {
+	    object* obj = NULL;
+	    object_type type;
+	    parse_ercode er = make_object(g_obj.val.c, &obj, &type, invert, transform_stack);
+	    if (er) {
+		printf("Encountered error generating composite object code %d.\n", er);
+		break;
+	    }
+	    if (!obj) {
+		//transformation objects are a special case that we handle here
+		if (type) {
+		    if (type == CGS_COMP_INVERT) {
+			invert = 1 - invert;
+			blk_stack.push(BLK_INVERT);
+			obj = new composite_object(cmb, g_obj.val.c, 1-invert, transform_stack);
+			append(&last_comp, obj, CGS_COMPOSITE, (i==n-1));
+		    } else if (type  == CGS_COMP_ROTATE) {
+			value va = g_obj.val.c->lookup("axis");
+			value vt = g_obj.val.c->lookup("theta");
+			if (va.type == VAL_3VEC && vt.type == VAL_NUM) {
+			    mat3x3 tmp = make_rotation(vt.val.x, *(va.val.v));
+			    transform_stack.push(tmp);
+			    obj = new composite_object(cmb, g_obj.val.c, invert, transform_stack);
+			    append(&last_comp, obj, CGS_COMPOSITE, (i==n-1));		    
+			}
+		    }
+		}
+	    } else {
+		obj->set_trans_mat(trans_mat);
+		append(&last_comp, obj, type, (i==n-1));
+	    }
+	}
+    }
+}
+
 composite_object::composite_object(combine_type p_cmb, const cgs_func& spec, int p_invert) : object(p_invert) {
     children[0] = NULL;
     children[1] = NULL;
+    cmb = p_cmb;
     //iterate through arguments and add them to the metadata
     for (_uint i = 0; i < spec.n_args; ++i) {
 	if (spec.arg_names[i]) {
@@ -150,7 +281,35 @@ composite_object::composite_object(combine_type p_cmb, const cgs_func& spec, int
 	    metadata[tok_cpp] = copy_val(spec.args[i]);
 	}
     }
+}
+
+composite_object::composite_object(combine_type p_cmb, value* list, size_t n_els, int p_invert, stack<mat3x3>& transform_stack) : object(p_invert) {
+    children[0] = NULL;
+    children[1] = NULL;
+    child_types[0] = CGS_UNDEF;
+    child_types[1] = CGS_UNDEF;
     cmb = p_cmb;
+    init_from_list(list, n_els, transform_stack);
+}
+
+composite_object::composite_object(combine_type p_cmb, context* inst, int p_invert, stack<mat3x3>& transform_stack) : object(p_invert) {
+    children[0] = NULL;
+    children[1] = NULL;
+    child_types[0] = CGS_UNDEF;
+    child_types[1] = CGS_UNDEF;
+    cmb = p_cmb;
+    //read metadata
+    size_t n_args = inst->size()-1;
+    for (size_t i = 2; i <= n_args; ++i) {
+	name_val_pair p = inst->inspect(i);
+	std::string tok_cpp(p.get_name());
+	metadata[tok_cpp] = copy_val(p.get_val());
+    }
+    //get the geometry data
+    value tmp_val = inst->peek_val();
+    if (tmp_val.type == VAL_LIST) {
+	init_from_list(tmp_val.val.l, tmp_val.n_els, transform_stack);
+    } 
 }
 
 /**
@@ -287,134 +446,6 @@ int composite_object::in(const vec3& r) {
     return invert;
 }
 
-/**
- * Based on the declaration syntax produce the appropriate geometric shape and store the result in ptr. Ptr must not be initialized before a call to this function to avoid a memory leak.
- * returns: 0 on success or an error code
- */
-parse_ercode scene::make_object(const cgs_func& f, object** ptr, object_type* type, int p_invert) const {
-    *ptr = NULL;
-    parse_ercode er = E_SUCCESS;
-
-    if (!f.name) return E_BAD_TOKEN;
-    //switch between all potential types
-    if (strcmp(f.name, "Box") == 0) {
-	if (f.n_args < 2) return E_LACK_TOKENS;
-	//if we have enough tokens make sure we have both elements as vectors
-	value corn_1 = f.args[0].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS) return er;
-	value corn_2 = f.args[1].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS) return er;
-	//make the box
-	if (ptr) *ptr = new box(*(corn_1.val.v), *(corn_2.val.v), p_invert);
-	if (type) *type = CGS_BOX;
-	//cleanup
-	cleanup_val(&corn_1);
-	cleanup_val(&corn_2);
-    } else if (strcmp(f.name, "Plane") == 0) {
-	if (f.n_args < 2) return E_LACK_TOKENS;
-	if (f.n_args < 3) {
-	    //this means we have a normal vector and an offset
-	    value corn_1 = f.args[0].cast_to(VAL_3VEC, er);
-	    if (er != E_SUCCESS || f.args[1].type != VAL_NUM) return E_BAD_VALUE;
-	    //make the plane
-	    if (ptr) *ptr = new plane(*(corn_1.val.v), f.args[1].val.x);
-	    if (type) *type = CGS_PLANE;
-	    cleanup_val(&corn_1);
-	} else {
-	    //this means we have three points defining the plane
-	    value corn_1 = f.args[0].cast_to(VAL_3VEC, er);
-	    if (er != E_SUCCESS) return er;
-	    value corn_2 = f.args[1].cast_to(VAL_3VEC, er);
-	    if (er != E_SUCCESS) return er;
-	    value corn_3 = f.args[2].cast_to(VAL_3VEC, er);
-	    if (er != E_SUCCESS) return er;
-	    //make the plane
-	    if (ptr) *ptr = new plane(*(corn_1.val.v), *(corn_2.val.v), *(corn_3.val.v));
-	    if (type) *type = CGS_PLANE;
-	    cleanup_val(&corn_1);
-	    cleanup_val(&corn_2);
-	    cleanup_val(&corn_3);
-	}
-    } else if (strcmp(f.name, "Sphere") == 0) {
-	if (f.n_args < 2) return E_LACK_TOKENS;
-	//if we have enough tokens make sure we have both elements as vectors
-	value cent = f.args[0].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS || f.args[1].type != VAL_NUM) return E_BAD_VALUE;
-	double rad = f.args[1].val.x;
-	if (ptr) *ptr = new sphere(*(cent.val.v), rad, p_invert);
-	if (type) *type = CGS_SPHERE;
-	//cleanup
-	cleanup_val(&cent);
-    } else if (strcmp(f.name, "Cylinder") == 0) {
-	if (f.n_args < 3) return E_LACK_TOKENS;
-	value cent = f.args[0].cast_to(VAL_3VEC, er);
-	if (er != E_SUCCESS || f.args[1].type != VAL_NUM || f.args[2].type != VAL_NUM) return E_BAD_VALUE;
-	double h = f.args[1].val.x;
-	double r1 = f.args[2].val.x;
-	//by default assume that the radii are the same
-	double r2 = r1;
-	if (f.n_args > 3) {
-	    if (f.args[3].type != VAL_NUM) return E_BAD_VALUE;
-	    r2 = f.args[3].val.x;
-	}
-	if (ptr) *ptr = new cylinder(*(cent.val.v), h, r1, r2, p_invert);
-	if (type) *type = CGS_CYLINDER;
-	//cleanup
-	cleanup_val(&cent);
-    } else if (strcmp(f.name, "Composite") == 0) {
-	if (ptr) *ptr = new composite_object(CGS_UNION, f, p_invert);
-	if (type) *type = CGS_ROOT;
-    } else if (strcmp(f.name, "union") == 0) {
-	if (ptr) *ptr = new composite_object(CGS_UNION, f, p_invert);
-	if (type) *type = CGS_COMPOSITE;
-    } else if (strcmp(f.name, "intersect") == 0) {
-	if (ptr) *ptr = new composite_object(CGS_INTERSECT, f, p_invert);
-	if (type) *type = CGS_COMPOSITE;
-    } else if (strcmp(f.name, "difference") == 0) {
-	if (ptr) *ptr = new composite_object(CGS_DIFFERENCE, f, p_invert);
-	if (type) *type = CGS_COMPOSITE;
-    } else if (strcmp(f.name, "data") == 0) {
-	if (ptr) *ptr = new composite_object(CGS_CMB_NOOP, f, p_invert);
-	if (type) *type = CGS_DATA;
-    } else {
-	if (ptr) *ptr = NULL;
-	if (type) *type = CGS_UNDEF;
-    }
-
-    return E_SUCCESS;
-}
-
-/**
- * Produce an appropriate transformation matrix
- */
-parse_ercode scene::make_transformation(const cgs_func& f, mat3x3& res) const {
-    parse_ercode er = E_SUCCESS;
-
-    if (!f.name) return E_BAD_TOKEN;
-    //switch between all potential types
-    if (strcmp(f.name, "rotate") == 0) {
-	if (f.n_args < 2) return E_LACK_TOKENS;
-	if (f.args[0].type != VAL_NUM || f.args[1].type != VAL_3VEC) return E_BAD_VALUE;
-	double angle = f.args[0].val.x;
-	res = make_rotation(angle, *(f.args[1].val.v));
-	return E_SUCCESS;
-    } else if (strcmp(f.name, "scale") == 0) {
-	if (f.n_args < 1) return E_LACK_TOKENS;
-	vec3 scale;
-	if (f.args[0].type == VAL_3VEC) {
-	    scale = *(f.args[0].val.v);
-	} else if (f.args[0].type == VAL_NUM) {
-	    double val = f.args[0].val.x;
-	    scale.x() = val;
-	    scale.y() = val;
-	    scale.z() = val;
-	}
-	res = scale.make_diagonal();
-	return E_SUCCESS;
-    }
-    return E_BAD_TYPE;
-}
-
 /** ============================ object_stack ============================ **/
 
 /**
@@ -476,242 +507,86 @@ parse_ercode scene::fail_exit(parse_ercode er, FILE* fp) {
     return er;
 }
 
-instance::instance(cgs_func decl) : type(decl.name) {
-    fields.reserve(decl.n_args);
-    value def_val;def_val.n_els = 0;def_val.type = VAL_UNDEF;def_val.val.x = 0;
-    for (size_t i = 0; i < decl.n_args; ++i) {
-	//if a default value was supplied, use that. Otherwise use an undefined initial value
-	if (decl.args[i].type != VAL_UNDEF) {
-	    fields.emplace_back(decl.arg_names[i], decl.args[i]);
-	} else {
-	    fields.emplace_back(decl.args[i].val.s, def_val);
-	}
-    }
-}
-
 parse_ercode scene::read_file(const char* p_fname) {
     parse_ercode er = E_SUCCESS;
 
-    //generate the composite object on the fly
-    object_stack tree_pos;
-    stack<block_type> blk_stack;
-    block_type last_type = BLK_UNDEF;
-    composite_object* last_comp = NULL;
-    int invert = 0;
-    //keep track of transformations
-    stack<mat3x3> transform_stack;
-    mat3x3 cur_trans_mat;
-    mat3x3 next_trans_mat;
+    size_t init_size = named_items.size();
+    line_buffer lb(p_fname);
+    er = named_items.read_from_lines(lb);
+    if (er != E_SUCCESS) return er;
 
-    //open the file for reading and read individual lines. We need to remove whitespace. Handily, we know the line length once we're done.
-    FILE* fp = NULL;
-    if (p_fname) {
-        fp = fopen(p_fname, "r");
-    }
-    if (fp) {
-	char* buf = (char*)malloc(sizeof(char)*BUF_SIZE);
-	size_t buf_size = BUF_SIZE;
-	size_t lineno = 1;size_t next_lineno = 1;
-	int line_len = read_cgs_line(&buf, &buf_size, fp, &next_lineno);
-	char last_char = 0;
-	//iterate over each line in the file
-	//while (fgets(buf, BUF_SIZE, fp)) {//}
-	while (line_len >= 0) {
-	    //char* red_str = CGS_trim_whitespace(buf, &line_len);
-	    for (int i = 0; i < line_len && buf[i]; ++i) {
-		//check the most recent block pushed onto the stack
-		block_type cur_type = BLK_UNDEF;
-		if (blk_stack.size() > 0) cur_type = blk_stack.peek();
-		//only interpret as normal code if we aren't in a comment or literal block
-		if (cur_type != BLK_COMMENT && cur_type != BLK_LITERAL) {
-		    //check for function calls
-		    if (buf[i] == '(' && blk_stack.peek() != BLK_LITERAL) {
-			//initialize a new cgs_func with the appropriate arguments
-			cgs_func cur_func;
-			char* endptr;
-			cur_func = named_items.parse_func(buf, i, er, &endptr);
-			switch (er) {
-			    case E_BAD_TOKEN:
-				printf("Error on line %d: Invalid function name \"%s\"\n", lineno, buf);
-				free(buf);
-				cleanup_func(&cur_func);
-				return fail_exit(er, fp);
-			    case E_BAD_SYNTAX:
-				printf("Error on line %d: Invalid syntax\n", lineno);
-				free(buf);
-				cleanup_func(&cur_func);
-				return fail_exit(er, fp);
-			    default: break;
-			}
-			//check for class and function declarations
-			char* dectype_start = token_block(cur_func.name, "def");
-			if (dectype_start) {
-			    cur_func.name = CGS_trim_whitespace(cur_func.name + KEY_DEF_LEN, NULL);
-
-			    //TODO: finish
-			} else if (dectype_start = token_block(cur_func.name, "class")) {
-			    cur_func.name = CGS_trim_whitespace(cur_func.name + KEY_CLASS_LEN, NULL);
-			    value tmp_val;
-			    tmp_val.type = VAL_INST;
-			    tmp_val.val.i = new instance(cur_func);
-			    tmp_val.n_els = cur_func.n_args;
-			}
-			//try interpreting the function as a geometric object
-			object* obj = NULL;
-			object_type type;
-			make_object(cur_func, &obj, &type, invert);
-			if (!obj) {
-			    mat3x3 tmp;
-			    //if that failed try interpreting it as an operation (TODO: are there any useful things to put here?)
-			    if (strcmp(cur_func.name, "invert") == 0) {
-				last_type = BLK_INVERT;
-			    } else if ((er = make_transformation(cur_func, tmp)) == E_SUCCESS) {
-				last_type = BLK_TRANSFORM;
-				next_trans_mat = tmp*cur_trans_mat;
-			    } else if (strcmp(cur_func.name, "snapshot") == 0) {
-				//snapshot requires two arguments. The first is the filename that the picture should be saved to and the second is the camera location that should be used
-				if (cur_func.n_args >= 2 && cur_func.args[0].type == VAL_STR) {
-				    value cam_val = cur_func.args[1].cast_to(VAL_3VEC, er);
-				    if (er == E_SUCCESS) {
-					vec3 cam_pos = *(cam_val.val.v);
-					//set defaults
-					vec3 cam_look = cam_pos*-1;
-					vec3 up_vec(0,0,1);
-					size_t res = DEF_IM_RES;
-					size_t n_samples = DEF_TEST_N;
-					//find optional named arguments
-					value look_val = lookup_named(cur_func, "look").cast_to(VAL_3VEC, er);
-					if (look_val.type == VAL_3VEC) cam_look = *(look_val.val.v);
-					value up_val = lookup_named(cur_func, "up").cast_to(VAL_3VEC, er);
-					if (up_val.type == VAL_3VEC) up_vec = *(up_val.val.v);
-					value res_val = lookup_named(cur_func, "resolution");
-					if (res_val.type == VAL_NUM) res = (size_t)(res_val.val.x);
-					value n_val = lookup_named(cur_func, "n_samples");
-					if (n_val.type == VAL_NUM) n_samples = (size_t)(n_val.val.x);
-					value scale_val = lookup_named(cur_func, "scale");
-					double scale = cam_look.norm();
-					if (scale_val.type == VAL_NUM) scale = (size_t)(scale_val.val.x);
-					//ensure that all parameters passed are valid
-					if (cam_look.norm() == 0 || up_vec.norm() == 0 || res == 0 || n_samples == 0) {
-					    printf("invalid parameters passed to snapshot on line %d\n", lineno);
-					} else {
-					    //make the drawing
-					    rvector<2> scale_vec;
-					    scale_vec.el[0] = scale;
-					    scale_vec.el[1] = scale;
-					    draw(cur_func.args[0].val.s, cam_pos, cam_look, up_vec, scale_vec, res, res, n_samples);
-					}
-					cleanup_val(&look_val);
-					cleanup_val(&up_val);
-					cleanup_val(&res_val);
-					cleanup_val(&n_val);
-					cleanup_val(&scale_val);
-				    }
-				    cleanup_val(&cam_val);
-				}
-			    }
-			} else {
-			    if (type == CGS_ROOT) {
-				if (!tree_pos.is_empty()) {
-				    printf("Error on line %d: Root composites may not be nested\n", lineno);
-				} else {
-				    last_comp = (composite_object*)obj;
-				    last_type = BLK_ROOT;
-				    //this is included so that we don't have to check whether something is a root or a composite every time
-				    type = CGS_COMPOSITE;
-				}
-			    } else if (type == CGS_DATA) {
-				data_objs.push_back((composite_object*)obj);
-				last_type = BLK_DATA;
-				type = CGS_COMPOSITE;
-			    }
-			    tree_pos.emplace_obj(obj, type);
-			}
-			//jump ahead until after the end of the function
-			if (er == E_SUCCESS) i = endptr - buf;
-			cleanup_func(&cur_func);
-		    //check for comments
-		    } else if (buf[i] == '/') {
-			if (i < line_len-1) {
-			    if (buf[i+1] == '/')
-				break;
-			    else if (buf[i+1] == '*')
-				blk_stack.push(BLK_COMMENT);
-			}
-		    //check for blocks
-		    } else if (buf[i] == '{') {
-			switch (last_type) {
-			    case BLK_INVERT: invert = 1 - invert;break;
-			    case BLK_ROOT: roots.push_back(last_comp);break;
-			    case BLK_TRANSFORM: cur_trans_mat=next_trans_mat;transform_stack.push(next_trans_mat);break;
-			    default: break;
-			}
-			blk_stack.push(last_type);
-			last_type = BLK_UNDEF;
-		    } else if (buf[i] == '}') {
-			block_type bt;
-			if (blk_stack.pop(&bt) == E_EMPTY_STACK) printf("Error on line %d: unexpected '}'\n", lineno);
-			switch (bt) {
-			    case BLK_INVERT: invert = 1 - invert;break;
-			    case BLK_ROOT: tree_pos.reset();
-			    case BLK_TRANSFORM: transform_stack.pop(&cur_trans_mat);break;
-			    default: break;
-			}
-		    //check for literal experessions enclosed in quotes
-		    } else if (buf[i] == '\"') {
-			if (blk_stack.peek() == BLK_LITERAL) {
-			    blk_stack.pop(NULL);
-			} else {
-			    blk_stack.push(BLK_LITERAL);
-			}
-		    } else if (buf[i] == '=') {
-			size_t tok_len;
-			buf[i] = 0;
-			char* tok = CGS_trim_whitespace(buf, &tok_len);
-			size_t val_len;
-			char* val = CGS_trim_whitespace(buf+i+1, &val_len);
-			value v = named_items.parse_value(val, er);
-			if (er == E_SUCCESS) named_items.set_value(tok, v);
-			cleanup_val(&v);
+    for (size_t i = 1; i <= named_items.size() - init_size; ++i) {
+	value inst = named_items.peek_val(i);
+	//only inspect instances
+	if (inst.type == VAL_INST) {
+	    value type_val = inst.val.c->lookup("__type__");
+	    //branch depending on instance type
+	    if (type_val.type == VAL_STR) {
+		if (strcmp(type_val.val.s, "Composite") == 0) {
+		    //read the combination type and default to a union
+		    combine_type cmb_type = CGS_UNION;
+		    type_val = inst.val.c->lookup("combine_type");
+		    if (type_val.type == VAL_STR) {
+			if (strcmp(type_val.val.s, "intersect") == 0 || strcmp(type_val.val.s, "Intersect") == 0)
+			    cmb_type = CGS_INTERSECT;
 		    }
-		} else {
-		    //check if we reached the end of a comment or string literal block
-		    if (cur_type == BLK_COMMENT && (buf[i] == '*' && i < line_len-1 && buf[i+1] == '/')) {
-			er = blk_stack.pop(NULL);
-		    } else if (cur_type == BLK_LITERAL && (buf[i] == '\"' && last_char != '\\')) {
-			er = blk_stack.pop(NULL);
+		    stack<mat3x3> transform_stack;
+		    composite_object* ncobj = new composite_object(cmb_type, inst.val.c, false, transform_stack);
+		    roots.push_back(ncobj);
+		} else if (strcmp(type_val.val.s, "snapshot") == 0) {
+		    value v_f = inst.val.c->lookup("fname");
+		    //read vectors and cast them
+		    value v_c = inst.val.c->lookup("cam_v").cast_to(VAL_3VEC, er);
+		    if (er) { return er; }
+		    value v_l = inst.val.c->lookup("look_v").cast_to(VAL_3VEC, er);
+		    if (er) { cleanup_val(&v_c);return er; }
+		    value v_u = inst.val.c->lookup("up_v").cast_to(VAL_3VEC, er);
+		    if (er) { cleanup_val(&v_c);cleanup_val(&v_l);return er; }
+		    //read numeric values
+		    value v_res = inst.val.c->lookup("res");
+		    value v_n = inst.val.c->lookup("n_samples");
+		    value v_st = inst.val.c->lookup("step");
+		    value v_sc = inst.val.c->lookup("scale");
+		    if (v_f.type != VAL_STR) { er = E_BAD_TYPE;return er; }
+		    if (v_res.type != VAL_NUM) { er = E_BAD_TYPE;return er; }
+		    if (v_n.type != VAL_NUM) { er = E_BAD_TYPE;return er; }
+		    if (v_st.type != VAL_NUM) { er = E_BAD_TYPE;return er; }
+		    if (v_sc.type != VAL_NUM) { er = E_BAD_TYPE;return er; }
+		    if (v_c.val.v->norm() == 0 || v_u.val.v->norm() == 0 || v_res.val.x == 0 || v_n.val.x == 0) {
+			printf("invalid parameters passed to snapshot on line\n");
+		    } else {
+			//make the drawing
+			rvector<2> scale_vec;
+			scale_vec.el[0] = v_sc.val.x;
+			scale_vec.el[1] = v_sc.val.x;
+			size_t res = (size_t)(v_res.val.x);
+			size_t n_samples = (size_t)(v_n.val.x);
+			draw(v_f.val.s, *(v_c.val.v), *(v_l.val.v), *(v_u.val.v), scale_vec, res, res, n_samples, v_st.val.x);
 		    }
+		    cleanup_val(&v_c);
+		    cleanup_val(&v_l);
+		    cleanup_val(&v_u);
 		}
-		last_char = buf[i];
 	    }
-	    //don't clutter up the tree if we have a global data object
-	    if (blk_stack.is_empty()) {
-		tree_pos.reset();
-	    }
-	    line_len = read_cgs_line(&buf, &buf_size, fp, &next_lineno);
-	    lineno = next_lineno;
 	}
-	free(buf);
-	fclose(fp);
-    } else {
-        printf("Error: couldn't open file %s for reading!\n", p_fname);
-        return E_NOFILE;
     }
 
     return er;
 }
 
 scene::scene(const char* p_fname, parse_ercode* ercode) {
+    setup_geometry_context(&named_items);
     if (ercode) *ercode = E_SUCCESS;
     *ercode = read_file(p_fname);
 }
 
 scene::scene(const char* p_fname, context con, parse_ercode* ercode) : named_items(con) {
+    setup_geometry_context(&named_items);
     if (ercode) *ercode = E_SUCCESS;
     *ercode = read_file(p_fname);
 }
 
-scene::scene(const scene& o) {
+/*scene::scene(const scene& o) {
     roots.resize(o.roots.size());
     data_objs.resize(o.data_objs.size());
     for (_uint i = 0; i < roots.size(); ++i) {
@@ -738,7 +613,7 @@ scene& scene::operator=(scene& o) {
     named_items = o.named_items;
 
     return *this;
-}
+}*/
 
 scene::~scene() {
     //TODO: double frees are bad lol
@@ -749,43 +624,88 @@ scene::~scene() {
 	if (data_objs[i]) delete data_objs[i];
     }
 }
+
 /*
  * convert from hsv to rgb
  * h,s,v hue satureation and value
  * rgb: a pointer to an array of three unsigned chars where the first second and third elements represent r,g, and b respectively
  */
-void hsvtorgb(int h, int s, int v, _uint8* rgb) {
+uint32_t hsvtorgb(uint32_t hsv_col) {
     int g_start = 85;//floor(256/3)
     int b_start = 170;//floor(256*2/3)
-    int r_start = 255;
-    if (rgb) {
-	int r,g,b;
-	int s_comp = 255-s;
-	if (h < g_start) {
-	    r = (g_start-h)*v/g_start;
-	    g = h*v/g_start;
-	    r = (r*s_comp)/256 + 1;
-	    g = (g*s_comp)/256 + 1;
-	    b = s;
-	} else if (h < b_start) {
-	    int h_rel = h-g_start;
-	    g = (g_start-h_rel)*v/g_start;
-	    b = h_rel*v/g_start;
-	    g = (g*s_comp)/256 + 1;
-	    b = (b*s_comp)/256 + 1;
-	    r = s;
-	} else {
-	    int h_rel = h-b_start;
-	    b = (g_start-h_rel)*v/g_start;
-	    r = h_rel*v/g_start;
-	    b = (b*s_comp)/256 + 1;
-	    r = (r*s_comp)/256 + 1;
-	    g = s;
-	}
-	rgb[0] = (_uint8)r;
-	rgb[1] = (_uint8)g;
-	rgb[2] = (_uint8)b;
+    //int r_start = 255;
+    uint32_t r,g,b;
+    int h = get_r(hsv_col);
+    int s = get_g(hsv_col);
+    int v = get_b(hsv_col);
+    int s_comp = 255-s;
+    if (h < g_start) {
+	r = (g_start-h)*v/g_start;
+	g = h*v/g_start;
+	r = (r*s_comp)/256 + 1;
+	g = (g*s_comp)/256 + 1;
+	b = s;
+    } else if (h < b_start) {
+	int h_rel = h-g_start;
+	g = (g_start-h_rel)*v/g_start;
+	b = h_rel*v/g_start;
+	g = (g*s_comp)/256 + 1;
+	b = (b*s_comp)/256 + 1;
+	r = s;
+    } else {
+	int h_rel = h-b_start;
+	b = (g_start-h_rel)*v/g_start;
+	r = h_rel*v/g_start;
+	b = (b*s_comp)/256 + 1;
+	r = (r*s_comp)/256 + 1;
+	g = s;
     }
+    return (hsv_col & 0xff000000) | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
+}
+/**
+ * Generate a list of hues (in hsv color space) associated with each object in the scene. This is a helper function for draw()
+ */
+std::vector<uint32_t> scene::get_cols() {
+    std::vector<uint32_t> ret(roots.size());
+    for (size_t k = 0; k < roots.size(); ++k) {
+	uint32_t hue = (_uint8)((k*256)/roots.size());
+	uint32_t alpha = 255;
+	//check if the user specified a valid color/transparency for this object
+	if (roots[k]->has_metadata("color")) {
+	    value col_val = roots[k]->fetch_metadata("color");
+	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) hue = (_uint8)col_val.val.x;
+	}
+	if (roots[k]->has_metadata("alpha")) {
+	    value a_val = roots[k]->fetch_metadata("alpha");
+	    if (a_val.type == VAL_NUM && a_val.val.x > 0 && a_val.val.x < 256) alpha = (_uint8)a_val.val.x;
+	}
+	ret[k] = ((alpha & 0xff) << 24) | ((hue & 0xff) << 16);
+    }
+    return ret;
+}
+/**
+ * Given two 32 bit colors, c1 and c2, blend both of them with c1 on top of c2 and return the result.
+ */
+uint32_t blend(uint32_t c1, uint32_t c2) {
+    //we use fixed point arithmetic with divisor 2^8, so a1=256->1.0 or a1=128->0.5.
+    uint32_t a1 = get_a(c1);
+    uint32_t a2 = get_a(c2);
+    //special cases. If the top color has alpha=0, don't modify the bottom at all. If the top color has alpha=255 or the bottom color has alpha=0 then don't modify the top.
+    if (a1 == 0)
+	return c2;
+    if (a1 == 255 || a2 == 0)
+	return c1;
+    //this is the expression for a1 + a2*(1-a1) = a1 + a2 - a1*a2 with divisor 2^16
+    uint32_t p1 = (a1 << 8);
+    uint32_t p2 = (a2 << 8) - a1*a2;
+    uint32_t a0 = p1 + p2;
+    //set r, g and b channels
+    uint32_t ret = (get_b(c1)*p1 + get_b(c2)*p2) / a0;
+    ret |= ( (get_g(c1)*p1 + get_g(c2)*p2) / a0 ) << 8;
+    ret |= ( (get_r(c1)*p1 + get_r(c2)*p2) / a0 ) << 16;
+    //set alpha channel
+    ret |= ( a0 >> 8 ) << 24;
+    return ret;
 }
 /*
  * Save the image specified by z_buf and c_buf to out_fname with the specified resolution
@@ -793,7 +713,7 @@ void hsvtorgb(int h, int s, int v, _uint8* rgb) {
  * c_buf: the color index buffer. This must have a size res*res
  * res: the resolution of the image. Only square images are allowed
  */
-void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size_t res_x, size_t res_y) {
+void save_imbuf(const char* out_fname, uint32_t* c_buf, size_t res_x, size_t res_y) {
     //open the file. We use a .pgm format since it's super simple. Then we write the header information.
     FILE* fp;
     if (out_fname) {
@@ -802,38 +722,27 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
     } else {
 	fp = stdout;
     }
-    _uint8* hues = (_uint8*)malloc(sizeof(_uint8)*roots.size());
-    for (size_t k = 0; k < roots.size(); ++k) {
-	bool got_color = false;
-	//check if the user specified a valid color for this object
-	if (roots[k]->has_metadata("color")) {
-	    value col_val = roots[k]->fetch_metadata("color");
-	    if (col_val.type == VAL_NUM && col_val.val.x > 0 && col_val.val.x < 256) {
-		hues[k] = (_uint8)col_val.val.x;
-		got_color = true;
-	    }
-	}
-	//otherwise use an arbitrary color
-	if (!got_color) hues[k] = (_uint8)((k*256)/roots.size());
-    }
-    _uint8 cur_col[3];
-    fprintf(fp, "P3\n%d %d\n%d\n", res_x, res_y, IM_DEPTH);
+    uint32_t cur_col;
+    fprintf(fp, "P3\n%lu %lu\n%d\n", res_x, res_y, IM_DEPTH);
     //iterate through the image buffer and write
     for (size_t yy = 0; yy < res_y; ++yy) {
 	for (size_t xx = 0; xx < res_x; ++xx) {
-	    size_t ind = yy*res_y+xx;
-	    _uint8 col_code = c_buf[ind];
-	    if (col_code == 0xff) {
+	    uint32_t cur_col = c_buf[yy*res_y+xx];
+	    //if this pixel is completely transparent, draw white. Otherwise draw the color
+	    if (get_a(cur_col) == 0)
 		fprintf(fp, "255 255 255 ");
-	    } else {
-		hsvtorgb(hues[col_code], 0, 255-z_buf[ind], cur_col);
-		fprintf(fp, "%d %d %d ", cur_col[0], cur_col[1], cur_col[2]);
-	    }
+	    else
+		fprintf(fp, "%d %d %d ", get_r(cur_col), get_g(cur_col), get_b(cur_col));
 	}
 	fprintf(fp, "\n");
     }
     fclose(fp);
-    free(hues);
+}
+/**
+ * Helper function for draw() which steps along the ray disp using the z buffer at indices n1 and n2 as a hint for the depth
+ */
+void scene::ray_step(_uint8* z_buf, _uint8* c_buf, size_t ind, size_t n1, size_t n2, vec3 disp) {
+
 }
 /**
  * Render the object and save the image to out_fname
@@ -845,7 +754,7 @@ void scene::save_imbuf(const char* out_fname, _uint8* z_buf, _uint8* c_buf, size
  * res: the resolution of the saved image, only 1x1 aspect ratios are allowed
  * n_samples: the number of random samples to take, a higher value results in a cleaner image but takes longer to generate.
  */
-void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x, size_t res_y, size_t n_samples) {
+void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up, rvector<2> scale, size_t res_x, size_t res_y, size_t n_samples, double walk_step) {
     //depth scale factors and sampling region are determined by the magnitude of cam_look. Calculated these and then normalize cam_look
     double aa = 1/cam_look.norm();
     double max_draw_z = 2*cam_look.norm();
@@ -864,15 +773,21 @@ void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up
     }
     x_comp = x_comp.normalize();
     vec3 y_comp = x_comp.cross(cam_look);
-    //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
-    _uint8 z_buf[res_x*res_y];
-    _uint8 c_buf[res_x*res_y];
-    for (size_t i = 0; i < res_x*res_y; ++i) {
-	c_buf[i] = 0xff;
-	z_buf[i] = 0xff;
-    }
     scale.el[0] /= res_x;
     scale.el[1] /= res_y;
+    //store the image buffer in an array. We don't do anything fancy for shading, this is just a z-buffer. Thus, we initialize to white (the maximum distance).
+    _uint8 z_buf[res_x*res_y];
+    uint32_t c_buf[res_x*res_y];
+    for (size_t i = 0; i < res_x*res_y; ++i) {
+	c_buf[i] = 0x00000000;
+	z_buf[i] = 0xff;
+    }
+    //get object colors
+    std::vector<uint32_t> cols = get_cols();
+
+    double max_z = 0;
+    double min_z = max_draw_z;
+
     //iterate across the pixels in the buffer
     for (long ii = 0; ii < res_x; ++ii) {
 	for (long jj = res_y-1; jj >= 0; --jj) {
@@ -881,27 +796,44 @@ void scene::draw(const char* out_fname, vec3 cam_pos, vec3 cam_look, vec3 cam_up
 	    vec3 r0 = cam_pos+disp;
 	    //take small steps until we hit the object
 	    bool itz = true;
-	    for (double z = 0; itz && z < max_draw_z; z += WALK_STEP*max_draw_z) {
+	    for (double z = 0; itz && z < max_draw_z; z += walk_step*max_draw_z) {
 		vec3 r = r0 + z*cam_look;
+		_uint8 depth = 255;
+		uint32_t cur_col = 0;
 		for (size_t k = 0; k < roots.size(); ++k) {
 		    if (roots[k]->in(r)) {
 			//if we hit the object then figure out the index in the image buffer and map the depth
-			_uint8 depth = floor( IM_DEPTH*(1 - exp(-z*aa)) );
-			z_buf[ii + jj*res_y] = depth;
-			c_buf[ii + jj*res_y] = (_uint8)k;
-			itz = false;
-			break;
+			depth = floor( IM_DEPTH*(1 - exp(-z*aa)) );
+			uint32_t this_col = hsvtorgb( cols[k] | (255 - depth) );
+			//z_buf[ii + jj*res_y] = depth;	
+			//in the case of a completely opaque object we may stop, otherwise we have to continue until we find the next object
+			if (get_a(cols[k]) == 255) {
+			    itz = false;
+			    if (z > max_z)
+				max_z = z;
+			    if (z < min_z)
+				min_z = z;
+			    c_buf[ii + jj*res_y] = blend(cur_col, this_col);
+			    break;
+			} else {
+			    cur_col = blend(cur_col, this_col);
+			}
 		    }
+		}
+		//if we reached the end and we only hit transparent objects, then write the color buffer
+		if (itz && cur_col != 0) {
+		    c_buf[ii + jj*res_y] = cur_col;
 		}
 	    }
 	}
     }
-    save_imbuf(out_fname, z_buf, c_buf, res_x, res_y);
+    printf("max z: %f, min z: %f\n", max_z, min_z);
+    save_imbuf(out_fname, c_buf, res_x, res_y);
 }
 void scene::draw(const char* out_fname, vec3 cam_pos) {
     vec3 cam_look = cam_pos*-1;
     vec3 cam_up(0,0,1);
-    double xy_scale = cam_look.norm();
+    double xy_scale = 0.5 / cam_look.norm();
     rvector<2> scale;
     scale.el[0] = xy_scale;
     scale.el[1] = xy_scale;

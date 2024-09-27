@@ -11,16 +11,11 @@
 #include "geometry.hpp"
 
 //hints for dynamic buffer sizes
-<<<<<<< HEAD
-#define BUF_SIZE 1024
-#define ARGS_BUF_SIZE 256
-#define FUNC_BUF_SIZE 8
-=======
-#define BUF_SIZE 	1024
+#define BUF_SIZE 	    1024
+#define LINE_SIZE 	    512
 #define DEF_STACK_SIZE	16
 #define ARGS_BUF_SIZE 	256
-#define FUNC_BUF_SIZE 	8
->>>>>>> a24f98f4a6e0cd48991594afc0e6ca961d44d232
+#define FUNC_BUF_SIZE 	256
 
 //keywords
 #define KEY_CLASS_LEN	5
@@ -29,23 +24,104 @@
 #define KEY_IN_LEN	2
 #define KEY_IF_LEN	2
 
+//hash params
+#define FNV_PRIME	16777619
+#define FNV_OFFSET	2166136261
+#define TABLE_BITS	8
+#define TABLE_MASK(n)	(((u_int32_t)1<<(n))-1)
+#define TABLE_SIZE(n)	((u_int32_t)1<<(n))
+
 typedef matrix<3,3> mat3x3;
 
 typedef unsigned int _uint;
 typedef unsigned char _uint8;
 
-typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED } parse_ercode;
-typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_INST} valtype;
+typedef enum { E_SUCCESS, E_NOFILE, E_LACK_TOKENS, E_BAD_TOKEN, E_BAD_SYNTAX, E_BAD_VALUE, E_BAD_TYPE, E_NOMEM, E_EMPTY_STACK, E_NOT_BINARY, E_NAN, E_NOT_DEFINED, E_OUT_OF_RANGE, E_BAD_FLOAT } parse_ercode;
+typedef enum {VAL_UNDEF, VAL_STR, VAL_NUM, VAL_ARRAY, VAL_LIST, VAL_3VEC, VAL_MAT, VAL_FUNC, VAL_INST, VAL_UNINIT} valtype;
 typedef enum {BLK_UNDEF, BLK_MISC, BLK_INVERT, BLK_TRANSFORM, BLK_DATA, BLK_ROOT, BLK_COMPOSITE, BLK_FUNC_DEC, BLK_LITERAL, BLK_COMMENT, BLK_SQUARE, BLK_QUOTE, BLK_QUOTE_SING, BLK_PAREN, BLK_CURLY} block_type;
+
+inline void* xrealloc(void* p, size_t nsize) {
+    void* tmp = realloc(p, nsize);
+    if (!tmp) {
+	fprintf(stderr, "Insufficient memory to allocate block of size %lu!\n", nsize);
+	exit(EXIT_FAILURE);
+    }
+    return tmp;
+}
 
 /** ======================================================== utility functions ======================================================== **/
 
+bool is_whitespace(char c);
 bool is_char_sep(char c);
 bool is_token(const char* str, size_t i, size_t len);
+char* find_token_before(char* str, size_t i);
 char* strchr_block(char* str, char c);
 char* token_block(char* str, const char* comp);
-int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno);
+size_t read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* lineno);
 char* CGS_trim_whitespace(char* str, size_t* len);
+
+/** ============================ line_buffer ============================ **/
+
+/*class cgs_error {
+private:
+    char* message;
+    parse_ercode er;
+
+public:
+    cgs_error(cgs_error type, const char* message);
+    cgs_error(const cgs_error& o);
+    cgs_error(cgs_error&& o);
+    cgs_error& operator=(cgs_error& o);
+    char* msg() { return message; }
+    parse_ercode type() { return er; }
+};*/
+
+//store a line number and an offset within that line to describe a position in a line_buffer
+struct line_buffer_ind {
+    size_t line;
+    size_t off;
+    line_buffer_ind() { line = 0;off = 0; }
+    line_buffer_ind(long pl, long po) { line = pl;off = po; }
+    //increase/decrease the line buffer by a specified amount while keeping line number the same
+    friend line_buffer_ind operator+(const line_buffer_ind& lhs, const size_t& rhs);
+    friend line_buffer_ind operator-(const line_buffer_ind& lhs, const size_t& rhs);
+};
+
+class line_buffer {
+private:
+    char** lines;
+    size_t* line_sizes;
+    size_t n_lines;
+    //helper function for jmp_enclosed and get_enclosed. If the line at index 
+#ifndef DEBUG_INFO
+    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delimse, bool include_start) const;
+public:
+#else
+public:
+    int it_single(char** sto, char start_delim, char end_delim, line_buffer_ind* start, line_buffer_ind* end, int* pdepth, bool include_delimse, bool include_start) const;
+#endif
+    line_buffer();
+    line_buffer(const char* p_fname);
+    line_buffer(const char** p_lines, size_t pn_lines);
+    line_buffer(const char* line, char sep, const char* ignore_blocks = "\"\"()[]{}");
+    line_buffer(const line_buffer& o);
+    line_buffer& operator=(line_buffer& o);
+    line_buffer& operator=(line_buffer&& o);
+    line_buffer(line_buffer&& o);
+    ~line_buffer();
+    void split(char split_delim);
+    line_buffer_ind jmp_enclosed(line_buffer_ind start, char start_delim, char end_delim, bool include_delims=false) const;
+    line_buffer get_enclosed(line_buffer_ind start, line_buffer_ind* end, char start_delim, char end_delim, bool include_delims=false, bool include_start=false) const;
+    char* get_line(line_buffer_ind p) const;
+    char* get_line(size_t i) const { line_buffer_ind p(i,0);return get_line(p); }
+    size_t get_line_size(size_t i) const { if (i >= n_lines) { return 0; }return line_sizes[i]; }
+    size_t get_n_lines() const { return n_lines; }
+    char* flatten(char sep_char = 0) const;
+    //increment or decrement the line_buffer_ind p and return whether the operation was successful
+    bool inc(line_buffer_ind& p) const;
+    bool dec(line_buffer_ind& p) const;
+    char get(line_buffer_ind p) const;
+};
 
 /** ============================ stack ============================ **/
 
@@ -62,12 +138,21 @@ protected:
 	size_t old_size = buf_len;
 	buf_len = new_size;
 
-	T* tmp_buf = (T*)realloc(buf, sizeof(T)*buf_len);
+	T* tmp_buf = (T*)malloc(sizeof(T)*buf_len);
+	if (stack_ptr >= buf_len)
+	    printf("something went wrong %lu >= %lu\n", stack_ptr, buf_len);
+	//copy memory to new block if allocation was successful or return nomem error
 	if (tmp_buf) {
+	    for (size_t i = 0; i < stack_ptr; ++i) {
+		new(tmp_buf+i) T(std::move(buf[i]));
+	    }
+	    free(buf);
 	    buf = tmp_buf;
 	    char* clear_buf = (char*)(tmp_buf+old_size);
-	    size_t clear_len = sizeof(T)*(buf_len-old_size);
-	    for (size_t i = 0; i < clear_len; ++i) clear_buf[i] = 0;
+	    if (buf_len > old_size) {
+		size_t clear_len = sizeof(T)*(buf_len-old_size);
+		for (size_t i = 0; i < clear_len; ++i) clear_buf[i] = 0;
+	    }
 	} else {
 	    buf_len = old_size;
 	    return E_NOMEM;
@@ -75,15 +160,10 @@ protected:
 
 	return E_SUCCESS;
     }
-
 public:
     stack() {
 	stack_ptr = 0;
-<<<<<<< HEAD
-	buf_len = ARGS_BUF_SIZE;
-=======
 	buf_len = DEF_STACK_SIZE;
->>>>>>> a24f98f4a6e0cd48991594afc0e6ca961d44d232
 	buf = (T*)calloc(buf_len, sizeof(T));
 	//check that allocation was successful
 	if (!buf) {
@@ -118,11 +198,9 @@ public:
 	stack_ptr = o.stack_ptr;
 	//to save memory we'll only allocate however many entries the old object had
 	buf_len = stack_ptr;
-<<<<<<< HEAD
-=======
 	//make sure that we set aside some space for the buffer
-	if (buf_len == 0) buf_len = DEF_STACK_SIZE;
->>>>>>> a24f98f4a6e0cd48991594afc0e6ca961d44d232
+	if (buf_len == 0)
+        buf_len = DEF_STACK_SIZE;
 	buf = (T*)calloc(buf_len, sizeof(T));
 	if (!buf) {
 	    buf = NULL;
@@ -211,25 +289,18 @@ public:
 };
 
 class CompositeObject;
-/**
- * This acts similar to getline, but stops at a semicolon, newline (unless preceeded by a \), {, or }.
- * bufptr: a pointer to which the buffer is saved. If bufptr is NULL than a new buffer is allocated through malloc()
- * n: a pointer to a size_t with the number of characters in the buffer pointed to by bufptr. The call will return do nothing if n is null but *bufptr is not.
- * fp: file pointer to read from
- * linecount: a pointer to an integer specifying the number of new line characters read.
- * Returns: 0 if the end of the file was reached, 1 otherwise
- */
-int read_cgs_line(char** bufptr, size_t* n, FILE* fp, size_t* line);
-//
+
 class value;
-class cgs_func;
-class instance;
+class context;
+class user_func;
 union V {
     char* s;
     double x;
+    double* a;
     value* l;
     vec3* v;
-    instance* i;
+    context* c;
+    user_func* f;
     mat3x3* m;
 };
 struct value {
@@ -238,15 +309,23 @@ struct value {
     size_t n_els; //only applicable for string and list types
 
     value() { val.x = 0;type=VAL_UNDEF;n_els=0; }
-    bool operator==(std::string str);
-    bool operator!=(std::string str);
+    bool operator==(const value& o) const;
+    bool operator!=(const value& o) const;
+    bool operator==(std::string str) const;
+    bool operator!=(std::string str) const;
     valtype get_type() { return type; }
     size_t size() { return n_els; }
-    V get_val() { return val; }
+    V& get_val() { return val; }
     char* to_c_str();
     double to_float();
+    int rep_string(char* sto, size_t n) const;
     value cast_to(valtype type, parse_ercode& er) const;
+    //print the hierarchy to standard output
+    void print_hierarchy(FILE* f=NULL, size_t depth=0) const;
 };
+//check whether the value is of the specified type based on the type string
+inline bool is_type(value v, valtype t) { return v.type == t; }
+bool is_type(value v, const char* type);
 void cleanup_val(value* o);
 value copy_val(const value o);
 void swap_val(value* a, value* b);
@@ -258,23 +337,38 @@ struct cgs_func {
     size_t n_args;
     cgs_func() { name = NULL;n_args = 0; }
 };
+value make_val_undef();
 value make_val_num(double x);
 value make_val_str(const char* s);
 value make_val_std_str(std::string s);
+value make_val_array(std::vector<double> a);
 value make_val_list(const value* vs, size_t n_vs);
 value make_val_mat(mat3x3 m);
 value make_val_vec3(vec3 vec);
-cgs_func parse_func_decl(char* str);
+value make_val_func(const char* name, size_t n_args, value (*p_exec)(context*, cgs_func, parse_ercode&));
+value make_val_inst(context* parent, const char* s);
 cgs_func copy_func(const cgs_func o);
 void cleanup_func(cgs_func* o);
 void swap(cgs_func* a, cgs_func* b);
 value lookup_named(const cgs_func f, const char* name);
+//builtin functions
+value typeof(context* c, cgs_func tmp_f, parse_ercode& er);
+value make_vec(context* c, cgs_func tmp_f, parse_ercode& er);
+value make_range(context* c, cgs_func tmp_f, parse_ercode& er);
+value make_linspace(context* c, cgs_func tmp_f, parse_ercode& er);
+value flatten_list(context* c, cgs_func tmp_f, parse_ercode& er);
+value print(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_sin(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_cos(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_tan(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_exp(context* c, cgs_func tmp_f, parse_ercode& er);
+value fun_sqrt(context* c, cgs_func tmp_f, parse_ercode& er);
 
-/** ============================ helper classes ============================ **/
+//collections (like python dicts) are simply aliases for functions under the hood
+typedef context collection;
+
 /**
- * A helper class for scene which maintains two parallel stacks used when constructing binary trees. The first specifies the integer code for the side occupied and the second stores pointers to objects. Each index specified in the side array is a "tribit" with 0 specifying the left side, 1 the right and 2 the end end of the stack
- * WARNING: The stack only handles pointers to objects. The caller is responsible for managing the lifetime of each object placed on the stack.
- * NOTE: the context performs a shallow copy of everything pushed onto it and does not perform any cleanup
+ * A class which stores a labeled value.
  */
 class name_val_pair {
 private:
@@ -284,6 +378,7 @@ public:
     void swap(name_val_pair& o);
     void copy(const name_val_pair& o);
     name_val_pair();
+    name_val_pair(int a);
     name_val_pair(const char* p_name, value p_val);
     name_val_pair(const name_val_pair& o);
     name_val_pair(name_val_pair&& o);
@@ -291,14 +386,8 @@ public:
     name_val_pair& operator=(name_val_pair& o);
     name_val_pair& operator=(const name_val_pair& o);
     bool name_matches(const char* str) const;
+    const char* get_name() { return name; }
     value& get_val();
-};
-class instance {
-private:
-    std::vector<name_val_pair> fields;
-    std::string type;
-public:
-    instance(cgs_func decl);
 };
 struct type_ind_pair {
 public:
@@ -310,37 +399,97 @@ public:
 };
 
 /** ============================ context ============================ **/
-class context : public stack<name_val_pair> {
+struct name_ind {
+    char* name;
+    size_t ind;
+    name_ind* next;
+    name_ind() { name = NULL;ind = 0;next = NULL; }
+    name_ind(const char* p_name, size_t i, name_ind* ptr=NULL) { name = strdup(p_name);ind = i;next=ptr; }
+    ~name_ind() {
+	free(name);
+	if (next) delete next;
+	name = NULL;
+	next = NULL;
+    }
+};
+struct val_ind {
+    size_t i;
+    value v;
+    val_ind(int p_i) { i=p_i;v.type=VAL_UNDEF; }
+    val_ind(size_t p_i, value p_v) { i = p_i;v = p_v; }
+};
+class context : public stack<val_ind> {
 private:
+    //members
+    context* parent;
+    name_ind* table[TABLE_SIZE(TABLE_BITS)];
+    //helpers
+    struct read_state {
+	const line_buffer& b;
+	line_buffer_ind pos;
+	stack<block_type> blk_stk;
+	size_t buf_size;
+	char* buf;
+	read_state(const line_buffer& pb) : b(pb), pos(0,0) {
+	    buf_size = BUF_SIZE;
+	    buf = (char*)calloc(buf_size, sizeof(char));
+	}
+	~read_state() { buf_size=0;free(buf); }
+    };
     value do_op(char* tok, size_t ind, parse_ercode& er);
+    parse_ercode read_single_line(context::read_state& rs);
+    void init() {
+	for(size_t i = 0; i < TABLE_SIZE(TABLE_BITS); ++i) { table[i] = NULL; }
+    }
+    void setup_builtins();
+    void copy_context(const context& o);
+
 public:
-    //parse_ercode push(_uint side, CompositeObject* obj);
-    void emplace(const char* p_name, value p_val) { name_val_pair inst(p_name, p_val);push(inst); }
+    context() : stack<val_ind>() { init();setup_builtins();parent = NULL; }
+    context(context* p_parent) : stack<val_ind>() { init();parent = p_parent; }
+    context(const context& o) { stack_ptr=0;copy_context(o); }
+    context operator=(const context& o) { stack_ptr=0;copy_context(o);return *this; }
+    context(context&& o);
+    ~context();
+    //void emplace(const char* p_name, value p_val); { val_ind inst(p_name, p_val);push(inst); }
     value lookup(const char* name) const;
+    parse_ercode pop(val_ind* ptr=NULL);
     parse_ercode pop_n(size_t n);
     value parse_value(char* tok, parse_ercode& er);
-    cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, char** end);
+    value parse_value(const line_buffer& b, line_buffer_ind& pos, parse_ercode& er);
+    value parse_value(const char* tok);
+    cgs_func parse_func(char* token, long open_par_ind, parse_ercode& f, const char* const* end=NULL, int name_only=0);
     value parse_list(char* str, parse_ercode& sto);
-    void swap(stack<name_val_pair>& o) { stack<name_val_pair>::swap(o); }
-    parse_ercode set_value(const char* name, value new_val);
+    void swap(stack<val_ind>& o) { stack<val_ind>::swap(o); }
+    parse_ercode set_value(const char* name, value new_val, bool force_push=false, bool move_assign=false);
+    parse_ercode place_value(const char* name, value new_val) { return set_value(name, new_val, false, true); }
+    parse_ercode read_from_lines(const line_buffer& b);
+    void register_func(cgs_func sig, value (*p_exec)(context&, cgs_func, parse_ercode&));
+    value peek_val(size_t i=1);
+    void error(const char* msg) {
+	//TODO: something that isn't dumb
+	printf("Error: %s\n", msg);
+    }
+    name_val_pair inspect(size_t i=1);
 };
+
 /**
  * A class for functions defined by the user along with the implementation code
  */
 class user_func {
 private:
     cgs_func call_sig;
-    //this is a dynamic buffer for the number of lines
-    size_t n_lines;
-    char** code_lines;
+    line_buffer code_lines;
+    value (*exec)(context*, cgs_func, parse_ercode&);
 public:
     //read the function with contents stored in the file pointer fp at the current file position
-    user_func(cgs_func sig, char** bufptr, size_t* n, FILE* fp);
+    user_func(cgs_func sig, line_buffer p_buf);
+    user_func(value (*p_exec)(context*, cgs_func, parse_ercode&));
     ~user_func();
     user_func(const user_func& o);
     user_func(user_func&& o);
-    size_t get_n_lines() { return n_lines; }
-    value eval(context& c, cgs_func call, parse_ercode& er);
+    line_buffer& get_buffer() { return code_lines; }
+    value eval(context* c, cgs_func call, parse_ercode& er);
 };
 
 #endif //CGS_READ_H

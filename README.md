@@ -2,10 +2,12 @@
 A tool for simulating molecular junctions illuminated by laser pulses using FDTD methods
 
 # dependencies
+* python3
+* open MPI (https://github.com/open-mpi/ompi)
+* hdf5 (https://www.hdfgroup.org/solutions/hdf5/)
 * meep v1.24 (https://github.com/NanoComp/meep/)
-* eigen3 (https://eigen.tuxfamily.org/)
 
-To build the project you will also need a C++ compiler and cmake.
+To build the project you will also need a C++ compiler and either cmake or meson.
 
 # building
 To build the project first navigate to the desired installation directory. Then enter the following commands:
@@ -13,8 +15,16 @@ To build the project first navigate to the desired installation directory. Then 
 git clone https://github.com/rachel-stromswold/sim_juncs
 cd sim_juncs
 mkdir build
+```
+If you are using cmake, run the following:
+```
 cd build
 cmake .. && make
+```
+If you are using meson, run this instead:
+```
+meson setup build && cd build
+ninja compile
 ```
 
 ## cmake options
@@ -22,6 +32,7 @@ By default, configuration files for a graphene junction (with parameters based o
 ```
 cmake .. -DJUNCTION_TYPE=Au_SiO2_box
 ```
+The same options are available in meson.
 
 # running
 Once you've completed the previous steps, call `run.sh -l` inside the build directory. If you want to run jobs on a cluster using slurm call `sbatch run.sh`.
