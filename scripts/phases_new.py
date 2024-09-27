@@ -274,9 +274,9 @@ class signal:
         df = freqs[1] - freqs[0]
         div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
         mag_x = np.zeros(herm_n+2)
-        norm = 1/np.trapz(div_sig)
-        mag_x[0] = np.trapz(div_sig*freqs)*norm
-        mag_x[1] = 1/np.sqrt(np.trapz(div_sig*freqs**2)*norm - mag_x[0]**2)
+        norm = 1/np.trapezoid(div_sig)
+        mag_x[0] = np.trapezoid(div_sig*freqs)*norm
+        mag_x[1] = 1/np.sqrt(np.trapezoid(div_sig*freqs**2)*norm - mag_x[0]**2)
         mag_x[2] = -np.max(div_sig)
 
         if check_noise:
@@ -331,9 +331,9 @@ class signal:
         x0 = np.zeros(ang_off+ang_n)
         #estimate the central frequency and envelope width in frequency space
         div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
-        norm = 1/np.trapz(div_sig)
-        x0[2] = np.trapz(div_sig*freqs)*norm
-        x0[3] = 1/np.sqrt(np.trapz(div_sig*freqs**2)*norm - x0[2]**2) 
+        norm = 1/np.trapezoid(div_sig)
+        x0[2] = np.trapezoid(div_sig*freqs)*norm
+        x0[3] = 1/np.sqrt(np.trapezoid(div_sig*freqs**2)*norm - x0[2]**2) 
         x0[HERM_OFF] = -np.max(div_sig)
         lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
         peaks, props = ssig.find_peaks(div_sig, height=np.max(div_sig)*rel_height)
@@ -367,9 +367,9 @@ class signal:
 
         df = freqs[1] - freqs[0]
         #estimate the central frequency and envelope width in frequency space
-        norm = 1/np.trapz(vfm[1:]/freqs[1:])
-        x0[2] = np.trapz(vfm)*norm
-        x0[3] = 2/np.sqrt(np.trapz(vfm*freqs)*norm - x0[2]**2)
+        norm = 1/np.trapezoid(vfm[1:]/freqs[1:])
+        x0[2] = np.trapezoid(vfm)*norm
+        x0[3] = 2/np.sqrt(np.trapezoid(vfm*freqs)*norm - x0[2]**2)
         lo_fi, hi_fi = max(int((x0[2] - POLY_FIT_DEVS/x0[3])/df), 1), min(int((x0[2] + POLY_FIT_DEVS/x0[3])/df), len(freqs)-1)
         dd = x0[3]*(freqs-x0[2])
         #check whether noise was detected using the number of appreciable peaks (magnitude greater than a half of the largest)
@@ -588,6 +588,9 @@ class signal:
         self.x = xf
         if t_pts is not None and v_pts is not None:
             self.cost = residuals(xf)[0]
+            self.residual = self.cost + log_prior(xf)[0]
+            if verbose > 0:
+                print( "R^2 = ", 1-np.exp(self.residual) )
 
     def get_fspace(self, freqs):
         #TODO: include negative frequency terms
@@ -635,6 +638,6 @@ class signal:
     '''
     def get_eff_t0_phi(self, ts):
         tenv = np.abs(self.get_tenv(ts))
-        t0 = np.trapz(tenv*ts)/np.trapz(tenv)
+        t0 = np.trapezoid(tenv*ts)/np.trapezoid(tenv)
         phi = 2*np.pi*self.f0*(t0 - self.t0) + self.phi
         return t0, phi

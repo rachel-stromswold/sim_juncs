@@ -69,7 +69,7 @@ def plot_raw_fdom(ts, vs, psig, axs, xlim=None, ylim=None, ylabels=True):
     if xlim is None:
         xlim = [0, psig.f0 + 4*psig.sigma]
     if ylim is None:
-        ylim = [0, np.max(vf)*1.5]
+        ylim = [0, np.max(np.abs(vf))*1.5]
         ylim[0] = -ylim[1]
     # setup labels and annotations 
     if ylabels:
@@ -218,7 +218,7 @@ class cluster_reader:
         #otherwise, read all of the data
         self._pts = np.zeros( (len(self.clust_names), clust_len, 3) )
         self._raw_data = np.zeros( data_shape )
-        self.residuals = np.zeros( (len(self.clust_names), clust_len) )
+        self.residuals = np.zeros( (len(self.clust_names), clust_len, 2) )
         #find the start time for performance benchmarking
         if clust_len == 0:
             return
@@ -234,7 +234,8 @@ class cluster_reader:
                 v_pts = np.append(np.array(self.f[clust][point]['time']['Re']), np.zeros(self._pad_n))
                 psig = phases.signal(self.t_pts, v_pts, herm_n=herm_n, ang_n=ang_n, log_prior=self.lp)
                 self._raw_data[i,j,:] = psig.x
-                self.residuals[i,j] = psig.cost
+                self.residuals[i,j,0] = psig.residual
+                self.residuals[i,j,1] = psig.cost
                 #save figures if specified
                 if save_fit_figs:
                     fig, axs = plt.subplots(2)
@@ -271,8 +272,12 @@ class cluster_reader:
                             imdat[i,j] = t0
                         else:
                             imdat[i,j] = phases.fix_angle(phi)
+        elif parameter == 'R^2':
+            imdat = 1-np.exp(self.residuals[:,:,0])
         elif parameter == 'residual':
-            imdat = self.residuals
+            imdat = self.residuals[:,:,0]
+        elif parameter == 'cost':
+            imdat = self.residuals[:,:,1]
         elif parameter == 't0':
             sig = phases.signal(None, None, herm_n=self.herm_n, ang_n=self.ang_n, skip_opt=True, x0=self._raw_data[i,j,:])
             imdat = self._raw_data[:,:,1]/2/np.pi
@@ -346,11 +351,11 @@ if args.point == '':
     fig.savefig(args.prefix+"/htmp_phase_amp_{}.svg".format(name_append), bbox_inches='tight')
     plt.close(fig)
     fig, axs = plt.subplots()
-    cr.make_heatmap(axs, "residual", vlines=vlines, cmap='magma', rng=[-5,0])
+    cr.make_heatmap(axs, "R^2", vlines=vlines, cmap='magma', rng=[0,1])
     fig.savefig(args.prefix+"/htmp_residual_{}.svg".format(name_append), bbox_inches='tight')
     plt.close(fig)
     fig, axs = plt.subplots()
-    cr.make_heatmap(axs, "f0", vlines=vlines, cmap=cmap, rng=[-1,1])
+    cr.make_heatmap(axs, "f0", vlines=vlines, cmap='magma', rng=[0,1])
     fig.savefig(args.prefix+"/htmp_f0_{}.svg".format(name_append), bbox_inches='tight')
     plt.close(fig)
 else:
