@@ -28,8 +28,8 @@ PLT_COLORS = [
 
 matplotlib.rc('figure', figsize=(20, 10))
 plt.rc('font', size=18)
-plt.rc('xtick', labelsize=18)
-plt.rc('ytick', labelsize=18)
+#plt.rc('xtick', labelsize=18)
+#plt.rc('ytick', labelsize=18)
 
 N_COLS = 1
 
@@ -46,8 +46,12 @@ HIGHEST_MODE=3
 PAD_FACTOR = 1.05
 
 #parse arguments supplied via command line
+def str_list(arg):
+    return arg.split(',')
+def flt_list(arg):
+    return [float(s) for s in arg.split(',')]
 parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian pulse envelope to perform CEP estimation.')
-parser.add_argument('--fname', type=str, help='h5 file to read', default='field_samples.h5')
+parser.add_argument('--fname', type=str_list, help='h5 file to read', default=['field_samples_test.h5'])
 parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
 parser.add_argument('--recompute', action='store_true', help='If set, then phase estimation is recomputed. Otherwise, information is read from files saved in <prefix>', default=False)
 parser.add_argument('--pad', action='store_true', help='If set, then plot the color bar for images', default=False)
@@ -55,8 +59,8 @@ parser.add_argument('--use-prior', action='store_true', help='If set, then plot 
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
 parser.add_argument('--herm-n', type=int, help='number of Hermite-Gaussian terms to include in fits', default=3)
 parser.add_argument('--ang-n', type=int, help='half the degree of the polynomial used for fitting', default=3)
-parser.add_argument('--gap-width', type=float, help='junction width (in meep units)', default=0.1)
-parser.add_argument('--gap-thick', type=float, help='junction thickness (in meep units)', default=0.2)
+parser.add_argument('--gap-width', type=flt_list, help='junction width (in meep units)', default=[0.1])
+parser.add_argument('--gap-thick', type=flt_list, help='junction thickness (in meep units)', default=[0.2])
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--point', type=str, help='if specified (as a comma separated tuple where the first index is the cluster number and the second is the point index) make a plot of fit parameters for a single point', default='')
 args = parser.parse_args()
@@ -204,7 +208,7 @@ class cluster_reader:
         else:
             self.lp = None
         #try loading precomputed data
-        data_name = "{}/dat_{}".format(prefix, fname.split('/')[-1].split('.')[0])
+        data_name = "{}/fit_data_{}".format(prefix, fname.split('/')[-1].split('.')[0])
         data_shape = (len(self.clust_names), clust_len, phases.HERM_OFF+herm_n+ang_n)
         if not recompute and os.path.exists(data_name):
             with open(data_name, 'rb') as dat_f:
@@ -256,7 +260,7 @@ class cluster_reader:
         v_pts = np.append(np.array(self.f[clust][points[ind]]['time']['Re']), np.zeros(self._pad_n))
         return v_pts, err_2
 
-    def make_heatmap(self, ax, parameter, vlines=[], xlabels=[[],[]], ylabels=[[],[]], rng=[], cmap="viridis", plot_cbar=True):
+    def make_heatmap(self, ax, parameter, vlines=[], xlabels=[[],[]], ylabels=[[],[]], rng=[], cmap="magma", plot_cbar=False):
         imdat = None
         if parameter == 'phase' or parameter == 't0' or parameter == 'amplitude':
             #these parameteters are special sinc they can't be directly read from the raw data but only accessed by a signal object
@@ -334,32 +338,44 @@ clust_range=[]
 if args.point != '':
     clust_range=[0,0]
 print("loading ", args.fname)
-cr = cluster_reader(args.fname, args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
 
 if args.point == '':
-    dx = cr._pts[0,1,0] - cr._pts[0,0,0]
-    x_ext = int( (cr._pts[0,-1,0] - cr._pts[0,0,0])/dx )
-    vlines = [x_ext - args.gap_width/2/dx, x_ext + args.gap_width/2/dx + 1]
+    n_names = len(args.fname)
 
     phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
-    cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
+    phase_cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
 
-    name_append = args.fname.split('/')[-1].split('.')[0]
-    fig, axs = plt.subplots(2)
-    cr.make_heatmap(axs[0], "amplitude", vlines=vlines, cmap='magma', rng=[0,1])
-    cr.make_heatmap(axs[1], "phase", vlines=vlines, cmap=cmap, rng=[-np.pi, np.pi])
-    #fig.tight_layout()
-    fig.savefig(args.prefix+"/htmp_phase_amp_{}.svg".format(name_append), bbox_inches='tight')
-    plt.close(fig)
-    fig, axs = plt.subplots()
-    cr.make_heatmap(axs, "R^2", vlines=vlines, cmap='magma', rng=[0,1])
-    fig.savefig(args.prefix+"/htmp_residual_{}.svg".format(name_append), bbox_inches='tight')
-    plt.close(fig)
-    fig, axs = plt.subplots()
-    cr.make_heatmap(axs, "f0", vlines=vlines, cmap='magma', rng=[max(0,cr.in_freq-2*cr.freq_width),cr.in_freq+2*cr.freq_width])
-    fig.savefig(args.prefix+"/htmp_f0_{}.svg".format(name_append), bbox_inches='tight')
-    plt.close(fig)
+    ap_fig, ap_axs = plt.subplots(2, n_names, sharex=True, sharey=True)
+    rs_fig, rs_axs = plt.subplots(1, n_names)
+    f0_fig, f0_axs = plt.subplots(1, n_names)
+    #ap_fig.add_gridspec(2, hspace=0, wspace=0)
+
+    for i, name in enumerate(args.fname):
+        cr = cluster_reader(name, args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
+
+        if len(args.gap_width) == n_names:
+            dx = cr._pts[0,1,0] - cr._pts[0,0,0]
+            x_ext = int( (cr._pts[0,-1,0] - cr._pts[0,0,0])/dx )
+            vlines = [x_ext - args.gap_width[i]/2/dx, x_ext + args.gap_width[i]/2/dx + 1]
+        else:
+            vlines = []
+        f0_rng = [max(0,cr.in_freq-2*cr.freq_width),cr.in_freq+2*cr.freq_width]
+        plot_cbar = (i == n_names-1)
+
+        cr.make_heatmap(ap_axs[0,i], "amplitude", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
+        cr.make_heatmap(ap_axs[1,i], "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
+        cr.make_heatmap(rs_axs[i], "R^2", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
+        cr.make_heatmap(f0_axs[i], "f0", vlines=vlines, rng=f0_rng, plot_cbar=plot_cbar)
+
+    ap_fig.tight_layout()
+    ap_fig.savefig(os.path.join(args.prefix, "htmp_phase_amp.svg"), bbox_inches='tight')
+    rs_fig.savefig(os.path.join(args.prefix, "htmp_residuals.svg"), bbox_inches='tight')
+    f0_fig.savefig(os.path.join(args.prefix, "htmp_f0.svg"), bbox_inches='tight')
+    plt.close(ap_fig)
+    plt.close(rs_fig)
+    plt.close(f0_fig)
 else:
+    cr = cluster_reader(args.fname[0], args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
     #phases.signal._do_grad_tests(np.array([0.4]), 3, 2)
     point_arr = args.point.split(",")
     clust = "cluster_"+point_arr[0]
