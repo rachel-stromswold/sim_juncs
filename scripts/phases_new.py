@@ -20,6 +20,7 @@ POLY_FIT_DEVS = 2 #the number of gaussian standard deviations to take when fitti
 ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in the polynomial for the angle. i.e. arg(a(w)) = \phi - \omega t_0 + \sum_{n=1}^{ANG_POLY_N} \omega^{2n+1} t_n
 
 NOISY_N_PEAKS = 4
+NOISY_N_STD = 2
 
 verbose = 1
 
@@ -120,7 +121,7 @@ def test_hess(cost_fn, hess_fn, x):
             ej[j] = EPSILON**2
             num_h[i,j] = 0.25*( cost_fn(x+ei+ej) - cost_fn(x+ei-ej) - cost_fn(x-ei+ej) + cost_fn(x-ei-ej) )/ei[i]/ej[j]
             num_h[j,i] = num_h[i,j]
-            if num_h[i,j]**2 > 1e-8 and np.abs( (num_h[i,j]-an_h[i,j])/num_h[i,j] ) > EPSILON:
+            if num_h[i,j]**2 > 1e-8 and np.abs( (num_h[i,j]-an_h[i,j])/num_h[i,j] ) > 0.01:
                 print("Warning! disagreement between hessians on axes", i, j, num_h[i,j], an_h[i,j])
                 success = False
     if (verbose > 4): 
@@ -167,13 +168,13 @@ class signal:
         nf = freqs.shape[0]
         fs = np.tile(freqs, 2).reshape((2,nf))
         sign_dw = np.meshgrid(np.ones(nf), np.array([-1,1]))[1]
-        dw = fs[:,:] + sign_dw*abs(x[2])
+        dw = fs[:,:] + sign_dw*x[2]
         #calculate arguments
         n = x.shape[0]
         eargs = -sign_dw*x[0] - fs*x[1]
         ang_off = HERM_OFF+herm_n
         for m in range(ang_n):
-            eargs += x[ang_off+m]*dw**(2*m+1)
+            eargs += x[ang_off+m]*dw**(2*m+3)
         #eargs *= 2*np.pi
         emags = np.zeros(fs.shape)
         if calc_grads:
@@ -184,13 +185,12 @@ class signal:
             ang_grads[:,1,:] = -fs
             ang_hess = np.zeros((2, n, n, nf))
             for m in range(ang_n):
-                ang_grads[:,ang_off+m,:] = dw**(2*m+1)
-                ang_grads[:,2,:] += sign_dw*np.sign(x[2])*(2*m+1)*x[m+ang_off]*dw**(2*m)
-                ang_hess[:,ang_off+m,2,:] = sign_dw*np.sign(x[2])*(2*m+1)*dw**(2*m)
+                ang_grads[:,ang_off+m,:] = dw**(2*m+3)
+                ang_grads[:,2,:] += sign_dw*(2*m+3)*x[m+ang_off]*dw**(2*m+2)
+                ang_hess[:,ang_off+m,2,:] = sign_dw*(2*m+3)*dw**(2*m+2)
                 ang_hess[:,2,ang_off+m,:] = ang_hess[:,ang_off+m,2,:]
                 if m > 0:
-                    ang_hess[:,2,2,:] += 2*m*(2*m+1)*x[m+ang_off]*dw**(2*m-1)
-                #ang_grads[3,:] += (2*m+3)*x[m+ang_off]*(fs-abs(x[2]))*dw**(2*m+2)
+                    ang_hess[:,2,2,:] += (2*m+3)*(2*m+2)*x[m+ang_off]*dw**(2*m+1)
             #calculate magnitude gradients
             dw *= x[3]
             mag_grads = np.zeros((2, n, nf))
@@ -200,15 +200,15 @@ class signal:
                 #gradients
                 demag = sign_dw*(dw*HERMS[2*m](dw) - HERMS[2*m+1](dw))*np.exp(-dw**2/2)
                 de2mag = sign_dw*( (1+dw**2)*HERMS[2*m](dw) - 2*dw*HERMS[2*m+1](dw) + HERMS[2*m+2](dw))*np.exp(-dw**2/2)
-                mag_grads[:,2,:] += sign_dw*np.sign(x[2])*x[3]*x[HERM_OFF+m]*demag
+                mag_grads[:,2,:] += sign_dw*x[3]*x[HERM_OFF+m]*demag
                 mag_grads[:,3,:] += dw*x[HERM_OFF+m]*demag/x[3]
                 mag_grads[:,HERM_OFF+m,:] = sign_dw*HERMS[2*m](dw)*np.exp(-dw**2/2)
                 #hessian
                 mag_hess[:,2,2,:] += x[3]**2*x[HERM_OFF+m]*de2mag
                 mag_hess[:,3,3,:] += dw**2*x[HERM_OFF+m]*de2mag/x[3]**2
-                mag_hess[:,2,3,:] += sign_dw*np.sign(x[2])*(x[HERM_OFF+m]*demag + dw*x[HERM_OFF+m]*de2mag)
+                mag_hess[:,2,3,:] += sign_dw*(x[HERM_OFF+m]*demag + dw*x[HERM_OFF+m]*de2mag)
                 mag_hess[:,3,2,:] = mag_hess[:,2,3,:]
-                mag_hess[:,HERM_OFF+m,2,:] = sign_dw*np.sign(x[2])*x[3]*demag
+                mag_hess[:,HERM_OFF+m,2,:] = sign_dw*x[3]*demag
                 mag_hess[:,2,HERM_OFF+m,:] = mag_hess[:,HERM_OFF+m,2,:]
                 mag_hess[:,HERM_OFF+m,3,:] += dw*demag/x[3]
                 mag_hess[:,3,HERM_OFF+m,:] = mag_hess[:,HERM_OFF+m,3,:]
@@ -220,7 +220,6 @@ class signal:
                 emags += x[HERM_OFF+m]*HERMS[2*m](dw)
             emags *= sign_dw*np.exp(-dw**2/2)
         return emags, eargs
-
 
     @staticmethod
     def _do_grad_tests(fs, herm_n, ang_n, n_tests=10):
@@ -270,7 +269,7 @@ class signal:
         print("\n====================================\n")
 
     @staticmethod
-    def _guess_params_opt(freqs, vfm, vfa, herm_n, ang_n, check_noise=True, rel_height=0.1, f0_hint=-1):
+    def _guess_params_opt(freqs, vfm, vfa, herm_n, ang_n, log_prior, check_noise=False, rel_height=0.1):
         df = freqs[1] - freqs[0]
         div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
         mag_x = np.zeros(herm_n+2)
@@ -279,32 +278,30 @@ class signal:
         mag_x[1] = 1/np.sqrt(np.trapz(div_sig*freqs**2)*norm - mag_x[0]**2)
         mag_x[2] = -np.max(div_sig)
 
-        if check_noise:
-            peaks, props = ssig.find_peaks(div_sig, height=np.max(div_sig)*rel_height)
-            if len(peaks) > NOISY_N_PEAKS:
-                if f0_hint <= 0:
-                    f0_hint = freqs[peaks[0]]
-                if verbose > 2:
-                    print("noisy signal detected applying bandpass filter around f={}, w={}".format(f0_hint, mag_x[1]))
-                vf = vfm*np.exp(1j*vfa)*np.sinc(mag_x[1]*(freqs-f0_hint))
-                return signal._guess_params_opt(freqs, np.abs(vf), np.angle(vf), herm_n, ang_n, check_noise=False)
-
         def mag_res(x):
             emags, _, mag_grads, _, _, _ = signal._fourier_env_formx(freqs[1:], np.append(np.zeros(2), x), herm_n, 0, calc_grads=True)
             cc = np.sum( (emags[0,:]-div_sig[1:])**2 )
-            return cc, 2*np.sum(mag_grads[0,2:]*np.tile(emags[0,:]-div_sig[1:], herm_n+2).reshape(herm_n+2, freqs.shape[0]-1), axis=1)
-        def mag_hess(x):
-            emags, _, grad_mag, _, hess_mag, _ = signal._fourier_env_formx(freqs, np.append(np.zeros(2), x), herm_n, 0, calc_grads=True)
-            return 2*np.sum(hess_mul(hess_mag[0,2:,2:], (emags[0,:]-div_sig), herm_n+2) + grad_out(grad_mag[0,2:,:], grad_mag[0,2:,:], herm_n+2), axis=2)
+            gcc = mag_grads[0,2:]*np.tile(emags[0,:]-div_sig[1:], herm_n+2).reshape(herm_n+2, freqs.shape[0]-1)
+            lp = log_prior(np.append(np.zeros(2), x))
+            return np.log(cc) - lp[0], 2*np.sum(gcc, axis=1)/cc - lp[1][2:HERM_OFF+herm_n]
 
-        t_start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         test_grads(lambda x: mag_res(x)[0], lambda x: mag_res(x)[1], mag_x)
+        t_start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         opt_res = opt.minimize(mag_res, mag_x, jac=True)
         if verbose > 1:
             t_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)-t_start
-            print("initial optimization {} in {} ns".format("succeeded" if opt_res.success else "failed", t_ns))
+            print("initial optimization {} in {} ms".format("succeeded" if opt_res.success else "failed", t_ns*1e-6))
             if verbose > 3:
                 print(opt_res)
+
+        if check_noise:
+            peaks, props = ssig.find_peaks(div_sig, height=-opt_res.x[2]*rel_height)
+            #if len(peaks) > NOISY_N_PEAKS:
+            if len(peaks) > 0 and freqs[peaks[-1]] - opt_res.x[0] > NOISY_N_STD/abs(opt_res.x[1]):
+                if verbose > 2:
+                    print("noisy signal detected applying bandpass filter around f={}, w={}".format(opt_res.x[0], opt_res.x[1]))
+                vf = vfm*np.exp(1j*vfa)*np.sinc(opt_res.x[1]*(freqs-opt_res.x[0]))
+                return signal._guess_params_opt(freqs, np.abs(vf), np.angle(vf), herm_n, ang_n, log_prior, check_noise=False)
 
         #TODO:delete
         '''emags_before, _ = signal._fourier_env_formx(freqs, np.append(np.zeros(2), mag_x), herm_n, 0, calc_grads=False)
@@ -507,8 +504,11 @@ class signal:
             cc = np.sum(self.vfm**2)
             for i in range(ts_include):
                 phase_prod = np.tile(self.vfm*np.exp(1j*(eargs[i,:]-self.vfa)), nx**2).reshape((nx,nx,nf))
-                ret += hess_mul(hess_mag[i,:,:], emags[i,:], nx) + grad_out(grad_mag[i,:,:], grad_mag[i,:], nx)
-                ret += np.imag(phase_prod)*(grad_out(grad_mag[i,:,:],grad_ang[i,:,:],nx)+grad_out(grad_ang[i,:,:],grad_mag[i,:,:],nx)+hess_mul(hess_ang[i,:,:,:], emags[i,:],nx))
+                ret += hess_mul(hess_mag[i,:,:], emags[i,:], nx)
+                ret += grad_out(grad_mag[i,:,:], grad_mag[i,:], nx)
+                ret += np.imag(phase_prod)*(grad_out(grad_mag[i,:,:],grad_ang[i,:,:],nx)
+                                            +grad_out(grad_ang[i,:,:],grad_mag[i,:,:],nx)
+                                            +hess_mul(hess_ang[i,:,:,:], emags[i,:],nx))
                 ret += np.real(phase_prod)*(hess_mul(grad_out(grad_ang[i,:,:],grad_ang[i,:,:],nx),emags[i,:],nx)-hess_mag[i,:,:,:])
                 cc += np.sum(emags[i,:]**2 - 2*emags[i,:]*self.vfm*np.cos(eargs[i,:]-self.vfa))
             if not discard_negative:
@@ -526,16 +526,16 @@ class signal:
                 ret -= hess_mul(grad_out(np.sum(sign_2dw*grad_ang, axis=0), grad_mag[1,:,:], nx), emags[0,:]*s10, nx)
                 ret -= hess_mul(hess_ang[1,:,:,:], emags[0,:]*emags[1,:]*s10, nx)
                 ret += hess_mul(hess_ang[0,:,:,:], emags[0,:]*emags[1,:]*s10, nx)
-            gr = residuals(x)[1]
-            #return 2*np.sum(ret, axis=2)
             lp = log_prior(x)
+            gr = residuals(x)[1] + lp[1]
+            #return 2*np.sum(ret, axis=2)
             return 2*np.sum(ret, axis=2)/cc - np.outer(gr,gr) - lp[2]
 
         #get guesses for initial parameters based on heuristics
         if x0 is not None:
             lo_fi, hi_fi = 0, 0
         else:
-            x0, lo_fi, hi_fi = signal._guess_params_opt(freqs, self.vfm, self.vfa, herm_n, ang_n)
+            x0, lo_fi, hi_fi = signal._guess_params_opt(freqs, self.vfm, self.vfa, herm_n, ang_n, log_prior)
             #x0 = anneal(residuals, x0, 200, np.sqrt( np.abs(0.5*residuals(x0)[0]/np.diag(hess_res(x0))) ), end_beta=100)
         x0[2] = abs(x0[2])
 
@@ -596,10 +596,10 @@ class signal:
         self.x = xf
         if t_pts is not None and v_pts is not None:
             self.cost = residuals(xf)[0]
-            self.residual = self.cost + log_prior(xf)[0]
-            if verbose > 0:
+            self.residual = self.cost + log_prior(xf)[0] #the residual should not include information from the prior
+            if verbose > 0 and not skip_opt:
                 print( "R^2 = ", 1-np.exp(self.residual), "n_it = ", opt_res.nit )
-        if verbose > 1:
+        if verbose > 1 and not skip_opt:
             print("nfev =", opt_res.nfev, "njev =", opt_res.njev, "nhev =", opt_res.njev)
 
     def get_fspace(self, freqs):

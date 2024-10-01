@@ -250,6 +250,7 @@ class cluster_reader:
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
         t_avg = t_dif/clust_len/len(self.clust_names)
         print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_avg))
+        print("Average R^2: {:.5E}".format( np.mean(1-np.exp(self.residuals[:,:,0])) ))
         with open(data_name, 'wb') as dat_f:
             pickle.dump([self._pts, self._raw_data, self.residuals], dat_f)
 
@@ -362,10 +363,10 @@ if args.point == '':
         f0_rng = [max(0,cr.in_freq-2*cr.freq_width),cr.in_freq+2*cr.freq_width]
         plot_cbar = (i == n_names-1)
 
-        cr.make_heatmap(ap_axs[0,i], "amplitude", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
-        cr.make_heatmap(ap_axs[1,i], "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
-        cr.make_heatmap(rs_axs[i], "R^2", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
-        cr.make_heatmap(f0_axs[i], "f0", vlines=vlines, rng=f0_rng, plot_cbar=plot_cbar)
+        cr.make_heatmap(ap_axs[0] if n_names==1 else ap_axs[0,i], "amplitude", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
+        cr.make_heatmap(ap_axs[1] if n_names==1 else ap_axs[1,i], "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
+        cr.make_heatmap(rs_axs if n_names==1 else rs_axs[i], "R^2", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
+        cr.make_heatmap(f0_axs if n_names==1 else f0_axs[i], "f0", vlines=vlines, rng=f0_rng, plot_cbar=plot_cbar)
 
     ap_fig.tight_layout()
     ap_fig.savefig(os.path.join(args.prefix, "htmp_phase_amp.svg"), bbox_inches='tight')
@@ -385,7 +386,7 @@ else:
     v_pts, _ = cr.get_point_times(clust, j)
     freqs = fft.rfftfreq(len(cr.t_pts), d=cr.t_pts[1]-cr.t_pts[0])
     #get signals
-    psig_before = phases.signal(cr.t_pts, v_pts, skip_opt=True, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp)
+    psig_before = phases.signal(cr.t_pts, v_pts, skip_opt=True, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp, run_grad_tests=True)
     psig_after  = phases.signal(cr.t_pts, v_pts, skip_opt=False, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp)
     fit_series_0 = psig_before.get_fspace(freqs)
     fit_series_1 = psig_after.get_fspace(freqs)
