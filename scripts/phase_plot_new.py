@@ -59,8 +59,8 @@ parser.add_argument('--use-prior', action='store_true', help='If set, then plot 
 parser.add_argument('--save-fit-figs', action='store_true', help='If set, then intermediate plots of fitness are saved to <prefix>/fit_figs where <prefix> is specified by the --prefix flag.', default=False)
 parser.add_argument('--herm-n', type=int, help='number of Hermite-Gaussian terms to include in fits', default=3)
 parser.add_argument('--ang-n', type=int, help='half the degree of the polynomial used for fitting', default=3)
-parser.add_argument('--gap-width', type=flt_list, help='junction width (in meep units)', default=[0.1])
-parser.add_argument('--gap-thick', type=flt_list, help='junction thickness (in meep units)', default=[0.2])
+parser.add_argument('--gap-width', type=flt_list, help='junction width (in meep units)', default=[])
+parser.add_argument('--gap-thick', type=flt_list, help='junction thickness (in meep units)', default=[])
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--point', type=str, help='if specified (as a comma separated tuple where the first index is the cluster number and the second is the point index) make a plot of fit parameters for a single point', default='')
 args = parser.parse_args()
@@ -200,7 +200,7 @@ class cluster_reader:
         if phases.verbose > 0:
             print("setting up paramater reader:")
             print("\ttime bounds = ({}, {}) in {} pts".format(t_min, t_max, self.n_t_pts))
-            print("\tprior f0 = {}\\pm{}".format(self.in_freq, self.freq_width))
+            print("\tprior f0 = {}\\pm{}".format(self.in_freq, self.freq_width), flush=True)
         '''def log_prior(x):
             like = (x[2] - self.in_freq)**2/2/self.freq_width**2'''
         if use_prior:
@@ -234,7 +234,7 @@ class cluster_reader:
             self._pts[i,:,1] = np.array(self.f[clust]['locations']['y'])
             self._pts[i,:,2] = np.array(self.f[clust]['locations']['z'])
             for j, point in enumerate(points):
-                print("optimizing point", i, j)
+                print("optimizing point", i, j, flush=True)
                 v_pts = np.append(np.array(self.f[clust][point]['time']['Re']), np.zeros(self._pad_n))
                 psig = phases.signal(self.t_pts, v_pts, herm_n=herm_n, ang_n=ang_n, log_prior=self.lp)
                 self._raw_data[i,j,:] = psig.x
@@ -263,7 +263,8 @@ class cluster_reader:
 
     def make_heatmap(self, ax, parameter, vlines=[], xlabels=[[],[]], ylabels=[[],[]], rng=[], cmap="magma", plot_cbar=False):
         imdat = None
-        if parameter == 'phase' or parameter == 't0' or parameter == 'amplitude':
+        #if parameter == 'phase' or parameter == 't0' or parameter == 'amplitude':
+        if parameter == 'amplitude':
             #these parameteters are special sinc they can't be directly read from the raw data but only accessed by a signal object
             imdat = np.zeros((self._raw_data.shape[0], self._raw_data.shape[1]))
             for i in range(self._raw_data.shape[0]):
@@ -283,8 +284,9 @@ class cluster_reader:
             imdat = self.residuals[:,:,0]
         elif parameter == 'cost':
             imdat = self.residuals[:,:,1]
+        elif parameter == 'phase':
+            imdat = self._raw_data[:,:,0]
         elif parameter == 't0':
-            sig = phases.signal(None, None, herm_n=self.herm_n, ang_n=self.ang_n, skip_opt=True, x0=self._raw_data[i,j,:])
             imdat = self._raw_data[:,:,1]/2/np.pi
         elif parameter == 'f0':
             imdat = self._raw_data[:,:,2]
@@ -349,6 +351,7 @@ if args.point == '':
     ap_fig, ap_axs = plt.subplots(2, n_names, sharex=True, sharey=True)
     rs_fig, rs_axs = plt.subplots(1, n_names)
     f0_fig, f0_axs = plt.subplots(1, n_names)
+    tp_fig, tp_axs = plt.subplots(2, n_names, sharex=True, sharey=True)
     #ap_fig.add_gridspec(2, hspace=0, wspace=0)
 
     for i, name in enumerate(args.fname):
@@ -365,6 +368,8 @@ if args.point == '':
 
         cr.make_heatmap(ap_axs[0] if n_names==1 else ap_axs[0,i], "amplitude", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
         cr.make_heatmap(ap_axs[1] if n_names==1 else ap_axs[1,i], "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
+        cr.make_heatmap(tp_axs[0] if n_names==1 else ap_axs[0,i], "t0", vlines=vlines, rng=[0,cr.t_pts[-1]], plot_cbar=plot_cbar)
+        cr.make_heatmap(tp_axs[1] if n_names==1 else ap_axs[1,i], "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
         cr.make_heatmap(rs_axs if n_names==1 else rs_axs[i], "R^2", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
         cr.make_heatmap(f0_axs if n_names==1 else f0_axs[i], "f0", vlines=vlines, rng=f0_rng, plot_cbar=plot_cbar)
 
@@ -372,9 +377,11 @@ if args.point == '':
     ap_fig.savefig(os.path.join(args.prefix, "htmp_phase_amp.svg"), bbox_inches='tight')
     rs_fig.savefig(os.path.join(args.prefix, "htmp_residuals.svg"), bbox_inches='tight')
     f0_fig.savefig(os.path.join(args.prefix, "htmp_f0.svg"), bbox_inches='tight')
+    tp_fig.savefig(os.path.join(args.prefix, "htmp_t0.svg"), bbox_inches='tight')
     plt.close(ap_fig)
     plt.close(rs_fig)
     plt.close(f0_fig)
+    plt.close(tp_fig)
 else:
     cr = cluster_reader(args.fname[0], args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
     #phases.signal._do_grad_tests(np.array([0.4]), 3, 2)

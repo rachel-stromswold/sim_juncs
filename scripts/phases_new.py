@@ -285,7 +285,7 @@ class signal:
             lp = log_prior(np.append(np.zeros(2), x))
             return np.log(cc) - lp[0], 2*np.sum(gcc, axis=1)/cc - lp[1][2:HERM_OFF+herm_n]
 
-        test_grads(lambda x: mag_res(x)[0], lambda x: mag_res(x)[1], mag_x)
+        #test_grads(lambda x: mag_res(x)[0], lambda x: mag_res(x)[1], mag_x)
         t_start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         opt_res = opt.minimize(mag_res, mag_x, jac=True)
         if verbose > 1:
@@ -558,13 +558,8 @@ class signal:
             xf = x0
         else:
             try:
-                n_calls = 1
-                def print_cb(x):
-                    if n_calls % 5 == 0:
-                        print("#", end="")
-                    n_calls += 1
-                opt_res = opt.minimize(residuals, x0, jac=True, hess=hess_res, method='trust-exact', callback=print_cb)
-                print(" ")
+                opt_res = opt.minimize(residuals, x0, jac=True, hess=hess_res, method='trust-exact')
+
                 if not opt_res.success:
                     opt_res = opt.minimize(residuals, x0, jac=True)
                 '''ssize = np.sqrt( np.abs(0.5*residuals(x0)/np.diag(hess_res(x0))) )
