@@ -50,6 +50,8 @@ def str_list(arg):
     return arg.split(',')
 def flt_list(arg):
     return [float(s) for s in arg.split(',')]
+def int_list(arg):
+    return [int(s) for s in arg.split(',')]
 parser = argparse.ArgumentParser(description='Fit time a_pts data to a gaussian pulse envelope to perform CEP estimation.')
 parser.add_argument('--fname', type=str_list, help='h5 file to read', default=['field_samples_test.h5'])
 parser.add_argument('--n-groups', type=int, help='for bowties there might be multiple groups of clusters which should be placed on the same axes', default=-1)
@@ -61,6 +63,7 @@ parser.add_argument('--herm-n', type=int, help='number of Hermite-Gaussian terms
 parser.add_argument('--ang-n', type=int, help='half the degree of the polynomial used for fitting', default=3)
 parser.add_argument('--gap-width', type=flt_list, help='junction width (in meep units)', default=[])
 parser.add_argument('--gap-thick', type=flt_list, help='junction thickness (in meep units)', default=[])
+parser.add_argument('--clust-range', type=int_list, help='If set, then plot the color bar for images', default=[])
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--point', type=str, help='if specified (as a comma separated tuple where the first index is the cluster number and the second is the point index) make a plot of fit parameters for a single point', default='')
 args = parser.parse_args()
@@ -164,14 +167,12 @@ class cluster_reader:
         #default to reading all points
         if len(clust_range) != 2:
             clust_range = [0, len(self.f.keys())]
-        c_span = clust_range[1] - clust_range[0]
         for key in self.f.keys():
             #make sure that the cluster has a valid name and it actually has points
             if 'cluster' in key and len(self.f[key]) > 1 and len(self.f[key]['locations']) > 0:
+                if i == clust_range[1]:
+                    break
                 if i >= clust_range[0]:
-                    #only include the specified range of clusters
-                    if i >= c_span:
-                        break
                     self.clust_names.append(key)
                     this_clust_len = len(self.f[key]['locations'])
                     if clust_len != 0 and this_clust_len != clust_len:
@@ -213,10 +214,11 @@ class cluster_reader:
         if not recompute and os.path.exists(data_name):
             with open(data_name, 'rb') as dat_f:
                 pic = pickle.load(dat_f)
-                self._pts = pic[0]
-                self._raw_data = pic[1]
-                self.residuals = pic[2]
-                if self._raw_data.shape == data_shape:
+                if clust_range[0] >= pic[3][0] && clust_range[1] <= pic[3][1]:
+                    ld, hd = clust_range[0] - pic[3][0], clust_range[1]
+                    self._pts = pic[0][ld:hd,:,:]
+                    self._raw_data = pic[1][ld:hd,:,:]
+                    self.residuals = pic[2][ld:hd,:,:]
                     return
 
         #otherwise, read all of the data
@@ -252,7 +254,7 @@ class cluster_reader:
         print("Completed optimizations in {:.5E} ns, average time per eval: {:.5E} ns".format(t_dif, t_avg))
         print("Average R^2: {:.5E}".format( np.mean(1-np.exp(self.residuals[:,:,0])) ))
         with open(data_name, 'wb') as dat_f:
-            pickle.dump([self._pts, self._raw_data, self.residuals], dat_f)
+            pickle.dump([self._pts, self._raw_data, self.residuals, clust_range], dat_f)
 
     def get_point_times(self, clust, ind):
         #fetch a list of points and their associated coordinates
@@ -337,11 +339,6 @@ class cluster_reader:
             cax.set_ylabel(parameter)
         return im
 
-clust_range=[]
-if args.point != '':
-    clust_range=[0,0]
-print("loading ", args.fname)
-
 if args.point == '':
     n_names = len(args.fname)
 
@@ -355,7 +352,8 @@ if args.point == '':
     #ap_fig.add_gridspec(2, hspace=0, wspace=0)
 
     for i, name in enumerate(args.fname):
-        cr = cluster_reader(name, args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
+        print("loading ", name)
+        cr = cluster_reader(name, args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=args.clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
 
         if len(args.gap_width) == n_names:
             dx = cr._pts[0,1,0] - cr._pts[0,0,0]
@@ -383,7 +381,7 @@ if args.point == '':
     plt.close(f0_fig)
     plt.close(tp_fig)
 else:
-    cr = cluster_reader(args.fname[0], args.herm_n, args.ang_n, use_prior=args.use_prior, clust_range=clust_range, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
+    cr = cluster_reader(args.fname[0], args.herm_n, args.ang_n, use_prior=args.use_prior, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
     #phases.signal._do_grad_tests(np.array([0.4]), 3, 2)
     point_arr = args.point.split(",")
     clust = "cluster_"+point_arr[0]
