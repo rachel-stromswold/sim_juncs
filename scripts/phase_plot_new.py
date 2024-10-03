@@ -26,6 +26,9 @@ PLT_COLORS = [
     "#ffa8ff"
 ]
 
+AX_PAD = 0.05
+C_RELW = 0.1
+
 matplotlib.rc('figure', figsize=(20, 10))
 plt.rc('font', size=18)
 #plt.rc('xtick', labelsize=18)
@@ -79,12 +82,12 @@ def plot_raw_fdom(ts, vs, psig, axs, xlim=None, ylim=None, ylabels=True):
         ylim = [0, np.max(np.abs(vf))*1.5]
         ylim[0] = -ylim[1]
     # setup labels and annotations 
-    if ylabels:
-        axs[0].set_ylabel('A(f)', color = 'black')
-        axs[1].set_ylabel('E(f)', color = 'black')
-    else:
-        axs[0].get_yaxis().set_visible(False)
-        axs[1].get_yaxis().set_visible(False)
+    #if ylabels:
+    #    axs[0].set_ylabel('A(f)', color = 'black')
+    #    axs[1].set_ylabel('E(f)', color = 'black')
+    #else:
+    #    axs[0].get_yaxis().set_visible(False)
+    #    axs[1].get_yaxis().set_visible(False)
     axs[0].set_xlim([-xlim[1], xlim[1]])
     axs[0].set_ylim([8*ylim[0], 8*ylim[1]])
     axs[1].set_xlim(xlim)
@@ -194,6 +197,7 @@ class cluster_reader:
         else:
             self._pad_n = 0
         self.t_pts = np.linspace(t_min, t_max, self.n_t_pts)
+
         #figure out the central frequency
         srcinfo = self.f['info']['sources']
         self.in_freq = .299792458 / srcinfo['wavelen'][0]
@@ -208,13 +212,15 @@ class cluster_reader:
             self.lp = partial(log_prior, f0=self.in_freq, scale=1/self.freq_width**2, herm_n=herm_n, ang_n=ang_n)
         else:
             self.lp = None
+
         #try loading precomputed data
         data_name = "{}/fit_data_{}".format(prefix, fname.split('/')[-1].split('.')[0])
         data_shape = (len(self.clust_names), clust_len, phases.HERM_OFF+herm_n+ang_n)
         if not recompute and os.path.exists(data_name):
+            print("found cluster data ", data_name)
             with open(data_name, 'rb') as dat_f:
                 pic = pickle.load(dat_f)
-                if clust_range[0] >= pic[3][0] && clust_range[1] <= pic[3][1]:
+                if clust_range[0] >= pic[3][0] and clust_range[1] <= pic[3][1]:
                     ld, hd = clust_range[0] - pic[3][0], clust_range[1]
                     self._pts = pic[0][ld:hd,:,:]
                     self._raw_data = pic[1][ld:hd,:,:]
@@ -333,11 +339,16 @@ class cluster_reader:
             im = ax.imshow(imdat, cmap=cmap)
 
         if plot_cbar:
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)
-            plt.colorbar(im, cax=cax)
-            cax.set_ylabel(parameter)
+            pos = ax.get_position()
+            cax = ax.get_figure().add_axes([pos.x1+pos. width*AX_PAD,pos.y0, pos.width*C_RELW, pos.height])
+            ax.get_figure().colorbar(im_am, cax=cax)
+            cax.set_ylabel(parameter) 
         return im
+
+def fetch_ax(axs, i):
+    if type(axs) == np.ndarray:
+        return axs[i]
+    return axs
 
 if args.point == '':
     n_names = len(args.fname)
@@ -345,11 +356,13 @@ if args.point == '':
     phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
     phase_cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
 
-    ap_fig, ap_axs = plt.subplots(2, n_names, sharex=True, sharey=True)
-    rs_fig, rs_axs = plt.subplots(1, n_names)
-    f0_fig, f0_axs = plt.subplots(1, n_names)
-    tp_fig, tp_axs = plt.subplots(2, n_names, sharex=True, sharey=True)
-    #ap_fig.add_gridspec(2, hspace=0, wspace=0)
+    width_rats = [2 for i in range(n_names+1)]
+    width_rats[-1] = 1
+    am_fig, am_axs = plt.subplots(1, n_names, gridspec_kw={'wspace': AX_PAD})
+    t0_fig, t0_axs = plt.subplots(1, n_names, gridspec_kw={'wspace': AX_PAD})
+    ph_fig, ph_axs = plt.subplots(1, n_names, gridspec_kw={'wspace': AX_PAD})
+    f0_fig, f0_axs = plt.subplots(1, n_names, gridspec_kw={'wspace': AX_PAD})
+    rs_fig, rs_axs = plt.subplots(1, n_names, gridspec_kw={'wspace': AX_PAD})
 
     for i, name in enumerate(args.fname):
         print("loading ", name)
@@ -364,22 +377,23 @@ if args.point == '':
         f0_rng = [max(0,cr.in_freq-2*cr.freq_width),cr.in_freq+2*cr.freq_width]
         plot_cbar = (i == n_names-1)
 
-        cr.make_heatmap(ap_axs[0] if n_names==1 else ap_axs[0,i], "amplitude", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
-        cr.make_heatmap(ap_axs[1] if n_names==1 else ap_axs[1,i], "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
-        cr.make_heatmap(tp_axs[0] if n_names==1 else ap_axs[0,i], "t0", vlines=vlines, rng=[0,cr.t_pts[-1]], plot_cbar=plot_cbar)
-        cr.make_heatmap(tp_axs[1] if n_names==1 else ap_axs[1,i], "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
-        cr.make_heatmap(rs_axs if n_names==1 else rs_axs[i], "R^2", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
-        cr.make_heatmap(f0_axs if n_names==1 else f0_axs[i], "f0", vlines=vlines, rng=f0_rng, plot_cbar=plot_cbar)
+        im_am = cr.make_heatmap(fetch_ax(am_axs, i), "amplitude", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
+        cr.make_heatmap(fetch_ax(t0_axs, i), "t0", vlines=vlines, rng=[0,cr.t_pts[-1]], plot_cbar=plot_cbar)
+        cr.make_heatmap(fetch_ax(ph_axs, i), "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
+        cr.make_heatmap(fetch_ax(f0_axs, i), "f0", vlines=vlines, rng=f0_rng, plot_cbar=plot_cbar)
+        cr.make_heatmap(fetch_ax(rs_axs, i), "R^2", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
 
-    ap_fig.tight_layout()
-    ap_fig.savefig(os.path.join(args.prefix, "htmp_phase_amp.svg"), bbox_inches='tight')
-    rs_fig.savefig(os.path.join(args.prefix, "htmp_residuals.svg"), bbox_inches='tight')
+    am_fig.savefig(os.path.join(args.prefix, "htmp_amp.svg"), bbox_inches='tight')
+    t0_fig.savefig(os.path.join(args.prefix, "htmp_t0.svg"), bbox_inches='tight')
+    ph_fig.savefig(os.path.join(args.prefix, "htmp_phase.svg"), bbox_inches='tight')
     f0_fig.savefig(os.path.join(args.prefix, "htmp_f0.svg"), bbox_inches='tight')
-    tp_fig.savefig(os.path.join(args.prefix, "htmp_t0.svg"), bbox_inches='tight')
-    plt.close(ap_fig)
-    plt.close(rs_fig)
+    rs_fig.savefig(os.path.join(args.prefix, "htmp_residuals.svg"), bbox_inches='tight')
+
+    plt.close(am_fig)
+    plt.close(t0_fig)
+    plt.close(ph_fig)
     plt.close(f0_fig)
-    plt.close(tp_fig)
+    plt.close(rs_fig)
 else:
     cr = cluster_reader(args.fname[0], args.herm_n, args.ang_n, use_prior=args.use_prior, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
     #phases.signal._do_grad_tests(np.array([0.4]), 3, 2)
