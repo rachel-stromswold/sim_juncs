@@ -68,68 +68,75 @@ parser.add_argument('--gap-width', type=flt_list, help='junction width (in meep 
 parser.add_argument('--gap-thick', type=flt_list, help='junction thickness (in meep units)', default=[])
 parser.add_argument('--clust-range', type=int_list, help='If set, then plot the color bar for images', default=[])
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
+parser.add_argument('--plot-pre-opt', action='store_true', help='If set include plots of the fitted pulse before full optimization. This is ignored if --point is not specified', default=False)
 parser.add_argument('--point', type=str, help='if specified (as a comma separated tuple where the first index is the cluster number and the second is the point index) make a plot of fit parameters for a single point', default='')
 args = parser.parse_args()
 
 NX = phases.HERM_OFF + args.herm_n + args.ang_n
 
-def plot_raw_fdom(ts, vs, psig, axs, xlim=None, ylim=None, ylabels=True):
-    freqs = fft.rfftfreq(len(vs), d=ts[1]-ts[0])
-    vf = fft.rfft(vs)
+def get_flims(vf, xlim, ylim):
     if xlim is None:
         xlim = [0, psig.f0 + 4*psig.sigma]
     if ylim is None:
         ylim = [0, np.max(np.abs(vf))*1.5]
         ylim[0] = -ylim[1]
-    # setup labels and annotations 
-    #if ylabels:
-    #    axs[0].set_ylabel('A(f)', color = 'black')
-    #    axs[1].set_ylabel('E(f)', color = 'black')
-    #else:
-    #    axs[0].get_yaxis().set_visible(False)
-    #    axs[1].get_yaxis().set_visible(False)
-    axs[0].set_xlim([-xlim[1], xlim[1]])
-    axs[0].set_ylim([8*ylim[0], 8*ylim[1]])
-    axs[1].set_xlim(xlim)
-    axs[1].set_ylim(ylim)
-    axs[1].set_xlabel('f (1/fs)')
-    axs[1].tick_params(axis ='y', labelcolor = 'black')
-    axs[1].axvline(freqs[psig.fit_bounds[0]], color='gray', linestyle=':')
-    axs[1].axvline(freqs[psig.fit_bounds[1]], color='gray', linestyle=':')
-    axs[1].axvline(psig.f0, color='gray')
+    return xlim, ylim
+
+def plot_fdom_e(ts, vs, psig, ax, xlim=None, ylim=None, ylabels=True):
+    freqs = fft.rfftfreq(len(vs), d=ts[1]-ts[0])
+    vf = fft.rfft(vs)
+    xlim, ylim = get_flims(vf, xlim, ylim)
+
+    #axs[0].annotate('a)', xy=(1,8), xytext=(0.07, 0.80), xycoords='figure fraction')
+    #axs[1].annotate('b)', xy=(1,8), xytext=(0.07, 0.37), xycoords='figure fraction')
+
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.set_xlabel('f (1/fs)')
+    #ax.tick_params(axis ='y', labelcolor = 'black')
+    ax.axvline(freqs[psig.fit_bounds[0]], color='gray', linestyle=':')
+    ax.axvline(freqs[psig.fit_bounds[1]], color='gray', linestyle=':')
+    ax.axvline(psig.f0, color='gray')
+
+
+    #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
+    fit_field = psig.get_fspace(freqs)
+    ax.plot(freqs, np.abs(vf), color='black', label='simulated magnitude')
+    ax.plot(freqs, np.abs(fit_field), color='black', linestyle='-.', label='fitted magnitude')
+    ax.plot(freqs, np.real(vf), color=PLT_COLORS[0], label='real')
+    ax.plot(freqs, np.imag(vf), color=PLT_COLORS[1], label='imaginary')
+    ax.fill_between(freqs, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
+    ax.fill_between(freqs, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
+    ax.legend()
+    #plot residuals
+    residuals = np.abs(fit_field - vf)
+    ax.scatter(freqs, residuals, color=PLT_COLORS[2])
+
+def plot_fdom_vec(ts, vs, psig, ax, xlim=None, ylim=None, ylabels=True):
+    #plot limits
+    freqs = fft.rfftfreq(len(vs), d=ts[1]-ts[0])
+    vf = fft.rfft(vs)
+    xlim, ylim = get_flims(vf, xlim, ylim)
+    ax.set_xlim([-xlim[1], xlim[1]])
+    ax.set_ylim([8*ylim[0], 8*ylim[1]])
+    ax.set_xlabel('f (1/fs)')
     #plot the vector potential envelope
     freq_center = freqs[len(freqs)//2]
     fit_field = psig.get_fenv(freqs-freq_center, field='A')
-    axs[0].fill_between(freqs-freq_center, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
-    axs[0].fill_between(freqs-freq_center, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
-    axs[0].plot(freqs-freq_center, np.abs(fit_field), color='black')
-    axs[0].axvline(psig.f0-freq_center, color='gray')
-    axs[0].axvline(-freq_center, color='gray')
-    #get the envelope function and multiply it by the appropriate rotation. By definition, the envelope is centered at zero frequency, so we have to roll the envelope back to its original position
-    fit_field = psig.get_fspace(freqs)
-    axs[1].plot(freqs, np.abs(vf), color='black')
-    axs[1].plot(freqs, np.abs(fit_field), color='black', linestyle='-.')
-    axs[1].plot(freqs, np.real(vf), color=PLT_COLORS[0], label='real')
-    axs[1].plot(freqs, np.imag(vf), color=PLT_COLORS[1], label='imaginary')
-    axs[1].fill_between(freqs, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
-    axs[1].fill_between(freqs, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
-    #plot residuals
-    r_ax = axs[1]
-    '''r_ax = axs[1].twinx()
-    r_ax.set_ylabel("residuals", color=PLT_COLORS[2])
-    r_ax.set_xlim(xlim)
-    r_ax.set_ylim([0, 2*ylim[1]])
-    r_ax.tick_params(axis ='y', labelcolor = 'green')'''
-    residuals = np.abs(fit_field - vf)
-    r_ax.scatter(freqs, residuals, color=PLT_COLORS[2])
+    ax.fill_between(freqs-freq_center, np.real(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[0], alpha=0.2)
+    ax.fill_between(freqs-freq_center, np.imag(fit_field), np.zeros(freqs.shape), color=PLT_COLORS[1], alpha=0.2)
+    ax.plot(freqs-freq_center, np.abs(fit_field), color='black')
+    ax.axvline(psig.f0-freq_center, color='gray')
+    ax.axvline(-freq_center, color='gray')
 
-def plot_raw_tdom(ts, vs, psig_unopt, psig_opt, fname):
+def plot_raw_tdom(ts, vs, psig_opt, fname, psig_unopt=None):
     fig, axs = plt.subplots()
     #get the envelope and perform a fitting
     axs.plot(ts, vs, color='black', label='simulated data')
     freqs = fft.fftfreq(len(vs), d=ts[1]-ts[0])
     if psig_unopt is not None:
         axs.plot(ts, np.real(psig_unopt(ts)), color=PLT_COLORS[0], label="initial guess")
+    axs.annotate('c)', xy=(1,8), xytext=(0.07, 0.75), xycoords='figure fraction')
     axs.plot(ts, np.real(psig_opt(ts)), color=PLT_COLORS[1], label="full optimization")
     axs.axvline(psig_opt.t0, color='gray')
     #now use an envelope times a cosine
@@ -225,7 +232,7 @@ class cluster_reader:
                     self._pts = pic[0][ld:hd,:,:]
                     self._raw_data = pic[1][ld:hd,:,:]
                     self.residuals = pic[2][ld:hd,:,:]
-                    return
+            return
 
         #otherwise, read all of the data
         self._pts = np.zeros( (len(self.clust_names), clust_len, 3) )
@@ -250,10 +257,13 @@ class cluster_reader:
                 self.residuals[i,j,1] = psig.cost
                 #save figures if specified
                 if save_fit_figs:
-                    fig, axs = plt.subplots(2)
-                    plot_raw_fdom(self.t_pts, v_pts, psig, axs, xlim=[0,1])
-                    fig.savefig("{}/fit_figs/ffit_{}_{}.svg".format(self.prefix, clust, j))
-                    plot_raw_tdom(self.t_pts, v_pts, None, psig, "{}/fit_figs/tfit_{}_{}_raw.svg".format(self.prefix, clust, j))
+                    fig, axs = plt.subplots()
+                    plot_fdom_vec(self.t_pts, v_pts, psig, axs, xlim=[0,1])
+                    fig.savefig("{}/fit_figs/ffit_{}_{}_vec.pdf".format(self.prefix, clust, j))
+                    fig, axs = plt.subplots()
+                    plot_fdom_e(self.t_pts, v_pts, psig, axs, xlim=[0,1])
+                    fig.savefig("{}/fit_figs/ffit_{}_{}.pdf".format(self.prefix, clust, j))
+                    plot_raw_tdom(self.t_pts, v_pts, psig, "{}/fit_figs/tfit_{}_{}_raw.pdf".format(self.prefix, clust, j))
                     plt.close('all')
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
         t_avg = t_dif/clust_len/len(self.clust_names)
@@ -341,7 +351,7 @@ class cluster_reader:
         if plot_cbar:
             pos = ax.get_position()
             cax = ax.get_figure().add_axes([pos.x1+pos. width*AX_PAD,pos.y0, pos.width*C_RELW, pos.height])
-            ax.get_figure().colorbar(im_am, cax=cax)
+            ax.get_figure().colorbar(im, cax=cax)
             cax.set_ylabel(parameter) 
         return im
 
@@ -356,8 +366,6 @@ if args.point == '':
     phs_colors = [(0.18,0.22,0.07), (0.36,0.22,0.61), (1,1,1), (0.74,0.22,0.31), (0.18,0.22,0.07)]
     phase_cmap = LinearSegmentedColormap.from_list('phase_colors', phs_colors, N=100)
 
-    width_rats = [2 for i in range(n_names+1)]
-    width_rats[-1] = 1
     am_fig, am_axs = plt.subplots(1, n_names, gridspec_kw={'wspace': AX_PAD})
     t0_fig, t0_axs = plt.subplots(1, n_names, gridspec_kw={'wspace': AX_PAD})
     ph_fig, ph_axs = plt.subplots(1, n_names, gridspec_kw={'wspace': AX_PAD})
@@ -377,17 +385,17 @@ if args.point == '':
         f0_rng = [max(0,cr.in_freq-2*cr.freq_width),cr.in_freq+2*cr.freq_width]
         plot_cbar = (i == n_names-1)
 
-        im_am = cr.make_heatmap(fetch_ax(am_axs, i), "amplitude", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
+        cr.make_heatmap(fetch_ax(am_axs, i), "amplitude", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
         cr.make_heatmap(fetch_ax(t0_axs, i), "t0", vlines=vlines, rng=[0,cr.t_pts[-1]], plot_cbar=plot_cbar)
         cr.make_heatmap(fetch_ax(ph_axs, i), "phase", vlines=vlines, cmap=phase_cmap, rng=[-np.pi,np.pi], plot_cbar=plot_cbar)
         cr.make_heatmap(fetch_ax(f0_axs, i), "f0", vlines=vlines, rng=f0_rng, plot_cbar=plot_cbar)
         cr.make_heatmap(fetch_ax(rs_axs, i), "R^2", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
 
-    am_fig.savefig(os.path.join(args.prefix, "htmp_amp.svg"), bbox_inches='tight')
-    t0_fig.savefig(os.path.join(args.prefix, "htmp_t0.svg"), bbox_inches='tight')
-    ph_fig.savefig(os.path.join(args.prefix, "htmp_phase.svg"), bbox_inches='tight')
-    f0_fig.savefig(os.path.join(args.prefix, "htmp_f0.svg"), bbox_inches='tight')
-    rs_fig.savefig(os.path.join(args.prefix, "htmp_residuals.svg"), bbox_inches='tight')
+    am_fig.savefig(os.path.join(args.prefix, "htmp_amp.pdf"), bbox_inches='tight')
+    t0_fig.savefig(os.path.join(args.prefix, "htmp_t0.pdf"), bbox_inches='tight')
+    ph_fig.savefig(os.path.join(args.prefix, "htmp_phase.pdf"), bbox_inches='tight')
+    f0_fig.savefig(os.path.join(args.prefix, "htmp_f0.pdf"), bbox_inches='tight')
+    rs_fig.savefig(os.path.join(args.prefix, "htmp_residuals.pdf"), bbox_inches='tight')
 
     plt.close(am_fig)
     plt.close(t0_fig)
@@ -400,36 +408,54 @@ else:
     point_arr = args.point.split(",")
     clust = "cluster_"+point_arr[0]
     j = int(point_arr[1])
-    fig_name = "{}/fit_{}_{}".format(args.prefix, clust, j)
+    fig_name = "{}/{}_{}".format(args.prefix, clust, j)
     #read the data and set up the signal analyzer
     v_pts, _ = cr.get_point_times(clust, j)
     freqs = fft.rfftfreq(len(cr.t_pts), d=cr.t_pts[1]-cr.t_pts[0])
-    #get signals
-    psig_before = phases.signal(cr.t_pts, v_pts, skip_opt=True, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp, run_grad_tests=True)
     psig_after  = phases.signal(cr.t_pts, v_pts, skip_opt=False, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp)
-    fit_series_0 = psig_before.get_fspace(freqs)
     fit_series_1 = psig_after.get_fspace(freqs)
     #set up the plot
     fig, axs = plt.subplots()
-    axs.axvline(freqs[psig_before.fit_bounds[0]], color='gray', linestyle=':')
-    axs.axvline(freqs[psig_before.fit_bounds[1]], color='gray', linestyle=':')
-    axs.axvline(psig_before.f0, color=PLT_COLORS[0])
+    axs.axvline(freqs[psig_after.fit_bounds[0]], color='gray', linestyle=':')
+    axs.axvline(freqs[psig_after.fit_bounds[1]], color='gray', linestyle=':')
+    axs.axvline(psig_after.f0, color=PLT_COLORS[0])
     axs.axvline(psig_after.f0, color=PLT_COLORS[1])
     axs.set_xlim(0, freqs[-1]/2)
     axs.set_ylim(-np.pi, np.pi)
     #plot each series and annotate
-    axs.scatter(freqs, phases.fix_angle(psig_before.vfa), color='black', label="simulation")
-    axs.plot(freqs, np.angle(fit_series_0), color=PLT_COLORS[0], label="initial guess")
+    axs.scatter(freqs, phases.fix_angle(psig_after.vfa), color='black', label="simulation")
+    #get signals
     axs.plot(freqs, np.angle(fit_series_1), color=PLT_COLORS[1], label="full optimization")
     axs.annotate('$\\varphi = ${:.2f}, $t_0 = ${:.2f} fs'.format(psig_after.phi, psig_after.t0), xy=(0,10), xytext=(0.2, 0.80), xycoords='figure fraction')
-    axs.legend()
-    fig.savefig("{}_param_est.svg".format(fig_name), bbox_inches='tight')
+    if args.plot_pre_opt:
+        psig_before = phases.signal(cr.t_pts, v_pts, skip_opt=True, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp, run_grad_tests=True)
+        fit_series_0 = psig_before.get_fspace(freqs)
+        axs.plot(freqs, np.angle(fit_series_0), color=PLT_COLORS[0], label="initial guess")
+        axs.legend()
+    else:
+        psig_before = None
+    fig.savefig("{}_angle.pdf".format(fig_name), bbox_inches='tight')
     plt.close(fig)
 
-    #plot frequency space
-    fig,axs = plt.subplots(2,2) 
-    plot_raw_fdom(cr.t_pts, v_pts, psig_before, axs[:,0], xlim=[0,1]) 
-    plot_raw_fdom(cr.t_pts, v_pts, psig_after, axs[:,1], xlim=[0,1], ylabels=False)
-    fig.savefig("{}_raw_fdom.svg".format(fig_name), bbox_inches='tight')
+    #plot frequency space 
+    if args.plot_pre_opt:
+        fig,axs = plt.subplots(2)
+        plot_fdom_vec(cr.t_pts, v_pts, psig_before, axs[0], xlim=[0,1])
+        plot_fdom_vec(cr.t_pts, v_pts, psig_after, axs[1], xlim=[0,1], ylabels=False)
+        fig.savefig("{}_fdom_vec.pdf".format(fig_name), bbox_inches='tight')
+        fig,axs = plt.subplots(2)
+        plot_fdom_e(cr.t_pts, v_pts, psig_before, axs[0], xlim=[0,1])
+        plot_fdom_e(cr.t_pts, v_pts, psig_after, axs[1], xlim=[0,1], ylabels=False)
+        fig.savefig("{}_fdom.pdf".format(fig_name), bbox_inches='tight')
+    else:
+        fig,axs = plt.subplots()
+        plot_fdom_vec(cr.t_pts, v_pts, psig_after, axs, xlim=[0,1], ylabels=False)
+        fig.savefig("{}_fdom_vec.pdf".format(fig_name), bbox_inches='tight')
+        fig,axs = plt.subplots()
+        plot_fdom_e(cr.t_pts, v_pts, psig_after, axs, xlim=[0,1], ylabels=False)
+        fig.savefig("{}_fdom.pdf".format(fig_name), bbox_inches='tight')
     #plot time space 
-    plot_raw_tdom(cr.t_pts, v_pts, psig_before, psig_after, "{}_raw_tdom.svg".format(fig_name))
+    if args.plot_pre_opt:
+        plot_raw_tdom(cr.t_pts, v_pts, psig_after, "{}_tdom.pdf".format(fig_name), psig_unopt=psig_before)
+    else:
+        plot_raw_tdom(cr.t_pts, v_pts, psig_after, "{}_tdom.pdf".format(fig_name))

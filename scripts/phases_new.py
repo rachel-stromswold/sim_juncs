@@ -269,7 +269,7 @@ class signal:
         print("\n====================================\n")
 
     @staticmethod
-    def _guess_params_opt(freqs, vfm, vfa, herm_n, ang_n, log_prior, check_noise=True, rel_height=0.1):
+    def _guess_params_opt(freqs, vfm, vfa, herm_n, ang_n, log_prior, check_noise=False, rel_height=0.1):
         df = freqs[1] - freqs[0]
         div_sig = np.append(np.zeros(1), vfm[1:]/freqs[1:])
         mag_x = np.zeros(herm_n+2)
