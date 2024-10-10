@@ -70,6 +70,8 @@ parser.add_argument('--clust-range', type=int_list, help='If set, then plot the 
 parser.add_argument('--prefix', type=str, help='prefix to use when opening files', default='.')
 parser.add_argument('--plot-pre-opt', action='store_true', help='If set include plots of the fitted pulse before full optimization. This is ignored if --point is not specified', default=False)
 parser.add_argument('--point', type=str, help='if specified (as a comma separated tuple where the first index is the cluster number and the second is the point index) make a plot of fit parameters for a single point', default='')
+parser.add_argument('--imtype', type=str, help='filetype to store for plotting defaults to pdf', default="pdf")
+parser.add_argument('--opt-method', type=str, help='optimization method', default="trust-exact")
 args = parser.parse_args()
 
 NX = phases.HERM_OFF + args.herm_n + args.ang_n
@@ -89,7 +91,7 @@ def plot_fdom_e(ts, vs, psig, ax, xlim=None, ylim=None, ylabels=True):
 
     #axs[0].annotate('a)', xy=(1,8), xytext=(0.07, 0.80), xycoords='figure fraction')
     #axs[1].annotate('b)', xy=(1,8), xytext=(0.07, 0.37), xycoords='figure fraction')
-
+    #ax.annotate("R^2 = {:.3E}".format(psig.residual), xy=(0,0), xytext=(0.63, 0.64), xycoords='figure fraction')
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
     ax.set_xlabel('f (1/fs)')
@@ -134,18 +136,14 @@ def plot_raw_tdom(ts, vs, psig_opt, fname, psig_unopt=None):
     #get the envelope and perform a fitting
     axs.plot(ts, vs, color='black', label='simulated data')
     freqs = fft.fftfreq(len(vs), d=ts[1]-ts[0])
+    axs.plot(ts, np.real(psig_opt(ts)), color=PLT_COLORS[1], label="full optimization")
     if psig_unopt is not None:
         axs.plot(ts, np.real(psig_unopt(ts)), color=PLT_COLORS[0], label="initial guess")
-    axs.annotate('c)', xy=(1,8), xytext=(0.07, 0.75), xycoords='figure fraction')
-    axs.plot(ts, np.real(psig_opt(ts)), color=PLT_COLORS[1], label="full optimization")
+
     axs.axvline(psig_opt.t0, color='gray')
     #now use an envelope times a cosine
-    fit_pulse = np.real( psig_opt.get_tenv(ts, field='A') )
     tenv = np.abs(psig_opt.get_tenv(ts, field='E'))
     axs.fill_between(ts, -tenv, tenv, color=PLT_COLORS[1], alpha=0.2)
-    #axs.fill_between(ts, np.zeros(ts.shape), fit_pulse, color=PLT_COLORS[1], alpha=0.2)
-    fit_pulse *= np.sqrt(2)*np.sin(2*np.pi*psig_opt.f0*(ts - psig_opt.t0) + psig_opt.phi)
-    axs.plot(ts[1:], np.diff(fit_pulse), color=PLT_COLORS[2])
     axs.set_xlim([ts[0], ts[-1]])
     axs.set_ylim([-1, 1])
     axs.legend()
@@ -251,7 +249,7 @@ class cluster_reader:
             for j, point in enumerate(points):
                 print("optimizing point", i, j, flush=True)
                 v_pts = np.append(np.array(self.f[clust][point]['time']['Re']), np.zeros(self._pad_n))
-                psig = phases.signal(self.t_pts, v_pts, herm_n=herm_n, ang_n=ang_n, log_prior=self.lp)
+                psig = phases.signal(self.t_pts, v_pts, herm_n=herm_n, ang_n=ang_n, log_prior=self.lp, method=args.opt_method)
                 self._raw_data[i,j,:] = psig.x
                 self.residuals[i,j,0] = psig.residual
                 self.residuals[i,j,1] = psig.cost
@@ -259,11 +257,11 @@ class cluster_reader:
                 if save_fit_figs:
                     fig, axs = plt.subplots()
                     plot_fdom_vec(self.t_pts, v_pts, psig, axs, xlim=[0,1])
-                    fig.savefig("{}/fit_figs/ffit_{}_{}_vec.pdf".format(self.prefix, clust, j))
+                    fig.savefig("{}/fit_figs/ffit_{}_{}_vec.{}".format(self.prefix, clust, j, args.imtype))
                     fig, axs = plt.subplots()
                     plot_fdom_e(self.t_pts, v_pts, psig, axs, xlim=[0,1])
-                    fig.savefig("{}/fit_figs/ffit_{}_{}.pdf".format(self.prefix, clust, j))
-                    plot_raw_tdom(self.t_pts, v_pts, psig, "{}/fit_figs/tfit_{}_{}_raw.pdf".format(self.prefix, clust, j))
+                    fig.savefig("{}/fit_figs/ffit_{}_{}.{}".format(self.prefix, clust, j, args.imtype))
+                    plot_raw_tdom(self.t_pts, v_pts, psig, "{}/fit_figs/tfit_{}_{}_raw.{}".format(self.prefix, clust, j, args.imtype))
                     plt.close('all')
         t_dif = time.clock_gettime_ns(time.CLOCK_MONOTONIC) - t_start
         t_avg = t_dif/clust_len/len(self.clust_names)
@@ -391,11 +389,11 @@ if args.point == '':
         cr.make_heatmap(fetch_ax(f0_axs, i), "f0", vlines=vlines, rng=f0_rng, plot_cbar=plot_cbar)
         cr.make_heatmap(fetch_ax(rs_axs, i), "R^2", vlines=vlines, rng=[0,1], plot_cbar=plot_cbar)
 
-    am_fig.savefig(os.path.join(args.prefix, "htmp_amp.pdf"), bbox_inches='tight')
-    t0_fig.savefig(os.path.join(args.prefix, "htmp_t0.pdf"), bbox_inches='tight')
-    ph_fig.savefig(os.path.join(args.prefix, "htmp_phase.pdf"), bbox_inches='tight')
-    f0_fig.savefig(os.path.join(args.prefix, "htmp_f0.pdf"), bbox_inches='tight')
-    rs_fig.savefig(os.path.join(args.prefix, "htmp_residuals.pdf"), bbox_inches='tight')
+    am_fig.savefig(os.path.join(args.prefix, "htmp_amp."+args.imtype), bbox_inches='tight')
+    t0_fig.savefig(os.path.join(args.prefix, "htmp_t0."+args.imtype), bbox_inches='tight')
+    ph_fig.savefig(os.path.join(args.prefix, "htmp_phase."+args.imtype), bbox_inches='tight')
+    f0_fig.savefig(os.path.join(args.prefix, "htmp_f0."+args.imtype), bbox_inches='tight')
+    rs_fig.savefig(os.path.join(args.prefix, "htmp_residuals."+args.imtype), bbox_inches='tight')
 
     plt.close(am_fig)
     plt.close(t0_fig)
@@ -412,8 +410,22 @@ else:
     #read the data and set up the signal analyzer
     v_pts, _ = cr.get_point_times(clust, j)
     freqs = fft.rfftfreq(len(cr.t_pts), d=cr.t_pts[1]-cr.t_pts[0])
-    psig_after  = phases.signal(cr.t_pts, v_pts, skip_opt=False, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp)
+    psig_after  = phases.signal(cr.t_pts, v_pts, skip_opt=False, herm_n=args.herm_n, ang_n=args.ang_n, log_prior=cr.lp, method=args.opt_method)
     fit_series_1 = psig_after.get_fspace(freqs)
+
+    print("Testing gradients:", end=" ")
+    x0, _, _ = psig_after._guess_params_opt(freqs)
+    t0 = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    success = phases.test_grads(lambda x: psig_after.residuals(x,freqs)[0], lambda x: psig_after.residuals(x,freqs)[1], x0)
+    t1 = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    success *= phases.test_hess(lambda x: psig_after.residuals(x,freqs)[0], lambda x: psig_after.hess_res(x,freqs), x0)
+    t2 = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    if success:
+        print("\033[92mSuccess!\033[0m", end=" ")
+    else:
+        print("\033[31mFailure!\033[0m", end=" ")
+    print("gradients took {} ms, Hessians took {} ms".format((t1-t0)*1e-6, (t2-t1)*1e-6))
+
     #set up the plot
     fig, axs = plt.subplots()
     axs.axvline(freqs[psig_after.fit_bounds[0]], color='gray', linestyle=':')
@@ -434,7 +446,7 @@ else:
         axs.legend()
     else:
         psig_before = None
-    fig.savefig("{}_angle.pdf".format(fig_name), bbox_inches='tight')
+    fig.savefig("{}_angle.{}".format(fig_name, args.imtype), bbox_inches='tight')
     plt.close(fig)
 
     #plot frequency space 
@@ -442,20 +454,20 @@ else:
         fig,axs = plt.subplots(2)
         plot_fdom_vec(cr.t_pts, v_pts, psig_before, axs[0], xlim=[0,1])
         plot_fdom_vec(cr.t_pts, v_pts, psig_after, axs[1], xlim=[0,1], ylabels=False)
-        fig.savefig("{}_fdom_vec.pdf".format(fig_name), bbox_inches='tight')
+        fig.savefig("{}_fdom_vec.{}".format(fig_name, args.imtype), bbox_inches='tight')
         fig,axs = plt.subplots(2)
         plot_fdom_e(cr.t_pts, v_pts, psig_before, axs[0], xlim=[0,1])
         plot_fdom_e(cr.t_pts, v_pts, psig_after, axs[1], xlim=[0,1], ylabels=False)
-        fig.savefig("{}_fdom.pdf".format(fig_name), bbox_inches='tight')
+        fig.savefig("{}_fdom.{}".format(fig_name, args.imtype), bbox_inches='tight')
     else:
         fig,axs = plt.subplots()
         plot_fdom_vec(cr.t_pts, v_pts, psig_after, axs, xlim=[0,1], ylabels=False)
-        fig.savefig("{}_fdom_vec.pdf".format(fig_name), bbox_inches='tight')
+        fig.savefig("{}_fdom_vec.{}".format(fig_name, args.imtype), bbox_inches='tight')
         fig,axs = plt.subplots()
         plot_fdom_e(cr.t_pts, v_pts, psig_after, axs, xlim=[0,1], ylabels=False)
-        fig.savefig("{}_fdom.pdf".format(fig_name), bbox_inches='tight')
+        fig.savefig("{}_fdom.{}".format(fig_name, args.imtype), bbox_inches='tight')
     #plot time space 
     if args.plot_pre_opt:
-        plot_raw_tdom(cr.t_pts, v_pts, psig_after, "{}_tdom.pdf".format(fig_name), psig_unopt=psig_before)
+        plot_raw_tdom(cr.t_pts, v_pts, psig_after, "{}_tdom.{}".format(fig_name, args.imtype), psig_unopt=psig_before)
     else:
-        plot_raw_tdom(cr.t_pts, v_pts, psig_after, "{}_tdom.pdf".format(fig_name))
+        plot_raw_tdom(cr.t_pts, v_pts, psig_after, "{}_tdom.{}".format(fig_name, args.imtype))
