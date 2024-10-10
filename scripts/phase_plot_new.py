@@ -220,7 +220,7 @@ class cluster_reader:
 
         #try loading precomputed data
         data_name = "{}/fit_data_{}".format(prefix, fname.split('/')[-1].split('.')[0])
-        data_shape = (len(self.clust_names), clust_len, phases.HERM_OFF+herm_n+ang_n)
+        data_shape = (len(self.clust_names), clust_len, NX)
         if not recompute and os.path.exists(data_name):
             print("found cluster data ", data_name)
             with open(data_name, 'rb') as dat_f:
@@ -402,7 +402,7 @@ if args.point == '':
     plt.close(rs_fig)
 else:
     cr = cluster_reader(args.fname[0], args.herm_n, args.ang_n, use_prior=args.use_prior, prefix=args.prefix, recompute=args.recompute, save_fit_figs=args.save_fit_figs)
-    #phases.signal._do_grad_tests(np.array([0.4]), 3, 2)
+    phases.signal._do_grad_tests(np.array([0.4]), 3, 2)
     point_arr = args.point.split(",")
     clust = "cluster_"+point_arr[0]
     j = int(point_arr[1])

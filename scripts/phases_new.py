@@ -168,11 +168,12 @@ class signal:
         nf = freqs.shape[0]
         fs = np.tile(freqs, 2).reshape((2,nf))
         sign_dw = np.meshgrid(np.ones(nf), np.array([-1,1]))[1]
-        dw = fs[:,:] + sign_dw*x[2]
         #calculate arguments
         n = x.shape[0]
-        eargs = -sign_dw*x[0] - fs*x[1]
+
         ang_off = HERM_OFF+herm_n
+        dw = fs[:,:] + sign_dw*x[2]
+        eargs = -sign_dw*x[0] - fs*x[1]
         for m in range(ang_n):
             eargs += x[ang_off+m]*dw**(2*m+3)
         #eargs *= 2*np.pi
@@ -189,8 +190,7 @@ class signal:
                 ang_grads[:,2,:] += sign_dw*(2*m+3)*x[m+ang_off]*dw**(2*m+2)
                 ang_hess[:,ang_off+m,2,:] = sign_dw*(2*m+3)*dw**(2*m+2)
                 ang_hess[:,2,ang_off+m,:] = ang_hess[:,ang_off+m,2,:]
-                if m > 0:
-                    ang_hess[:,2,2,:] += (2*m+3)*(2*m+2)*x[m+ang_off]*dw**(2*m+1)
+                ang_hess[:,2,2,:] += (2*m+3)*(2*m+2)*x[m+ang_off]*dw**(2*m+1)
             #calculate magnitude gradients
             dw *= x[3]
             mag_grads = np.zeros((2, n, nf))
