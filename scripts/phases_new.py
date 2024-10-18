@@ -15,6 +15,8 @@ HERM_N = 20 #use the first HERM_N even hermite polynomials (i.e. HERM_N=1 uses j
 HERMS = [hermite(n) for n in range(2*HERM_N+2)]
 HERM_SCALE = np.sqrt(2)
 HERM_SCALE=1
+N_FIXED = 4
+F0_I, ALPHA_I = 2, 3
 HERM_OFF = 4
 POLY_FIT_DEVS = 2 #the number of gaussian standard deviations to take when fitting the angles
 ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in the polynomial for the angle. i.e. arg(a(w)) = \phi - \omega t_0 + \sum_{n=1}^{ANG_POLY_N} \omega^{2n+1} t_n
@@ -22,7 +24,7 @@ ANG_POLY_N = 1 #in addition to phi and t0, consider higher order odd terms in th
 NOISY_N_PEAKS = 4
 NOISY_N_STD = 2
 
-verbose = 1
+verbose = 3
 
 '''
 To find starting Hermite-Gaussian coefficients, we use the orthoganality condition $\int H_n(a(x-x0))H_m(a(x-x0))e^{-a^2(x-x0)^2{ dx = \sqrt{pi} 2^n n! \delta_{nm}/a$. This lets us expand $|E(w)| = \sum_n k_n H_n(a(w-w0))e^{-a^2(w-w0)^2}$. However, we need terms of the form $|E(w)| = \sum_n c_{2n} H_n(a(w-w0))e^{-a^2(w-w0)^2}$ to ensure that the DC component vanishes. This function constructs a matrix, A, that takes $\bm{k} = A\bm{c}$. A will always be singular, so a small epsilon*w0 correction is added to the odd diagonals so that A^-1 exists at the cost of no longer making the coefficients exact. This is a small price since we plug the resulting c coefficients into gradient descent.

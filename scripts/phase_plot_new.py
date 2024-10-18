@@ -74,8 +74,6 @@ parser.add_argument('--imtype', type=str, help='filetype to store for plotting d
 parser.add_argument('--opt-method', type=str, help='optimization method', default="trust-exact")
 args = parser.parse_args()
 
-NX = phases.HERM_OFF + args.herm_n + args.ang_n
-
 def get_flims(vf, xlim, ylim):
     if xlim is None:
         xlim = [0, psig.f0 + 4*psig.sigma]
@@ -149,11 +147,11 @@ def plot_raw_tdom(ts, vs, psig_opt, fname, psig_unopt=None):
     axs.legend()
     fig.savefig(fname, bbox_inches='tight')
 
-def log_prior(x, f0=0, scale=0, herm_n=1, ang_n=1):
-    gd, hs = np.zeros(NX), np.zeros((NX,NX))
-    gd[2] = scale*(f0 - x[2])
-    hs[2,2] = -scale
-    return -scale*(x[2] - f0)**2/2, gd, hs
+def log_prior(x, f0=0, scale=0, nx=2):
+    gd, hs = np.zeros(nx), np.zeros((nx,nx))
+    gd[phases.F0_I] = scale*(f0 - x[phases.F0_I])
+    hs[phases.F0_I,phases.F0_I] = -scale
+    return -scale*(x[phases.F0_I] - f0)**2/2, gd, hs
 
 class cluster_reader:
     '''
@@ -163,6 +161,7 @@ class cluster_reader:
     height: the thickness of the junction
     '''
     def __init__(self, fname, herm_n, ang_n, use_prior=False, clust_range=[], prefix='.', recompute=False, save_fit_figs=False, pad=True):
+        self.nx = phases.N_FIXED + herm_n + ang_n
         #otherwise, recalculate
         self.prefix = prefix
         self.herm_n = herm_n
@@ -211,16 +210,15 @@ class cluster_reader:
             print("setting up paramater reader:")
             print("\ttime bounds = ({}, {}) in {} pts".format(t_min, t_max, self.n_t_pts))
             print("\tprior f0 = {}\\pm{}".format(self.in_freq, self.freq_width), flush=True)
-        '''def log_prior(x):
-            like = (x[2] - self.in_freq)**2/2/self.freq_width**2'''
+
         if use_prior:
-            self.lp = partial(log_prior, f0=self.in_freq, scale=1/self.freq_width**2, herm_n=herm_n, ang_n=ang_n)
+            self.lp = partial(log_prior, f0=self.in_freq, scale=1/self.freq_width**2, nx=self.nx)
         else:
             self.lp = None
 
         #try loading precomputed data
         data_name = "{}/fit_data_{}".format(prefix, fname.split('/')[-1].split('.')[0])
-        data_shape = (len(self.clust_names), clust_len, NX)
+        data_shape = (len(self.clust_names), clust_len, self.nx)
         if not recompute and os.path.exists(data_name):
             print("found cluster data ", data_name)
             with open(data_name, 'rb') as dat_f:
@@ -305,9 +303,9 @@ class cluster_reader:
         elif parameter == 't0':
             imdat = self._raw_data[:,:,1]/2/np.pi
         elif parameter == 'f0':
-            imdat = self._raw_data[:,:,2]
+            imdat = self._raw_data[:,:,phases.F0_I]
         elif parameter == 'sigma':
-            imdat = 1/self._raw_data[:,:,2]
+            imdat = 1/self._raw_data[:,:,phases.ALPHA_I]
         elif parameter[:17] == 'Hermite amplitude':
             ind = int( parameter[17:] )
             if ind % 2 == 1:
