@@ -587,7 +587,7 @@ class signal:
         self.x = xf
         if t_pts is not None and v_pts is not None:
             self.cost = self.residuals(xf, freqs)[0] - np.log(self.res_norm)
-            self.residual = self.cost + log_prior(xf)[0] #the residual should not include information from the prior
+            self.residual = self.cost + self.log_prior(xf)[0] #the residual should not include information from the prior
             if verbose > 0 and not skip_opt:
                 print( "R^2 = ", 1-np.exp(self.residual), "n_it = ", opt_res.nit )
         if verbose > 1 and not skip_opt:
